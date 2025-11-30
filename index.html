@@ -2016,6 +2016,26 @@
                 startScreen.style.display = 'flex';
                 startScreen.classList.add('game-over-bg');
 
+                // Game Over Text
+                const instructions = document.querySelector('#start-screen .instructions');
+                if (instructions) {
+                    instructions.innerHTML = `
+                        <span class="upgrade">Communication with the pilot interrupted. Vital signs interrupted. Rest in eternity.</span><br>
+                        2025<br>
+                        <span class="upgrade">Arón Galdón Ginés</span><br>
+                        <br>
+                    `;
+                }
+                
+                const startBtn = document.getElementById('start-btn');
+                if (startBtn) {
+                    startBtn.innerText = 'RESTART';
+                    startBtn.onclick = () => location.reload();
+                }
+
+                AudioEngine.setTrack('menu');
+                AudioEngine.startMusic();
+
                 // Reset opacity before fading out
                 startScreen.classList.remove('fade-out');
 
