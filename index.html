@@ -348,26 +348,44 @@
             left: 0;
             width: 100%;
             height: 100%;
-            /* NEW: Intro Image Background */
-            background-image: url('intro.jpg');
-            background-size: cover;
-            background-position: center;
-            background-color: #000;
-            /* Fallback for black */
-            background-repeat: no-repeat;
-
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             pointer-events: auto;
             z-index: 50;
-            backdrop-filter: blur(8px);
+        }
+
+        #start-screen::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: url('intro.jpg');
+            background-color: #000;
+            background-size: contain;
+            background-position: center;
+            background-repeat: no-repeat;
+            opacity: 1;
+            transition: opacity 30s ease-in;
+            z-index: -1;
+        }
+
+        /* NEW: Class for Game Over screen background */
+        #start-screen.game-over-bg::before {
+            background-image: url('game over.jpg') !important;
+            background-size: contain !important;
+        }
+
+        #start-screen.fade-out::before {
+            opacity: 0;
         }
 
         /* NEW: Class for Game Over screen background */
         .game-over-bg {
-            background-image: url('game over.jpg') !important;
+            /* This class is now handled by #start-screen.game-over-bg::before */
         }
 
         /* NEW: Full-screen overlay for the slow fade-to-black effect */
@@ -1996,20 +2014,16 @@
             }, 1500);
             else {
                 // NEW: Apply Game Over background and start fade to black
+                startScreen.style.display = 'flex';
                 startScreen.classList.add('game-over-bg');
-                fadeOverlay.style.background = 'rgba(0, 0, 0, 1)'; // Start the 3s fade to black
 
+                // Reset opacity before fading out
+                startScreen.classList.remove('fade-out');
+
+                // We need a very short delay to make sure the browser applies the `game-over-bg` and `fade-out-removed` before adding `fade-out` back.
                 setTimeout(() => {
-                    gameRunning = false;
-                    document.querySelector('h1').innerText = "SEÑAL PERDIDA";
-                    document.querySelector('.start-btn').innerText = "REINICIAR";
-                    startScreen.style.display = 'flex';
-
-                    // RETURN TO MENU/SAD MODE (GAME OVER) AND RESUME MUSIC
-                    AudioEngine.setTrack('menu');
-                    AudioEngine.startMusic();
-
-                }, 3500); // 3.5 seconds to ensure the 3s fade is complete
+                    startScreen.classList.add('fade-out');
+                }, 100);
             }
         }
 
