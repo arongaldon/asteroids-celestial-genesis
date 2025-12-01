@@ -357,7 +357,7 @@
         // Reusable cheat function (for double-tap)
         function activateCheat() {
             // Increment score to trigger next tier/evolution
-            score = (Math.floor(score / 10000) + 1) * 10000;
+            score = (Math.floor(score / EVOLUTION_SCORE_STEP) + 1) * EVOLUTION_SCORE_STEP;
             scoreEl.innerText = score;
             // Visual and sound feedback
             const vpX = width / 2; const vpY = height / 2;
@@ -373,10 +373,10 @@
             cheatActivatedThisCycle = true;
 
             // 2. Set score to Tier 8 (Sphere)
-            score = 80000;
+            score = EVOLUTION_SCORE_STEP * 8;
             scoreEl.innerText = score;
-            // La mejora de escudo Tesla debe permanecer
-            ship.maxShield = BASE_MAX_SHIELD + 50 * 5; // Simular una gran mejora de escudo
+
+            ship.maxShield = BASE_MAX_SHIELD + 50 * 5;
             ship.shield = ship.maxShield;
 
             // 3. Set Indestructible Flag (TRUE IMMUNITY, como solicitó el usuario)
@@ -453,6 +453,7 @@
         const TOUCH_ROTATION_SENSITIVITY = 0.008;
         const MAX_SPEED = 15;
         const WORLD_SCALE = 6;
+        const EVOLUTION_SCORE_STEP = 1000;
 
         // HP Constants for Durability Normalization
         const STANDARD_SHIP_HP = 3; // Tiers 0-7 Player Ship & Normal Enemy Ships
@@ -890,7 +891,7 @@
                 structureHP: STANDARD_SHIP_HP // 3 capas por defecto
             };
         }
-        function getShipTier() { return Math.floor(score / 10000); }
+        function getShipTier() { return Math.floor(score / EVOLUTION_SCORE_STEP); }
         function getShapeName(tier) {
             if (tier >= 8) return "THE SPHERE";
             const shapes = ["TRIANGLE", "SQUARE", "PENTAGON", "HEXAGON", "HEPTAGON", "OCTAGON", "NONAGON", "DECAGON"];
@@ -1513,8 +1514,6 @@
             AudioEngine.playExplosion('large');
             ship.dead = true;
 
-            // Restaura la invencibilidad si estaba en modo épico (para la próxima nave)
-            const wasInvincible = ship.invincible;
             ship.invincible = false; // Deshabilitar invencibilidad al morir
 
             lives--;
@@ -1522,12 +1521,6 @@
 
             if (lives > 0) setTimeout(() => {
                 ship = newShip();
-                // Si estaba en modo épico, restaura la invencibilidad
-                if (wasInvincible) {
-                    ship.invincible = true;
-                    ship.maxShield = BASE_MAX_SHIELD + 50 * 5;
-                    ship.shield = ship.maxShield;
-                }
                 velocity = { x: 0, y: 0 };
                 drawLives(); // Actualizar vidas al respawn (por si el modo épico fue activado)
             }, 1500);
