@@ -397,13 +397,37 @@ h1 {
     text-align: center;
 }
 
+
+
 .instructions {
-    color: #ddd;
-    text-align: center;
-    margin-bottom: 30px;
+    color: #00ffff;
+    text-shadow: 0 0 10px #00ffff;
+    font-weight: bold;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 24px;
+    letter-spacing: 0.15em;
     line-height: 1.6;
-    text-shadow: 0 0 5px black;
+    text-align: center;
+    margin: 30px auto;
+    height: 150px;
+    width: 80%;
+    padding: 10px;
+    box-sizing: border-box;
 }
+
+
+#led-instructions,
+#game-over-led {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 24px;
+    color: #00ff00;
+    text-shadow: 0 0 5px #00ff00, 0 0 10px #00ff00, 0 0 20px #00ff00;
+    white-space: pre-wrap;
+    text-align: center;
+    height: 100%;
+    overflow: hidden;
+}
+
 
 .key {
     color: #ff9900;
@@ -419,15 +443,6 @@ h1 {
     color: #00ffff;
     font-weight: bold;
     text-shadow: 0 0 5px #00ffff;
-}
-
-/* Container for cheat instructions, starts hidden */
-#cheat-instructions {
-    opacity: 0;
-    transition: opacity 1s;
-    margin-top: 15px;
-    color: #0ff;
-    font-size: 14px;
 }
 
 button.start-btn {

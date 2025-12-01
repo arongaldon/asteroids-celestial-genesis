@@ -21,25 +21,25 @@
         <div class="hud-top">
             <div class="stats-block">
                 <div>SCORE: <span id="scoreEl">0</span></div>
-                <div id="lives-display"></div> <!-- Vidas visuales -->
+                <div id="lives-display"></div> <!-- Visual lives -->
                 <div id="shield-container">
                     <div id="shield-bar"></div>
                 </div>
                 <div id="speed-container">
                     <div id="speed-bar"></div>
-                    <span id="speed-label">VELOCIDAD</span>
+                    <span id="speed-label">SPEED</span>
                 </div>
-                <div id="gravity-alert">⚠ GRAVEDAD CRÍTICA 4</div>
+                <div id="gravity-alert">⚠ CRITICAL GRAVITY</div>
             </div>
             <div class="radar-block">
                 <div id="audio-btn">🔊</div>
                 <div id="radar-container"><canvas id="radar-canvas" width="140" height="140"></canvas></div>
                 <!-- Eliminados los textos de zoom y vidas del radar -->
                 <div class="radar-info">ZOOM</div>
-                <div class="radar-info">NAVES</div>
+                <div class="radar-info">SHIPS</div>
             </div>
         </div>
-        <div id="gesture-hint">MODO RATÓN / TÁCTIL ACTIVO</div>
+        <div id="gesture-hint">MOUSE / TOUCH MODE ACTIVE</div>
         <div id="mobile-controls">
             <div class="control-cluster">
                 <div class="btn btn-brake" id="btn-brake">STOP</div>
@@ -59,18 +59,10 @@
     <div id="start-screen">
         <h1>ASTEROIDS: CELESTIAL GENESIS</h1>
         <div class="instructions">
-            <span class="upgrade">Power supplies ready. 3 replacement ships ready. Ammo ready. Oxygen ready. Water
-                ready.</span><br>
-            2025<br>
-            <span class="upgrade">Arón Galdón Ginés</span><br>
-            <br>
+            <div id="led-instructions"></div>
         </div>
-        <div id="cheat-instructions">
-            TRUCO EVOLUCIONAR: Toca dos veces el 🔊 para bonificación.<br>
-            TRUCO SIN DAÑOS: Mantén pulsado 🔊 durante 2 segundos.
-        </div>
-        <button class="start-btn" id="start-btn" onclick="startGame()">INICIAR</button>
-        <div id="audio-prompt">Haz clic para activar el audio.</div>
+        <button class="start-btn" id="start-btn" onclick="startGame()">START</button>
+        <div id="audio-prompt">Press to hear the music.</div>
     </div>
     <div id="epic-message"></div>
 
@@ -389,7 +381,7 @@
             drawLives();
 
             // 6. Message Animation
-            epicMessageEl.innerText = "Un pequeño paso para Aron, un gran paso para la Humanidad.";
+            epicMessageEl.innerText = "One small step for Aron, one giant leap for Mankind.";
             epicMessageEl.style.transition = 'none';
             epicMessageEl.style.opacity = '1';
             epicMessageEl.style.top = '70%'; // Start position (bottom)
@@ -409,10 +401,14 @@
             }, 4000); // Duration matches animation time
         }
 
-        // Function to reveal cheat instructions on the start menu
-        function revealMenuCheats() {
-            const cheatInstructionsEl = document.getElementById('cheat-instructions');
-            cheatInstructionsEl.style.opacity = '1';
+        function onStationDestroyed() {
+            ship.shield = ship.maxShield; // Restore shield
+            score += 500;
+            stationsDestroyedCount++;
+            if (stationsDestroyedCount > 0 && stationsDestroyedCount % 10 === 0) {
+                lives++;
+                drawLives();
+            }
         }
 
         /* =========================================
@@ -448,11 +444,11 @@
         const FPS = 60;
         const FRICTION = 0.99;
         const SHIP_SIZE = 30;
-        const SHIP_THRUST = 0.4;
+        const SHIP_THRUST = 0.9;
         const BASE_MAX_SHIELD = 100;
         const TOUCH_ROTATION_SENSITIVITY = 0.008;
-        const MAX_SPEED = 15;
-        const WORLD_SCALE = 6;
+        const MAX_SPEED = 30;
+        const WORLD_SCALE = 5;
         const EVOLUTION_SCORE_STEP = 1000;
 
         // HP Constants for Durability Normalization
@@ -460,13 +456,13 @@
         const MAX_TIER_HP = 9;      // Tier 8+ Player Ship & Enemy Stations
 
         // NEW RADAR VARIABLES
-        const ZOOM_LEVELS = [500, 1000, 2500, 5000, 10000, 20000]; // World units
+        const ZOOM_LEVELS = [500, 1000, 2500, 5000, 10000]; // World units
         let currentZoomIndex = 2; // Index for 2500 (default)
         let RADAR_RANGE = ZOOM_LEVELS[currentZoomIndex]; // Current effective max range
 
         const G_CONST = 0.5; // Gravity constant
         const PLANET_THRESHOLD = 110;
-        const MAX_Z_DEPTH = 3; // REDUCIDO: Max depth for parallax effect (3.0 units)
+        const MAX_Z_DEPTH = 5;
 
         // WORLD BOUNDARY CONSTANTS
         const WORLD_BOUNDS = 15000;
@@ -475,11 +471,11 @@
 
         // ATTRITION GRAVITATORIA DE BALAS
         const BULLET_GRAVITY_FACTOR = 60;
-        const BULLET_LIFETIME = 45;
+        const BULLET_LIFETIME = 90;
         const BULLET_FADE_FRAMES = 3;
 
-        // Duración y tamaño para balas laterales más pequeñas
-        const SIDE_BULLET_LIFETIME = 15;
+        // Lifetime and size for smaller side bullets
+        const SIDE_BULLET_LIFETIME = 10;
         const PRIMARY_BULLET_SIZE = 3;
         const SECONDARY_BULLET_SIZE = 1.5;
 
@@ -504,6 +500,7 @@
 
         // Enemy spawn timer
         let stationSpawnTimer = 0;
+        let stationsDestroyedCount = 0;
 
         // Force initial velocity cleanup
         let velocity = { x: 0, y: 0 }; // Velocity is in World Units/Frame
@@ -617,7 +614,7 @@
         let lives = 3;
         let gameRunning = false;
         let inputMode = 'mouse';
-        // Se agregan KeyA y KeyD para el strafe (desplazamiento lateral)
+        // KeyA and KeyD are added for strafing (side movement)
         let keys = { ArrowUp: false, ArrowDown: false, Space: false, ArrowLeft: false, ArrowRight: false, KeyA: false, KeyD: false };
         let mouse = { x: 0, y: 0 };
 
@@ -682,30 +679,6 @@
         audioBtn.addEventListener('pointerup', stopHold);
         audioBtn.addEventListener('pointerleave', stopHold);
 
-        // --- Start Button Listeners (Menu Cheat Logic) ---
-
-        startBtn.addEventListener('pointerdown', (e) => {
-            if (e.button !== 0 && e.pointerType === 'mouse') return;
-            isHoldingStart = true;
-            // Start a timer for 2 seconds (2000 ms)
-            startHoldTimer = setTimeout(() => {
-                if (isHoldingStart) {
-                    revealMenuCheats();
-                }
-            }, 2000);
-        });
-
-        const stopStartHold = () => {
-            if (startHoldTimer) {
-                clearTimeout(startHoldTimer);
-                startHoldTimer = null;
-            }
-            isHoldingStart = false;
-        };
-
-        startBtn.addEventListener('pointerup', stopStartHold);
-        startBtn.addEventListener('pointerleave', stopStartHold);
-
         // --- End Start Button Listeners ---
 
         // Audio handler to start playback on first user interaction
@@ -723,7 +696,31 @@
 
             // Add listener to start audio on the first interaction
             startScreen.addEventListener('click', audioStarter);
+
+            const instructionsText = `Asteroids Reimagined: The Classic, Upgraded by Aron Galdon`
+            const ledElement = document.getElementById('led-instructions');
+            animateLedText(instructionsText, ledElement);
         }
+
+        function animateLedText(text, element) {
+            if (!element) return;
+            element.innerHTML = '';
+            const characters = text.split('');
+            let i = 0;
+            let line = '';
+
+            function show() {
+                if (i < characters.length) {
+                    const char = characters[i];
+                    line += char;
+                    element.textContent = line;
+                    i++;
+                    setTimeout(show, 50); // Adjust speed here
+                }
+            }
+            show();
+        }
+
 
         // Function to handle zoom change (used by Z key and Mouse Wheel)
         function changeRadarZoom(direction) {
@@ -1408,34 +1405,126 @@
             }
         }
 
+        function createAsteroidCluster(cx, cy, clusterRadius, count) {
+            const clusterDriftVx = (Math.random() - 0.5) * 0.5;
+            const clusterDriftVy = (Math.random() - 0.5) * 0.5;
+
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = Math.random() * clusterRadius;
+                const x = cx + Math.cos(angle) * dist;
+                const y = cy + Math.sin(angle) * dist;
+                const r = 15 + Math.random() * 30; // smaller roids in clusters
+                const roid = createAsteroid(x, y, r);
+                
+                // Add cluster drift
+                roid.xv += clusterDriftVx;
+                roid.yv += clusterDriftVy;
+
+                roids.push(roid);
+            }
+        }
+
+        function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = innerRadius + Math.random() * (outerRadius - innerRadius);
+                const x = cx + Math.cos(angle) * dist;
+                const y = cy + Math.sin(angle) * dist;
+                const r = 20 + Math.random() * 40;
+                const roid = createAsteroid(x, y, r);
+
+                // Small tangential velocity to give a sense of belt movement
+                const orbitalSpeed = 0.2 + Math.random() * 0.3;
+                const tangentAngle = angle + Math.PI / 2;
+                roid.xv += Math.cos(tangentAngle) * orbitalSpeed * (Math.random() < 0.5 ? 1 : -1);
+                roid.yv += Math.sin(tangentAngle) * orbitalSpeed * (Math.random() < 0.5 ? 1 : -1);
+
+                roids.push(roid);
+            }
+        }
+
+        function createBinaryAsteroid(cx, cy, r1, r2, dist, speed) {
+            const angle = Math.random() * Math.PI * 2;
+            const ax = cx + Math.cos(angle) * dist / 2;
+            const ay = cy + Math.sin(angle) * dist / 2;
+            const bx = cx - Math.cos(angle) * dist / 2;
+            const by = cy - Math.sin(angle) * dist / 2;
+
+            const roid1 = createAsteroid(ax, ay, r1);
+            const roid2 = createAsteroid(bx, by, r2);
+
+            const tangentAngle = angle + Math.PI / 2;
+            const vx = Math.cos(tangentAngle) * speed;
+            const vy = Math.sin(tangentAngle) * speed;
+
+            roid1.xv += vx;
+            roid1.yv += vy;
+            roid2.xv -= vx;
+            roid2.yv -= vy;
+
+            roids.push(roid1, roid2);
+        }
+
         // Función reinsertada para inicializar el nivel y poblar el mundo del juego
         function createLevel() {
             // Reset and populate the world with initial asteroids
             roids = []; enemies = []; enemyBullets = []; bullets = []; shockwaves = [];
-            let roidCount = 50 + level * 2;
-            let bounds = Math.max(width, height) * WORLD_SCALE / 2;
+            
             let planetSpawned = false;
+            // Try to spawn a planet not at the dead center, to make it more interesting
+            let planetX = (Math.random() - 0.5) * 1000;
+            let planetY = (Math.random() - 0.5) * 1000;
+            roids.push(createAsteroid(planetX, planetY, PLANET_THRESHOLD + Math.random() * 100));
+            planetSpawned = true;
+            console.log(`Planet spawned at: (${planetX.toFixed(0)}, ${planetY.toFixed(0)})`);
 
+            // Create a large asteroid belt
+            createAsteroidBelt(0, 0, 1500, 2500, 150);
+
+            // Create some clusters
+            for (let i = 0; i < 3; i++) {
+                const clusterX = (Math.random() - 0.5) * WORLD_BOUNDS;
+                const clusterY = (Math.random() - 0.5) * WORLD_BOUNDS;
+                if (Math.hypot(clusterX, clusterY) < 3000) continue; // Avoid belt
+                createAsteroidCluster(clusterX, clusterY, 300 + Math.random() * 200, 20 + Math.random() * 20);
+            }
+            
+            // Create some binary asteroids
+            for (let i = 0; i < 5; i++) {
+                const binaryX = (Math.random() - 0.5) * WORLD_BOUNDS;
+                const binaryY = (Math.random() - 0.5) * WORLD_BOUNDS;
+                if (Math.hypot(binaryX, binaryY) < 3000) continue; // Avoid belt
+                createBinaryAsteroid(binaryX, binaryY, 20 + Math.random() * 20, 20 + Math.random() * 20, 100 + Math.random() * 50, 0.5 + Math.random());
+            }
+
+            // Add some sparse random asteroids
+            let roidCount = 50 + level * 2;
             for (let i = 0; i < roidCount; i++) {
                 let x, y, d, r;
-                // Ensure asteroids spawn away from the center (player)
-                // x, y are calculated as initial ABSOLUTE WORLD COORDINATES (starting from 0,0)
-                do { x = (Math.random() - 0.5) * WORLD_BOUNDS * 1.5; y = (Math.random() - 0.5) * WORLD_BOUNDS * 1.5; d = Math.sqrt(x ** 2 + y ** 2); } while (d < 300);
+                // Ensure asteroids spawn away from the center
+                do { 
+                    x = (Math.random() - 0.5) * WORLD_BOUNDS * 1.5; 
+                    y = (Math.random() - 0.5) * WORLD_BOUNDS * 1.5; 
+                    d = Math.sqrt(x ** 2 + y ** 2); 
+                } while (d < 3000);
 
-                // Guarantee at least one planet on the first level
-                if (!planetSpawned && i === Math.floor(roidCount / 3)) { // Spawning the planet early in the loop
-                    r = PLANET_THRESHOLD + Math.random() * 50; // Force planet size
-                    planetSpawned = true;
-                    // Log to console for debugging:
-                    console.log(`Planet spawned at: (${x.toFixed(0)}, ${y.toFixed(0)}) with radius ${r}`);
-                } else {
-                    r = 40 + Math.random() * 40;
+                r = 20 + Math.random() * 80;
+                
+                // One more planet further out
+                if (!planetSpawned || (i === Math.floor(roidCount / 2) && Math.random() < 0.3)) {
+                    if (d > 5000) {
+                         r = PLANET_THRESHOLD + Math.random() * 50;
+                         planetSpawned = true;
+                         console.log(`Outer Planet spawned at: (${x.toFixed(0)}, ${y.toFixed(0)}) with radius ${r}`);
+                    }
                 }
-
+                
                 roids.push(createAsteroid(x, y, r));
             }
-            // Fallback: If no planet was created (very unlikely due to the check)
-            if (!planetSpawned) {
+            
+            // Fallback: If no planet was created (very unlikely)
+            if (roids.filter(r => r.isPlanet).length === 0) {
                 let x = WORLD_BOUNDS / 2; let y = WORLD_BOUNDS / 2;
                 roids.push(createAsteroid(x, y, PLANET_THRESHOLD + 30));
                 console.log("Fallback planet spawned.");
@@ -1498,12 +1587,10 @@
                 // Game Over Text
                 const instructions = document.querySelector('#start-screen .instructions');
                 if (instructions) {
-                    instructions.innerHTML = `
-                        <span class="upgrade">Communication with the pilot interrupted. Vital signs interrupted. Rest in eternity.</span><br>
-                        2025<br>
-                        <span class="upgrade">Arón Galdón Ginés</span><br>
-                        <br>
-                    `;
+                    instructions.innerHTML = '<div id="game-over-led"></div>';
+                    const gameOverEl = document.getElementById('game-over-led');
+                    const gameOverText = "Communication with the pilot interrupted. Vital signs interrupted. Rest in eternity.\n\n2025\n\nArón Galdón Ginés";
+                    animateLedText(gameOverText, gameOverEl);
                 }
 
                 const startBtn = document.getElementById('start-btn');
@@ -1615,10 +1702,10 @@
                                 createExplosion(vpX, vpY, 80, '#ffaa00', 5, 'spark');
                                 createExplosion(vpX, vpY, 40, '#ff0000', 8, 'debris');
                                 AudioEngine.playExplosion('large');
-                                for (let k = 0; k < 20; k++) {
-                                    let ast = createAsteroid((r1.x + r2.x) / 2, (r1.y + r2.y) / 2, 15 + Math.random() * 40);
+                                for (let k = 0; k < 50; k++) {
+                                    let ast = createAsteroid((r1.x + r2.x) / 2, (r1.y + r2.y) / 2, 15 + Math.random() * 60);
                                     let ang = Math.random() * Math.PI * 2;
-                                    let spd = 1 + Math.random() * 4;
+                                    let spd = 0.5 + Math.random() * 2;
                                     ast.xv = Math.cos(ang) * spd; ast.yv = Math.sin(ang) * spd;
                                     roids.push(ast);
                                 }
@@ -2167,7 +2254,7 @@
                         if (e.structureHP <= 0) {
                             let debrisColor = e.type === 'station' ? `hsl(${e.fleetHue}, 100%, 50%)` : `hsl(${e.fleetHue}, 100%, 40%)`;
                             createExplosion(vpX, vpY, 40, '#ffaa00', 3, 'spark'); createExplosion(vpX, vpY, 20, debrisColor, 4, 'debris');
-                            if (e.type === 'station') { ship.maxShield += 50; ship.shield = ship.maxShield; score += 500; } else score += 200;
+                            if (e.type === 'station') { onStationDestroyed(); } else { score += 200; }
                             enemies.splice(i, 1); scoreEl.innerText = score; AudioEngine.playExplosion('large');
                         }
                     }
@@ -2823,7 +2910,7 @@
                         if (e.structureHP <= 0) {
                             let debrisColor = e.type === 'station' ? `hsl(${e.fleetHue}, 100%, 50%)` : `hsl(${e.fleetHue}, 100%, 40%)`;
                             createExplosion(eVpX, eVpY, 40, '#ffaa00', 3, 'spark'); createExplosion(eVpX, eVpY, 20, debrisColor, 4, 'debris');
-                            if (e.type === 'station') { ship.maxShield += 50; ship.shield = ship.maxShield; score += 500; } else score += 200;
+                            if (e.type === 'station') { onStationDestroyed(); } else { score += 200; }
                             enemies.splice(j, 1); scoreEl.innerText = score;
                             AudioEngine.playExplosion('large');
                         } else {
@@ -2889,6 +2976,7 @@
             // REDUCED TIMER FOR MORE FREQUENT STATIONS
             stationSpawnTimer = 300;
             shotCount = 0; // Reset shot counter on game start
+            stationsDestroyedCount = 0;
             playerReloadTime = 0; // Reset reload timer
             scoreEl.innerText = score;
 
