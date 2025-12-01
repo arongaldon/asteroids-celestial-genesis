@@ -485,7 +485,6 @@
 
         // Player Reload/Fire Rate Control
         let playerReloadTime = 0;
-        let lastShotTime = 0; // For double-shot asteroid expulsion
         const PLAYER_RELOAD_TIME_MAX = 8;
         let shotCount = 0;
 
@@ -974,7 +973,7 @@
 
             roid.isPlanet = true;
             roid.name = generatePlanetName();
-            roid.zSpeed = 0.01;
+            roid.zSpeed = (rng() * 0.001) + 0.0005; // Random, slow speed
 
             // --- TEXTURE DATA (FIXED) ---
             let textureData = {
@@ -1055,7 +1054,7 @@
                 mass: r * r * 0.05,
                 isPlanet: isPlanet,
                 z: z, // Z-depth for parallax
-                zSpeed: isPlanet ? 0.01 : 0, // Gentle z-axis movement for planets
+                zSpeed: 0, // Will be set by initializePlanetAttributes
                 name: null,
                 textureData: null,
                 rings: null,
@@ -1066,7 +1065,6 @@
             // Initialize planet attributes here if it's forced to be a planet on creation
             if (isPlanet) {
                 initializePlanetAttributes(roid);
-                roid.zSpeed = 0.01; // Re-apply base speed after init
             }
 
             for (let i = 0; i < roid.vert; i++) roid.offs.push(Math.random() * 0.3 * 2 + 1 - 0.3);
@@ -1192,42 +1190,7 @@
                 bullets.push(createBullet(0, 0, 0, true));
             }
 
-            // --- LOGIC TO EXPEL ASTEROIDS ON FIRE (Tier 8+, double-shot) ---
-            if (tier >= 8) {
-                const now = performance.now();
-                const timeSinceLastShot = now - lastShotTime;
-
-                if (timeSinceLastShot < 500) { // 0.5 seconds for double-shot
-                    const baseSize = 15;
-                    // Size scales up with tier (Tier 4=15, Tier 5=20, Tier 6=25, etc.)
-                    const roidR = baseSize + (tier - 4) * 5;
-
-                    // Position: behind the ship (opposite direction of ship.a)
-                    const angleOpposite = ship.a + Math.PI;
-                    const spawnDist = ship.effectiveR + roidR + 5;
-
-                    // Calculate Absolute World Coordinates for spawning asteroid
-                    const spawnWorldX = worldOffsetX + Math.cos(angleOpposite) * spawnDist;
-                    const spawnWorldY = worldOffsetY - Math.sin(angleOpposite) * spawnDist;
-
-                    // Spawn asteroid with World Coordinates
-                    const newRoid = createAsteroid(spawnWorldX, spawnWorldY, roidR, 0); // z=0 for near-field
-                    // Velocity relative to world: ship velocity + small push in the opposite direction
-                    newRoid.xv = velocity.x + 1.5 * Math.cos(angleOpposite);
-                    newRoid.yv = velocity.y - 1.5 * Math.sin(angleOpposite);
-
-                    newRoid.blinkNum = 15; // Give temporary invulnerability
-                    roids.push(newRoid);
-
-                    // The explosion needs Viewport Coordinates (calculated on the fly)
-                    const vpX = spawnWorldX - worldOffsetX + width / 2;
-                    const vpY = spawnWorldY - worldOffsetY + height / 2;
-                    createExplosion(vpX, vpY, 5, '#888', 1, 'debris');
-                }
-
-                lastShotTime = now;
-            }
-            // --- END ASTEROID EXPULSION LOGIC ---
+            // --- ASTEROID EXPULSION LOGIC REMOVED ---
         }
 
         function enemyShoot(e, tx, ty) {
@@ -1636,9 +1599,6 @@
                     let r2 = roids[j];
                     if (isNaN(r2.x) || isNaN(r2.y)) { roids.splice(j, 1); j--; continue; }
 
-                    // Solo comprueba colisión si están en el mismo plano Z cercano (z < 0.5)
-                    if (Math.abs(r1.z) > 0.5 || Math.abs(r2.z) > 0.5) continue;
-
                     // Skip collision check if either asteroid is blinking (newly created by player)
                     if (r1.blinkNum > 0 || r2.blinkNum > 0) continue;
 
@@ -1646,125 +1606,92 @@
                     let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
 
                     if (dist < r1.r + r2.r) {
-                        // Calculate Viewport Position for explosion
                         const vpX = r1.x - worldOffsetX + width / 2;
                         const vpY = r1.y - worldOffsetY + height / 2;
 
-                        // --- NUEVA LÓGICA DE CRECIMIENTO: PLANETA + ASTEROIDE (Coalescence) ---
-                        if (r1.isPlanet !== r2.isPlanet) {
-                            let planet, asteroid, asteroidIndex;
-                            if (r1.isPlanet) { planet = r1; asteroid = r2; asteroidIndex = j; }
-                            else {
-                                planet = r2; asteroid = r1; asteroidIndex = i;
-                                // Swap temporal para que r1 sea el planeta y retenga el índice i.
-                                let temp = r1; r1 = r2; r2 = temp;
-                                asteroidIndex = j;
-                            }
-
-                            // 1. Calcular la nueva masa y radio manteniendo la densidad de la fusión
-                            let area1 = Math.PI * planet.r * planet.r;
-                            let area2 = Math.PI * asteroid.r * asteroid.r;
-                            let totalArea = area1 + area2;
-
-                            let newR = Math.sqrt(totalArea / Math.PI); // Nuevo radio basado en la suma de áreas (volumen 2D)
-
-                            // 2. Conservar momento y posición del centro de masa (más robusto)
-                            let totalMass = planet.mass + asteroid.mass;
-                            let newVX = (planet.xv * planet.mass + asteroid.xv * planet.mass) / totalMass;
-                            let newVY = (planet.yv * planet.mass + asteroid.yv * planet.mass) / totalMass;
-                            let newX = (planet.x * planet.mass + asteroid.x * asteroid.mass) / totalMass;
-                            let newY = (planet.y * planet.mass + asteroid.y * asteroid.mass) / totalMass;
-
-                            // 3. Aplicar nuevos atributos al planeta (r1 siempre es el planeta al final de este bloque)
-                            r1.x = newX; r1.y = newY;
-                            r1.xv = newVX; r1.yv = newVY;
-                            r1.targetR = newR; // El planeta crece suavemente
-                            r1.r = newR; // Se actualiza instantáneamente para la colisión y masa
-                            r1.mass = totalMass * 0.05; // Actualizar masa
-
-                            // 4. Eliminar el asteroide
-                            roids.splice(asteroidIndex, 1);
-                            i--; // Compensar por la eliminación del elemento
-
-                            console.log(`Planeta ${r1.name} absorbió asteroide. Nuevo R=${newR.toFixed(1)}`);
-                            createExplosion(vpX, vpY, 20, '#00ffff', 3);
-                            AudioEngine.playExplosion('large');
-
-                            break;
-                        }
-                        // --- FIN LÓGICA CRECIMIENTO PLANETA ---
-
-
-                        // Scenario: Planet-Planet Merger (creates massive explosion/debris)
+                        // 1. Planet-Planet Collision
                         if (r1.isPlanet && r2.isPlanet) {
-                            createExplosion(vpX, vpY, 60, '#ffaa00', 5, 'spark');
-                            createExplosion(vpX, vpY, 20, '#ff0000', 8, 'debris');
-                            AudioEngine.playExplosion('large');
-                            for (let k = 0; k < 15; k++) {
-                                let ast = createAsteroid((r1.x + r2.x) / 2, (r1.y + r2.y) / 2, 10 + Math.random() * 20); // World Coords
-                                let ang = Math.random() * Math.PI * 2;
-                                let spd = 2 + Math.random() * 5;
-                                ast.xv = Math.cos(ang) * spd; ast.yv = Math.sin(ang) * spd;
-                                roids.push(ast);
+                            if (Math.abs(r1.z - r2.z) < 0.1) { // Same Z-level check
+                                createExplosion(vpX, vpY, 80, '#ffaa00', 5, 'spark');
+                                createExplosion(vpX, vpY, 40, '#ff0000', 8, 'debris');
+                                AudioEngine.playExplosion('large');
+                                for (let k = 0; k < 20; k++) {
+                                    let ast = createAsteroid((r1.x + r2.x) / 2, (r1.y + r2.y) / 2, 15 + Math.random() * 40);
+                                    let ang = Math.random() * Math.PI * 2;
+                                    let spd = 1 + Math.random() * 4;
+                                    ast.xv = Math.cos(ang) * spd; ast.yv = Math.sin(ang) * spd;
+                                    roids.push(ast);
+                                }
+                                createShockwave((r1.x + r2.x) / 2, (r1.y + r2.y) / 2);
+
+                                roids.splice(j, 1);
+                                roids.splice(i, 1);
+                                i--; break; // Exit j-loop
                             }
-                            createShockwave((r1.x + r2.x) / 2, (r1.y + r2.y) / 2); // World Coords
-
-                            // Fusión de Planetas: Se mantiene r1 y hereda atributos de r2 si r1 no tiene
-                            let totalMass = r1.mass + r2.mass;
-                            let newR = Math.sqrt(r1.r * r1.r + r2.r * r2.r);
-
-                            let newVX = (r1.xv * r1.mass + r2.xv * r2.mass) / totalMass;
-                            let newVY = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass;
-                            let newX = (r1.x * r1.mass + r2.x * r2.mass) / totalMass;
-                            let newY = (r1.y * r1.mass + r2.y * r2.mass) / totalMass;
-
-                            r1.x = newX; r1.y = newY;
-                            r1.xv = newVX; r1.yv = newVY;
-                            r1.targetR = newR;
-                            r1.r = newR;
-                            r1.mass = totalMass * 0.05;
-
-                            roids.splice(j, 1); roids.splice(i, 1);
-                            i--; break;
                         }
+                        // 2. Planet-Asteroid and Asteroid-Asteroid collisions (only on near Z plane)
+                        else if (Math.abs(r1.z) < 0.5 && Math.abs(r2.z) < 0.5) {
+                            // Planet-Asteroid Coalescence
+                            if (r1.isPlanet !== r2.isPlanet) {
+                                let planet, asteroid, asteroidIndex;
+                                if (r1.isPlanet) { planet = r1; asteroid = r2; asteroidIndex = j; }
+                                else { planet = r2; asteroid = r1; asteroidIndex = i; let temp = r1; r1 = r2; r2 = temp; asteroidIndex = j; }
+                                
+                                let area1 = Math.PI * planet.r * planet.r;
+                                let area2 = Math.PI * asteroid.r * asteroid.r;
+                                let totalArea = area1 + area2;
+                                let newR = Math.sqrt(totalArea / Math.PI);
+                                let totalMass = planet.mass + asteroid.mass;
+                                let newVX = (planet.xv * planet.mass + asteroid.xv * asteroid.mass) / totalMass;
+                                let newVY = (planet.yv * planet.mass + asteroid.yv * asteroid.mass) / totalMass;
+                                let newX = (planet.x * planet.mass + asteroid.x * asteroid.mass) / totalMass;
+                                let newY = (planet.y * planet.mass + asteroid.y * asteroid.mass) / totalMass;
 
-                        // Scenario: Asteroid-Asteroid Merge (Coalescence)
-                        let totalMass = r1.mass + r2.mass;
-                        // Conserve momentum for new merged asteroid (velocities are World Units/Frame)
-                        let newVX = (r1.xv * r1.mass + r2.xv * r2.mass) / totalMass;
-                        let newVY = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass;
+                                r1.x = newX; r1.y = newY;
+                                r1.xv = newVX; r1.yv = newVY;
+                                r1.targetR = newR; r1.r = newR;
+                                r1.mass = totalMass * 0.05;
 
-                        let newR = Math.sqrt(r1.r * r1.r + r2.r * r2.r);
+                                roids.splice(asteroidIndex, 1);
+                                i--; // Compensate for removal
 
-                        const DAMPENING_FACTOR = 0.5;
-                        if (newR > PLANET_THRESHOLD) {
-                            newVX *= DAMPENING_FACTOR;
-                            newVY *= DAMPENING_FACTOR;
+                                console.log(`Planeta ${r1.name} absorbió asteroide. Nuevo R=${newR.toFixed(1)}`);
+                                createExplosion(vpX, vpY, 20, '#00ffff', 3);
+                                AudioEngine.playExplosion('large');
+                                break;
+                            }
+                            // Asteroid-Asteroid Merge
+                            else {
+                                let totalMass = r1.mass + r2.mass;
+                                let newVX = (r1.xv * r1.mass + r2.xv * r2.mass) / totalMass;
+                                let newVY = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass;
+                                let newR = Math.sqrt(r1.r * r1.r + r2.r * r2.r);
+
+                                const DAMPENING_FACTOR = 0.5;
+                                if (newR > PLANET_THRESHOLD) { newVX *= DAMPENING_FACTOR; newVY *= DAMPENING_FACTOR; }
+
+                                let newX = (r1.x * r1.mass + r2.x * r2.mass) / totalMass;
+                                let newY = (r1.y * r1.mass + r2.y * r2.mass) / totalMass;
+
+                                r1.x = newX; r1.y = newY;
+                                r1.xv = newVX; r1.yv = newVY;
+                                r1.targetR = newR;
+
+                                if (newR > PLANET_THRESHOLD && !r1.isPlanet) {
+                                    r1.r = newR;
+                                    initializePlanetAttributes(r1);
+                                    r1.targetR = newR;
+                                    console.log(`¡NUEVO PLANETA! Nombre: ${r1.name}, ID: ${r1.textureData.seed}.`);
+                                    createExplosion(vpX, vpY, 30, '#fff', 5);
+                                    AudioEngine.playExplosion('large');
+                                } else if (r1.isPlanet) {
+                                    r1.r = newR;
+                                    r1.mass = totalMass * 0.05;
+                                    console.log(`Planeta ${r1.name} (ID: ${r1.textureData.seed}) CRECE a R=${newR.toFixed(1)}`);
+                                }
+                                roids.splice(j, 1); j--; continue;
+                            }
                         }
-
-                        // New World Position (Center of Mass)
-                        let newX = (r1.x * r1.mass + r2.x * r2.mass) / totalMass;
-                        let newY = (r1.y * r1.mass + r2.y * r2.mass) / totalMass;
-
-                        r1.x = newX; r1.y = newY;
-                        r1.xv = newVX; r1.yv = newVY;
-                        r1.targetR = newR;
-
-                        if (newR > PLANET_THRESHOLD && !r1.isPlanet) {
-                            r1.r = newR;
-                            initializePlanetAttributes(r1); // Solo se llama si SE CONVIERTE en planeta
-                            r1.targetR = newR;
-                            console.log(`¡NUEVO PLANETA! Nombre: ${r1.name}, ID: ${r1.textureData.seed}.`);
-                            createExplosion(vpX, vpY, 30, '#fff', 5);
-                            AudioEngine.playExplosion('large');
-                        } else if (r1.isPlanet) {
-                            // Planeta crece por colisión asteroide-asteroide (y uno de ellos ya era planeta)
-                            r1.r = newR;
-                            r1.mass = totalMass * 0.05;
-                            console.log(`Planeta ${r1.name} (ID: ${r1.textureData.seed}) CRECE a R=${newR.toFixed(1)}`);
-                        }
-
-                        roids.splice(j, 1); j--; continue;
                     }
 
                     // --- Gravitational Attraction between Roids/Planets (World Coords) ---
@@ -2253,8 +2180,8 @@
 
             ctx.shadowColor = '#ffffff'; ctx.strokeStyle = 'white'; ctx.lineWidth = 1.5;
 
-            // Ordenar los asteroides de Lejano a Cercano (Z alta a Z baja)
-            roids.sort((a, b) => b.z - a.z);
+            // Ordenar los asteroides de Cercano a Lejano (Z baja a Z alta)
+            roids.sort((a, b) => a.z - b.z);
 
             // --- Asteroid/Planet DRAWING (Order 1: Behind Enemies) ---
             for (let i = roids.length - 1; i >= 0; i--) {
@@ -2963,7 +2890,6 @@
             stationSpawnTimer = 300;
             shotCount = 0; // Reset shot counter on game start
             playerReloadTime = 0; // Reset reload timer
-            lastShotTime = 0;
             scoreEl.innerText = score;
 
             ship = newShip();
