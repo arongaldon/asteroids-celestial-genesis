@@ -485,6 +485,7 @@
 
         // Player Reload/Fire Rate Control
         let playerReloadTime = 0;
+        let lastShotTime = 0; // For double-shot asteroid expulsion
         const PLAYER_RELOAD_TIME_MAX = 8;
         let shotCount = 0;
 
@@ -620,10 +621,6 @@
         // Se agregan KeyA y KeyD para el strafe (desplazamiento lateral)
         let keys = { ArrowUp: false, ArrowDown: false, Space: false, ArrowLeft: false, ArrowRight: false, KeyA: false, KeyD: false };
         let mouse = { x: 0, y: 0 };
-
-        // Placeholder variables for old cheat
-        let cheatBuffer = "";
-        const CHEAT_KEYWORD = "aron";
 
         function resize() {
             width = Math.max(window.innerWidth, 100);
@@ -977,7 +974,7 @@
 
             roid.isPlanet = true;
             roid.name = generatePlanetName();
-            roid.zSpeed = 0.001;
+            roid.zSpeed = 0.01;
 
             // --- TEXTURE DATA (FIXED) ---
             let textureData = {
@@ -1058,7 +1055,7 @@
                 mass: r * r * 0.05,
                 isPlanet: isPlanet,
                 z: z, // Z-depth for parallax
-                zSpeed: isPlanet ? 0.0005 : 0, // Gentle z-axis movement for planets
+                zSpeed: isPlanet ? 0.01 : 0, // Gentle z-axis movement for planets
                 name: null,
                 textureData: null,
                 rings: null,
@@ -1069,7 +1066,7 @@
             // Initialize planet attributes here if it's forced to be a planet on creation
             if (isPlanet) {
                 initializePlanetAttributes(roid);
-                roid.zSpeed = 0.0005; // Re-apply base speed after init
+                roid.zSpeed = 0.01; // Re-apply base speed after init
             }
 
             for (let i = 0; i < roid.vert; i++) roid.offs.push(Math.random() * 0.3 * 2 + 1 - 0.3);
@@ -1195,34 +1192,40 @@
                 bullets.push(createBullet(0, 0, 0, true));
             }
 
-            // --- LOGIC TO EXPEL ASTEROIDS ON FIRE (Tier 4: Heptagon+) ---
-            // Activation tier is 4 (Heptagon) and rate is 1/2 shots (shotCount % 2 === 0)
-            if (tier >= 4 && shotCount % 2 === 0) {
-                const baseSize = 15;
-                // Size scales up with tier (Tier 4=15, Tier 5=20, Tier 6=25, etc.)
-                const roidR = baseSize + (tier - 4) * 5;
+            // --- LOGIC TO EXPEL ASTEROIDS ON FIRE (Tier 8+, double-shot) ---
+            if (tier >= 8) {
+                const now = performance.now();
+                const timeSinceLastShot = now - lastShotTime;
 
-                // Position: behind the ship (opposite direction of ship.a)
-                const angleOpposite = ship.a + Math.PI;
-                const spawnDist = ship.effectiveR + roidR + 5;
+                if (timeSinceLastShot < 500) { // 0.5 seconds for double-shot
+                    const baseSize = 15;
+                    // Size scales up with tier (Tier 4=15, Tier 5=20, Tier 6=25, etc.)
+                    const roidR = baseSize + (tier - 4) * 5;
 
-                // Calculate Absolute World Coordinates for spawning asteroid
-                const spawnWorldX = worldOffsetX + Math.cos(angleOpposite) * spawnDist;
-                const spawnWorldY = worldOffsetY - Math.sin(angleOpposite) * spawnDist;
+                    // Position: behind the ship (opposite direction of ship.a)
+                    const angleOpposite = ship.a + Math.PI;
+                    const spawnDist = ship.effectiveR + roidR + 5;
 
-                // Spawn asteroid with World Coordinates
-                const newRoid = createAsteroid(spawnWorldX, spawnWorldY, roidR, 0); // z=0 for near-field
-                // Velocity relative to world: ship velocity + small push in the opposite direction
-                newRoid.xv = velocity.x + 1.5 * Math.cos(angleOpposite);
-                newRoid.yv = velocity.y - 1.5 * Math.sin(angleOpposite);
+                    // Calculate Absolute World Coordinates for spawning asteroid
+                    const spawnWorldX = worldOffsetX + Math.cos(angleOpposite) * spawnDist;
+                    const spawnWorldY = worldOffsetY - Math.sin(angleOpposite) * spawnDist;
 
-                newRoid.blinkNum = 15; // Give temporary invulnerability
-                roids.push(newRoid);
+                    // Spawn asteroid with World Coordinates
+                    const newRoid = createAsteroid(spawnWorldX, spawnWorldY, roidR, 0); // z=0 for near-field
+                    // Velocity relative to world: ship velocity + small push in the opposite direction
+                    newRoid.xv = velocity.x + 1.5 * Math.cos(angleOpposite);
+                    newRoid.yv = velocity.y - 1.5 * Math.sin(angleOpposite);
 
-                // The explosion needs Viewport Coordinates (calculated on the fly)
-                const vpX = spawnWorldX - worldOffsetX + width / 2;
-                const vpY = spawnWorldY - worldOffsetY + height / 2;
-                createExplosion(vpX, vpY, 5, '#888', 1, 'debris');
+                    newRoid.blinkNum = 15; // Give temporary invulnerability
+                    roids.push(newRoid);
+
+                    // The explosion needs Viewport Coordinates (calculated on the fly)
+                    const vpX = spawnWorldX - worldOffsetX + width / 2;
+                    const vpY = spawnWorldY - worldOffsetY + height / 2;
+                    createExplosion(vpX, vpY, 5, '#888', 1, 'debris');
+                }
+
+                lastShotTime = now;
             }
             // --- END ASTEROID EXPULSION LOGIC ---
         }
@@ -1971,10 +1974,7 @@
 
                 // NEW: Adjust player ship HP if they transition to Tier 8
                 const currentTier = getShipTier();
-                if (currentTier >= 8 && ship.structureHP !== MAX_TIER_HP) {
-                    ship.structureHP = MAX_TIER_HP;
-                    console.log("Player ship upgraded to max structure HP (9).");
-                } else if (currentTier < 8 && ship.structureHP === MAX_TIER_HP) {
+                if (currentTier < 8 && ship.structureHP === MAX_TIER_HP) {
                     // If tier drops below 8 (by losing score), reset HP to standard max
                     ship.structureHP = STANDARD_SHIP_HP;
                     console.log("Player ship HP normalized to standard structure HP (3).");
@@ -2259,6 +2259,36 @@
             // --- Asteroid/Planet DRAWING (Order 1: Behind Enemies) ---
             for (let i = roids.length - 1; i >= 0; i--) {
                 let r = roids[i];
+
+                if (r.isPlanet) {
+                    const PLANET_BOUNDARY_MARGIN = 2000;
+                    const TURN_STRENGTH = 0.0002; // A small force to gradually steer the planet
+
+                    // Steer away from horizontal boundaries
+                    if (r.x > WORLD_BOUNDS - PLANET_BOUNDARY_MARGIN && r.xv > 0) {
+                        r.xv -= TURN_STRENGTH * (r.x - (WORLD_BOUNDS - PLANET_BOUNDARY_MARGIN));
+                    }
+                    if (r.x < -WORLD_BOUNDS + PLANET_BOUNDARY_MARGIN && r.xv < 0) {
+                        r.xv -= TURN_STRENGTH * (r.x - (-WORLD_BOUNDS + PLANET_BOUNDARY_MARGIN));
+                    }
+
+                    // Steer away from vertical boundaries
+                    if (r.y > WORLD_BOUNDS - PLANET_BOUNDARY_MARGIN && r.yv > 0) {
+                        r.yv -= TURN_STRENGTH * (r.y - (WORLD_BOUNDS - PLANET_BOUNDARY_MARGIN));
+                    }
+                    if (r.y < -WORLD_BOUNDS + PLANET_BOUNDARY_MARGIN && r.yv < 0) {
+                        r.yv -= TURN_STRENGTH * (r.y - (-WORLD_BOUNDS + PLANET_BOUNDARY_MARGIN));
+                    }
+
+                    // Cap planet speed to make them move slowly
+                    const MAX_PLANET_SPEED = 0.5;
+                    const speed = Math.hypot(r.xv, r.yv);
+                    if (speed > MAX_PLANET_SPEED) {
+                        r.xv = (r.xv / speed) * MAX_PLANET_SPEED;
+                        r.yv = (r.yv / speed) * MAX_PLANET_SPEED;
+                    }
+                }
+                
                 let depthScale = 1; let depthAlpha = 1;
 
                 // 1. Update Absolute World Position (World Coords)
@@ -2933,6 +2963,7 @@
             stationSpawnTimer = 300;
             shotCount = 0; // Reset shot counter on game start
             playerReloadTime = 0; // Reset reload timer
+            lastShotTime = 0;
             scoreEl.innerText = score;
 
             ship = newShip();
