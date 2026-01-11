@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <!-- 
      * Asteroids: Celestial Genesis
-     * Copyright (c) 2025 Aron Galdon Gines
+     * Copyright (c) 2026 Aron Galdon Gines
      * Open Source License: MIT
      * AI Disclaimer: This code was developed with the assistance of a large language model. 
      * The author (Aron Galdon Gines) retains all copyrights.
@@ -22,21 +22,8 @@
             <div class="stats-block">
                 <div>SCORE: <span id="scoreEl">0</span></div>
                 <div id="lives-display"></div> <!-- Visual lives -->
-                <div id="shield-container">
-                    <div id="shield-bar"></div>
-                </div>
-                <div id="speed-container">
-                    <div id="speed-bar"></div>
-                    <span id="speed-label">SPEED</span>
-                </div>
                 <div id="gravity-alert">⚠ CRITICAL GRAVITY</div>
-            </div>
-            <div class="radar-block">
-                <div id="audio-btn">🔊</div>
                 <div id="radar-container"><canvas id="radar-canvas" width="140" height="140"></canvas></div>
-                <!-- Eliminados los textos de zoom y vidas del radar -->
-                <div class="radar-info">ZOOM</div>
-                <div class="radar-info">SHIPS</div>
             </div>
         </div>
         <div id="gesture-hint">MOUSE / TOUCH MODE ACTIVE</div>
@@ -62,7 +49,7 @@
         <button class="start-btn" id="start-btn" onclick="startGame()">START</button>
         <div id="audio-prompt">Press to hear the music.</div>
     </div>
-    <div id="epic-message"></div>
+
 
     <script src="game.js"></script>
 </body>
