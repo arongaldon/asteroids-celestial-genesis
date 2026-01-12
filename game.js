@@ -287,16 +287,17 @@ const STANDARD_SHIP_HP = 3; // Tiers 0-7 Player Ship & Normal Enemy Ships
 const MAX_TIER_HP = 9;      // Tier 8+ Player Ship & Enemy Stations
 
 // NEW RADAR VARIABLES
-const ZOOM_LEVELS = [500, 1000, 2500, 5000, 10000]; // World units
-let currentZoomIndex = 2; // Index for 2500 (default)
+// NEW RADAR VARIABLES
+const ZOOM_LEVELS = [2500, 5000, 12500, 25000, 75000]; // World units (Scaled 5x)
+let currentZoomIndex = 2; // Index for 25000 (default)
 let RADAR_RANGE = ZOOM_LEVELS[currentZoomIndex]; // Current effective max range
 
 const G_CONST = 0.5; // Gravity constant
-const PLANET_THRESHOLD = 200;
+const PLANET_THRESHOLD = 150; // REDUCIDO (Antes 200) para facilitar la creación de planetas
 const MAX_Z_DEPTH = 3;
 
 // WORLD BOUNDARY CONSTANTS
-const WORLD_BOUNDS = 15000;
+const WORLD_BOUNDS = 75000;
 const BOUNDARY_DAMPENING = 0.5;
 const BOUNDARY_TOLERANCE = 100;
 
@@ -360,20 +361,16 @@ function mulberry32(a) {
 }
 
 function drawPlanetTexture(ctx, x, y, r, textureData) {
-    // Dibuja un planeta con atributos fijos (color, geometría, etc.), escalado por el radio (r) actual.
     if (!textureData || isNaN(x) || isNaN(y) || isNaN(r)) return;
 
-    // 1. Water/Base Color (Radial Gradient)
     let grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-    // FIX FINAL COLOR: Se vuelve el color principal (waterColor) rápidamente (0.1) y se mantiene hasta el borde.
-    grad.addColorStop(0, textureData.innerGradColor); // Centro oscuro/sombra
-    grad.addColorStop(0.1, textureData.waterColor);   // Se vuelve el color principal rápidamente
-    grad.addColorStop(1, textureData.waterColor);     // Se mantiene el color principal hasta el borde
+    grad.addColorStop(0, textureData.innerGradColor);
+    grad.addColorStop(0.1, textureData.waterColor);
+    grad.addColorStop(1, textureData.waterColor);
 
     ctx.fillStyle = grad;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
 
-    // 2. Landmasses (Usa geometría fija y la escala actual r)
     ctx.fillStyle = textureData.landColor;
     textureData.landmasses.forEach(lm => {
         ctx.beginPath();
@@ -391,7 +388,7 @@ function drawPlanetTexture(ctx, x, y, r, textureData) {
         ctx.closePath(); ctx.fill();
     });
 
-    // 3. Craters/Shadows (Usa posiciones/tamaños fijos y la escala actual r)
+    // Craters/Shadows
     ctx.fillStyle = textureData.craterColor;
     textureData.craters.forEach(cr => {
         const cx = x + cr.xFactor * r;
@@ -404,11 +401,10 @@ function drawPlanetTexture(ctx, x, y, r, textureData) {
         }
     });
 
-    // 4. Clouds (Usa propiedades fijas + movimiento dinámico 'age')
+    // Clouds
     textureData.age += 0.001;
     ctx.fillStyle = textureData.cloudColor;
     textureData.clouds.forEach(cl => {
-        // El ángulo total depende de la posición inicial fija (cl.angleRng) y el factor de edad
         const angle = textureData.cloudOffset + cl.angleRng + textureData.age * cl.ageFactorRng;
         const dist = r * cl.distRng;
         const cx = x + Math.cos(angle) * dist;
@@ -420,7 +416,7 @@ function drawPlanetTexture(ctx, x, y, r, textureData) {
         ctx.beginPath(); ctx.ellipse(0, 0, cr * 1.5, cr * 0.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     });
 
-    // 5. Atmosphere (Faint glowing halo)
+    // Atmosphere
     let atmGrad = ctx.createRadialGradient(x, y, r * 0.9, x, y, r * 1.1);
     atmGrad.addColorStop(0, `rgba(255, 255, 255, 0)`);
     atmGrad.addColorStop(0.5, textureData.atmosphereColor);
@@ -520,11 +516,9 @@ document.addEventListener('keydown', (e) => {
     if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.ArrowUp = true;
     if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.ArrowDown = false; // KeyS is brake
 
-    // Rotación con flechas
     if (e.code === 'ArrowLeft') keys.ArrowLeft = true;
     if (e.code === 'ArrowRight') keys.ArrowRight = true;
 
-    // Desplazamiento lateral (Strafe) con A y D
     if (e.code === 'KeyA') keys.KeyA = true;
     if (e.code === 'KeyD') keys.KeyD = true;
 
@@ -535,11 +529,9 @@ document.addEventListener('keyup', (e) => {
     if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.ArrowUp = false;
     if (e.code === 'KeyS' || e.code === 'ArrowDown') keys.ArrowDown = false;
 
-    // Rotación con flechas
     if (e.code === 'ArrowLeft') keys.ArrowLeft = false;
     if (e.code === 'ArrowRight') keys.ArrowRight = false;
 
-    // Desplazamiento lateral (Strafe) con A y D
     if (e.code === 'KeyA') keys.KeyA = false;
     if (e.code === 'KeyD') keys.KeyD = false;
 });
@@ -698,7 +690,8 @@ function spawnStation() {
         orbitAngle: orbitAngle,
         orbitSpeed: (Math.random() > 0.5 ? 1 : -1) * 0.002, // Slow orbital rotation
         fleetHue: Math.floor(Math.random() * 360), // Unique color for the fleet
-        blinkNum: 60
+        blinkNum: 60,
+        z: hostPlanet.z || 0 // Inherit Z-depth from planet
     });
     stationSpawnTimer = 600 + Math.random() * 300;
     console.log(`Station spawned at planet ${hostPlanet.name}`);
@@ -1226,47 +1219,47 @@ function createLevel() {
 
     let planetSpawned = false;
     // Try to spawn a planet not at the dead center, to make it more interesting
-    let planetX = (Math.random() - 0.5) * 1000;
-    let planetY = (Math.random() - 0.5) * 1000;
+    let planetX = (Math.random() - 0.5) * 5000;
+    let planetY = (Math.random() - 0.5) * 5000;
     roids.push(createAsteroid(planetX, planetY, PLANET_THRESHOLD + Math.random() * 100));
     planetSpawned = true;
     console.log(`Planet spawned at: (${planetX.toFixed(0)}, ${planetY.toFixed(0)})`);
 
     // Create a large asteroid belt
-    createAsteroidBelt(0, 0, 1500, 2500, 150);
+    createAsteroidBelt(0, 0, 7500, 12500, 750);
 
     // Create some clusters
     for (let i = 0; i < 3; i++) {
         const clusterX = (Math.random() - 0.5) * WORLD_BOUNDS;
         const clusterY = (Math.random() - 0.5) * WORLD_BOUNDS;
-        if (Math.hypot(clusterX, clusterY) < 3000) continue; // Avoid belt
-        createAsteroidCluster(clusterX, clusterY, 300 + Math.random() * 200, 20 + Math.random() * 20);
+        if (Math.hypot(clusterX, clusterY) < 15000) continue; // Avoid belt
+        createAsteroidCluster(clusterX, clusterY, 3000 + Math.random() * 2000, 100 + Math.random() * 100);
     }
 
     // Create some binary asteroids
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 15; i++) {
         const binaryX = (Math.random() - 0.5) * WORLD_BOUNDS;
         const binaryY = (Math.random() - 0.5) * WORLD_BOUNDS;
-        if (Math.hypot(binaryX, binaryY) < 3000) continue; // Avoid belt
+        if (Math.hypot(binaryX, binaryY) < 15000) continue; // Avoid belt
         createBinaryAsteroid(binaryX, binaryY, 20 + Math.random() * 20, 20 + Math.random() * 20, 100 + Math.random() * 50, 0.5 + Math.random());
     }
 
     // Add some sparse random asteroids
-    let roidCount = 50 + level * 2;
+    let roidCount = 250 + level * 10;
     for (let i = 0; i < roidCount; i++) {
         let x, y, d, r;
         // Ensure asteroids spawn away from the center
         do {
-            x = (Math.random() - 0.5) * WORLD_BOUNDS * 1.5;
-            y = (Math.random() - 0.5) * WORLD_BOUNDS * 1.5;
+            x = (Math.random() - 0.5) * WORLD_BOUNDS * 1.8;
+            y = (Math.random() - 0.5) * WORLD_BOUNDS * 1.8;
             d = Math.sqrt(x ** 2 + y ** 2);
-        } while (d < 3000);
+        } while (d < 15000);
 
         r = 20 + Math.random() * 80;
 
         // One more planet further out
         if (!planetSpawned || (i === Math.floor(roidCount / 2) && Math.random() < 0.3)) {
-            if (d > 5000) {
+            if (d > 25000) {
                 r = PLANET_THRESHOLD + Math.random() * 50;
                 planetSpawned = true;
                 console.log(`Outer Planet spawned at: (${x.toFixed(0)}, ${y.toFixed(0)}) with radius ${r}`);
@@ -1499,7 +1492,8 @@ function updatePhysics() {
                         let totalMass = r1.mass + r2.mass;
                         let newVX = (r1.xv * r1.mass + r2.xv * r2.mass) / totalMass;
                         let newVY = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass;
-                        let newR = Math.sqrt(r1.r * r1.r + r2.r * r2.r);
+                        // BONUS CRECIMIENTO: 5% extra de radio al fusionar
+                        let newR = Math.sqrt(r1.r * r1.r + r2.r * r2.r) * 1.05;
 
                         const DAMPENING_FACTOR = 0.5;
                         if (newR > PLANET_THRESHOLD) { newVX *= DAMPENING_FACTOR; newVY *= DAMPENING_FACTOR; }
@@ -1537,9 +1531,9 @@ function updatePhysics() {
                     // Gravedad fuerte para objetos grandes
                     force = (G * r1.mass * r2.mass) / Math.max(distSq, 500);
                 } else {
-                    // Gravedad más débil para asteroides pequeños (para fomentar la fusión)
-                    let G_ROIDS = 0.05;
-                    force = (G_ROIDS * r1.mass * r2.mass) / Math.max(distSq, 1000);
+                    // Gravedad más fuerte y rango cercano más agresivo (USER REQUEST)
+                    let G_ROIDS = 0.08;
+                    force = (G_ROIDS * r1.mass * r2.mass) / Math.max(distSq, 400);
                 }
 
                 let fx = (dx / dist) * force;
@@ -1872,11 +1866,20 @@ function loop() {
                 // Forzar la posición de la estación a ser la del host + el offset orbital.
                 e.x = host.x + dx_orbit;
                 e.y = host.y + dy_orbit;
+                e.z = host.z; // Sync Z-depth (since planets oscillate)
 
                 e.xv = host.xv;
                 e.yv = host.yv;
 
                 isOrbiting = true;
+
+                // USER REQUEST: Recover shield and make station effectively "gone" if far away
+                if (e.z >= 0.5) {
+                    if (e.structureHP < MAX_TIER_HP) {
+                        e.structureHP = MAX_TIER_HP;
+                        console.log("Station shield recovered in hyperspace (far Z).");
+                    }
+                }
             }
         }
 
@@ -1885,9 +1888,14 @@ function loop() {
             e.y += e.yv;
         }
 
-        // Calculate Viewport Position for drawing
-        const vpX = e.x - worldOffsetX + width / 2;
-        const vpY = e.y - worldOffsetY + height / 2;
+        // Calculate Viewport Position for drawing (WITH PARALLAX)
+        let depthScale = 1;
+        if (e.z > 0) {
+            depthScale = 1 / (1 + e.z);
+        }
+
+        const vpX = (e.x - worldOffsetX) * depthScale + width / 2;
+        const vpY = (e.y - worldOffsetY) * depthScale + height / 2;
 
         // 2. Collision Check with Asteroids
         for (let k = 0; k < roids.length; k++) {
@@ -1903,6 +1911,9 @@ function loop() {
             let minDist = e.r + r.r;
 
             if (dist < minDist) {
+                // COLLISION CHECK Z-FILTER: Ignore if station/enemy is far away
+                if (e.z > 0.5) continue;
+
                 let angle = Math.atan2(dy, dx);
                 let overlap = minDist - dist;
 
@@ -1916,7 +1927,6 @@ function loop() {
                 if (r.isPlanet) {
                     createExplosion(vpX, vpY, 10, '#ff0000', 2, 'spark');
                 } else {
-                    // Daño a nave enemiga por colisión con asteroide
                     e.structureHP--;
                     e.shieldHitTimer = 10;
                     const rVpX = r.x - worldOffsetX + width / 2;
@@ -1934,41 +1944,78 @@ function loop() {
         if (i < 0) continue;
 
         // 3. Enemy AI/Movement/Rotation (IA agresiva)
-        let threat = null; let minThreatDist = 500;
+        let threat = null; let minThreatDist = Infinity;
         if (!ship.dead) {
-            let distToPlayer = Math.hypot(e.x - worldOffsetX, e.y - worldOffsetY);
-            if (distToPlayer < minThreatDist) {
-                threat = { x: worldOffsetX, y: worldOffsetY }; minThreatDist = distToPlayer;
-            }
+            // Player is ALWAYS a threat regardless of distance
+            threat = { x: worldOffsetX, y: worldOffsetY };
+            minThreatDist = Math.hypot(e.x - worldOffsetX, e.y - worldOffsetY);
         }
 
+        // Check for closer asteroid threats (avoidance), but prioritize player if somewhat close?
+        // NO, player is global target, BUT avoid asteroids if IMMINENT collision.
         for (let r of roids) {
             if (r.z > 0.5) continue;
             let d = Math.hypot(e.x - r.x, r.y - r.y);
-            if (d < minThreatDist && d > e.r + r.r) { threat = r; minThreatDist = d; }
+            // Only switch threat to asteroid if it is REALLY close (imminent danger)
+            if (d < 300 && d < minThreatDist && d > e.r + r.r) {
+                threat = r;
+                minThreatDist = d;
+            }
         }
 
         if (e.type === 'station') {
             e.a += e.rotSpeed; e.spawnTimer--;
             if (e.spawnTimer <= 0) { enemyShoot(e, worldOffsetX, worldOffsetY); spawnShipFromStation(e); e.spawnTimer = 200 + Math.random() * 200; }
         } else {
-            // NAVE ENEMIGA: Gira para encarar al objetivo
             if (threat) {
                 let targetAngle = Math.atan2(threat.y - e.y, threat.x - e.x);
                 let angleDiff = targetAngle - e.a;
                 while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
                 while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
 
-                const ROT_SPEED = 0.03; // Velocidad de giro rápida
+                const ROT_SPEED_FAST = 0.1;
+                const ROT_SPEED_PRECISE = 0.05;
+                // Dynamic rotation speed: Fast if far off angle, precise if close
+                const currentRotSpeed = Math.abs(angleDiff) > 0.5 ? ROT_SPEED_FAST : ROT_SPEED_PRECISE;
 
-                if (Math.abs(angleDiff) > ROT_SPEED) {
-                    e.a += Math.sign(angleDiff) * ROT_SPEED;
+                if (Math.abs(angleDiff) > currentRotSpeed) {
+                    e.a += Math.sign(angleDiff) * currentRotSpeed;
                 } else {
                     e.a = targetAngle;
                 }
 
-                // Dispara solo si está encarando al objetivo y tiene el cono visual libre
-                if (e.reloadTime <= 0 && Math.abs(angleDiff) < 0.1) {
+                // CHASE LOGIC: Accelerate towards player if it's the player
+                // We assume threat is player if minThreatDist > 500 (since asteroids are only picked up if < 500)
+                // Or simply check if threat matches player coords.
+                const isPlayer = (threat.x === worldOffsetX && threat.y === worldOffsetY);
+
+                if (isPlayer) {
+                    // Check if enemy is on screen (Visible)
+                    const vpX = e.x - worldOffsetX + width / 2;
+                    const vpY = e.y - worldOffsetY + height / 2;
+                    const onScreen = vpX > -e.r && vpX < width + e.r && vpY > -e.r && vpY < height + e.r;
+
+                    if (onScreen) {
+                        // BRAKING LOGIC: If on screen, slow down to avoid collision
+                        e.xv *= 0.95;
+                        e.yv *= 0.95;
+                    } else if (Math.abs(angleDiff) < 0.5) {
+                        // CHASE LOGIC: If off screen, accelerate towards player
+                        const THRUST_POWER = 25 / FPS; // FASTER PURSUIT (USER REQUEST)
+                        e.xv += Math.cos(e.a) * THRUST_POWER;
+                        e.yv += Math.sin(e.a) * THRUST_POWER;
+
+                        // Clamp Speed
+                        const currentSpeed = Math.hypot(e.xv, e.yv);
+                        const ENEMY_MAX_SPEED = 18; // FASTER MAX SPEED (USER REQUEST)
+                        if (currentSpeed > ENEMY_MAX_SPEED) {
+                            e.xv = (e.xv / currentSpeed) * ENEMY_MAX_SPEED;
+                            e.yv = (e.yv / currentSpeed) * ENEMY_MAX_SPEED;
+                        }
+                    }
+                }
+
+                if (e.reloadTime <= 0 && Math.abs(angleDiff) < 0.2) {
                     enemyShoot(e, threat.x, threat.y); e.reloadTime = 100 + Math.random() * 60;
                 }
             } else {
@@ -1978,7 +2025,7 @@ function loop() {
         }
 
         // 4. Collision Check with Player (World Coords) (only logic, not drawing)
-        if (!ship.dead) {
+        if (!ship.dead && (!e.z || e.z < 0.5)) { // Z-CHECK: Only collide if near
             let distToPlayer = Math.hypot(worldOffsetX - e.x, worldOffsetY - e.y);
             if (distToPlayer < (ship.effectiveR || ship.r) + e.r + 10) {
 
@@ -2154,8 +2201,8 @@ function loop() {
                 // --- END PLANET COLLISION LOGIC ---
 
                 // ASTEROID COLLISION: Player takes 1 hit, asteroid is destroyed.
-                if (r.blinkNum === 0) { // Solo si el asteroide no es recién generado
-                    hitShip(1, isNearPlanetCollision); // Aplicar 1 hit al jugador
+                if (r.blinkNum === 0) {
+                    hitShip(1, isNearPlanetCollision);
 
                     // Destruir asteroide
                     createExplosion(vpX, vpY, 15, '#0ff', 2, 'spark');
@@ -2172,17 +2219,25 @@ function loop() {
 
     // --- Enemy DRAWING (Order 2: In Front of Planets) ---
     enemiesToDraw.forEach(e => {
-        const vpX = e.x - worldOffsetX + width / 2;
-        const vpY = e.y - worldOffsetY + height / 2;
+        let depthScale = 1; let depthAlpha = 1;
+        if (e.z > 0) {
+            depthScale = 1 / (1 + e.z);
+            depthAlpha = Math.max(0.1, 1 - (e.z / MAX_Z_DEPTH));
+        }
+
+        const vpX = (e.x - worldOffsetX) * depthScale + width / 2;
+        const vpY = (e.y - worldOffsetY) * depthScale + height / 2;
 
         // Drawing enemy
         ctx.shadowBlur = 15;
 
         // If blinking, reduce opacity (for invulnerability feedback)
         if (e.blinkNum % 2 !== 0) { ctx.globalAlpha = 0.5; }
+        else { ctx.globalAlpha = depthAlpha; } // Apply depth alpha
 
         ctx.save();
         ctx.translate(vpX, vpY); // Translate to Viewport Position
+        ctx.scale(depthScale, depthScale); // Apply depth scaling
         ctx.rotate(e.a);
 
         if (e.type === 'ship') {
@@ -2212,7 +2267,6 @@ function loop() {
 
         }
         else {
-            // GRÁFICOS DE ESTACIÓN
             const haloColor = `hsl(${e.fleetHue}, 100%, 70%)`;
             const bodyColor = `hsl(${e.fleetHue}, 80%, 50%)`;
             const coreColor = `hsl(${(e.fleetHue + 120) % 360}, 100%, 60%)`;
@@ -2265,16 +2319,18 @@ function loop() {
 
         if (currentHP > 0) {
             if (maxHP === STANDARD_SHIP_HP) {
-                // Naves estándar (3 HP): Escudo solo en HP=3
                 if (currentHP === 3) {
                     r = 0; g = 255; b = 255; // Cian
                     shieldOpacity = 0.8;
                 } else {
-                    // HP 2 o 1: Escudo visual caído, solo estructura.
                     shieldOpacity = 0;
                 }
             } else {
-                // Estaciones y Naves Tier 8 (9 HP): 3 Fases de color
+
+                // USER REQUEST: Shield is invisible when at far Z
+                if (e.type === 'station' && e.z >= 0.5) {
+                    return;
+                }
                 if (currentHP >= 7) { // Phase 1: HP 9-7 (Green/Blue - High Shield)
                     r = 0; g = 255; b = 255; // Cian
                     shieldOpacity = 1.0;
@@ -2303,11 +2359,9 @@ function loop() {
         }
 
     });
-    // --- End Enemy Drawing ---
 
     ctx.shadowBlur = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalAlpha = 1;
 
-    // --- Ship Drawing and Shield Logic (Order 3: In Front of Everything) ---
     if (!ship.dead) {
         // Regeneration is now solely for visual/Tesla effect, as structureHP manages hits
         if (ship.shield < ship.maxShield) ship.shield += 0.05;
@@ -2324,24 +2378,19 @@ function loop() {
         const centerX = width / 2; const centerY = height / 2;
         const r = ship.effectiveR;
 
-        // Determinar la durabilidad máxima real de la nave (3 o 9)
         const shipMaxHP = tier >= 8 ? MAX_TIER_HP : STANDARD_SHIP_HP;
 
         if (ship.blinkNum % 2 === 0) { // Invulnerability blink effect
 
-            // --- NUEVA LÓGICA DE DIBUJO DE ESCUDO VISUAL (Burbuja) ---
             let shieldAlpha = 0;
             let strokeWidth = 1;
             let shieldRadius = ship.effectiveR + 10;
 
-            // 1. ESCALADO DE RADIO: MODO ÉPICO / MODO MAX TIER
-            const EPIC_SHIELD_FACTOR = 1.7; // Factor de escudo grande
+            const EPIC_SHIELD_FACTOR = 1.7;
 
             if (tier >= 8) {
-                // MODO MAX TIER (sin truco): ESCUDO IGUAL DE GRANDE
                 shieldRadius = ship.effectiveR * EPIC_SHIELD_FACTOR;
 
-                // Lógica de HP de 9 Fases para Tier 8
                 if (ship.structureHP >= 7) { // HP 9-7 (Fase 1 - Alto)
                     shieldAlpha = isTesla ? (0.7 + Math.random() * 0.3) : 0.6;
                     strokeWidth = isTesla ? 2.5 : 2;
@@ -2349,39 +2398,28 @@ function loop() {
                     shieldAlpha = isTesla ? (0.3 + Math.random() * 0.2) : 0.4;
                     strokeWidth = isTesla ? 2 : 1.5;
                 }
-                // HP 3 o menos: Escudo visual caído (alpha=0)
             } else {
-                // MODO NORMAL (Tiers 0-7): 3 HP
-                shieldRadius = ship.effectiveR + 10; // Escudo pequeño
                 if (ship.structureHP === 3) {
-                    // HP 3: Escudo 50% Opacidad
                     shieldAlpha = isTesla ? (0.5 + Math.random() * 0.2) : 0.5;
                     strokeWidth = isTesla ? 1.5 : 1;
                 }
-                // HP 2 o 1: Escudo visual caído (alpha=0)
             }
 
-            if (shieldAlpha > 0) { // Dibuja si hay HP estructural restante (capas 9-4 o HP=3), Tesla, o Invencible
+            if (shieldAlpha > 0) {
 
                 ctx.lineWidth = strokeWidth;
 
-                // Usa color estándar o color Tesla basado en maxShield
                 let baseColor, shadowColor;
 
                 if (ship.structureHP <= 3 && tier < 8) {
-                    // Naves 0-7: Si shieldAlpha > 0, es porque HP=3. Color Cian.
                     baseColor = '#0ff'; shadowColor = 'rgba(0, 255, 255, 0.7)';
                 } else if (ship.structureHP >= 7) {
-                    // Tier 8 HP 9-7: Cian/Verde
                     baseColor = '#0ff'; shadowColor = 'rgba(0, 255, 255, 0.7)';
                 } else if (ship.structureHP >= 4) {
-                    // Tier 8 HP 6-4: Naranja
                     baseColor = '#ffaa00'; shadowColor = 'rgba(255, 170, 0, 0.7)';
                 } else {
-                    // Fallback (debería ser alpha=0)
                     baseColor = '#0ff'; shadowColor = 'rgba(0, 255, 255, 0.7)';
                 }
-
 
                 ctx.shadowColor = shadowColor;
                 ctx.strokeStyle = `rgba(0, 255, 255, ${shieldAlpha})`;
@@ -2390,7 +2428,6 @@ function loop() {
                 ctx.arc(centerX, centerY, shieldRadius, 0, Math.PI * 2);
                 ctx.stroke();
             }
-            // --- FIN NUEVA LÓGICA DE DIBUJO DE ESCUDO VISUAL ---
 
             ctx.save();
             ctx.translate(centerX, centerY);
@@ -2468,9 +2505,7 @@ function loop() {
         }
         if (ship.blinkNum > 0) ship.blinkNum--;
     }
-    // --- End Ship Drawing ---
 
-    // --- Enemy Bullet Logic (All in World Coords) ---
     ctx.shadowColor = '#ff0000'; ctx.fillStyle = '#ff0000';
     for (let i = enemyBullets.length - 1; i >= 0; i--) {
         let eb = enemyBullets[i];
@@ -2540,14 +2575,12 @@ function loop() {
             }
         }
     }
-    // --- End Enemy Bullet Logic ---
 
     // --- Player Bullet Logic (All in World Coords) ---
     ctx.shadowColor = '#ff0055'; ctx.fillStyle = '#ff0055';
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
 
-        // APLICAR GRAVEDAD (World Coords)
         for (let r of roids) {
             if (r.isPlanet && r.z < 0.5) { // Solo si el planeta es cercano
                 let dx = r.x - b.x; let dy = r.y - b.y; // World Distance Vector
@@ -2594,23 +2627,20 @@ function loop() {
                 const rVpY = r.y - worldOffsetY + height / 2;
 
                 if (r.isPlanet) {
-                    // LÓGICA DE FUSIÓN ASTEROIDE/PLANETA (al recibir disparo)
                     if (r.blinkNum === 0) {
                         let planet = r;
-                        let asteroidMass = b.size * 10; // Asumir masa proporcional al tamaño de la bala
-                        let asteroidR = b.size * 2; // Asumir radio proporcional al tamaño de la bala
+                        let asteroidMass = b.size * 10;
+                        let asteroidR = b.size * 2;
 
-                        // 1. Calcular la nueva masa y radio manteniendo la densidad de la fusión
                         let area1 = Math.PI * planet.r * planet.r;
                         let area2 = Math.PI * asteroidR * asteroidR;
                         let totalArea = area1 + area2;
-                        let newR = Math.sqrt(totalArea / Math.PI); // Nuevo radio
+                        let newR = Math.sqrt(totalArea / Math.PI);
 
                         let totalMass = planet.mass + asteroidMass;
 
-                        // 2. Aplicar nuevos atributos al planeta
-                        planet.targetR = newR; // El planeta crece suavemente
-                        planet.mass = totalMass * 0.05; // Actualizar masa
+                        planet.targetR = newR;
+                        planet.mass = totalMass * 0.05;
 
                         console.log(`Planeta ${planet.name} absorbió bala/materia. Nuevo R=${newR.toFixed(1)}`);
                         createExplosion(vpX, vpY, 10, '#00ffff', 2);
@@ -2621,7 +2651,6 @@ function loop() {
                     if (r.blinkNum > 0) {
                         bullets.splice(i, 1); hit = true; break;
                     }
-                    // Destruir asteroide
                     createExplosion(rVpX, rVpY, 15, '#ff0055', 1, 'spark'); createExplosion(rVpX, rVpY, 5, '#888', 2, 'debris');
                     if (r.r > 30) { roids.push(createAsteroid(r.x, r.y, r.r / 2)); roids.push(createAsteroid(r.x, r.y, r.r / 2)); }
                     roids.splice(j, 1);
@@ -2639,7 +2668,6 @@ function loop() {
         for (let j = enemies.length - 1; j >= 0; j--) {
             let e = enemies[j];
             if (e.blinkNum === 0 && Math.hypot(b.x - e.x, b.y - e.y) < e.r + 15) {
-                // Aplicar 1 golpe a la estructura enemiga
                 e.structureHP--;
                 e.shieldHitTimer = 5;
                 bullets.splice(i, 1);
