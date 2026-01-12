@@ -229,17 +229,6 @@ canvas {
     font-size: 30px;
 }
 
-.btn-fire {
-    border-color: #ff0055;
-    color: #ff0055;
-    box-shadow: 0 0 15px rgba(255, 0, 85, 0.2);
-}
-
-.btn-fire:active {
-    background: #ff0055;
-    color: white;
-    box-shadow: 0 0 30px #ff0055;
-}
 
 .btn-brake {
     width: 60px;
@@ -295,10 +284,6 @@ canvas {
     opacity: 0;
 }
 
-/* NEW: Class for Game Over screen background */
-.game-over-bg {
-    /* This class is now handled by #start-screen.game-over-bg::before */
-}
 
 /* NEW: Full-screen overlay for the slow fade-to-black effect */
 #fade-overlay {

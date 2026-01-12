@@ -142,12 +142,13 @@ const setupBtn = (id, key) => {
     const end = (e) => { e.preventDefault(); e.stopPropagation(); keys[key] = false; };
     btn.addEventListener('pointerdown', start); btn.addEventListener('pointerup', end); btn.addEventListener('pointerleave', end);
 };
-setupBtn('btn-thrust', 'ArrowUp'); setupBtn('btn-brake', 'ArrowDown'); setupBtn('btn-fire', 'Space');
+setupBtn('btn-thrust', 'ArrowUp'); setupBtn('btn-brake', 'ArrowDown');
 
 let touchStartX = 0; let isTouching = false;
 document.addEventListener('touchstart', (e) => {
     // Touch input for rotation
     if (e.target.closest('.btn')) return;
+    shootLaser(); // Tap to shoot in mobile mode
     inputMode = 'touch'; isTouching = true; touchStartX = e.touches[0].clientX;
     mobileControls.style.opacity = '1'; gestureHint.style.opacity = '1'; gestureHint.innerText = "← DESLIZA PARA GIRAR →";
 }, { passive: false });
