@@ -2,13 +2,30 @@
    GAME INITIALIZATION & CALLBACKS
    ========================================= */
 
-function onStationDestroyed() {
+function onStationDestroyed(station) {
     ship.shield = ship.maxShield; // Restore shield
     score += 500;
     stationsDestroyedCount++;
     if (stationsDestroyedCount > 0 && stationsDestroyedCount % 10 === 0) {
         lives++;
         drawLives();
+    }
+
+    // Spawn 4 minimum size asteroids in 4 directions
+    if (station) {
+        const directions = [
+            { xv: 0, yv: -2 }, // Up
+            { xv: 2, yv: 0 },  // Right
+            { xv: 0, yv: 2 },  // Down
+            { xv: -2, yv: 0 }  // Left
+        ];
+
+        directions.forEach(dir => {
+            const roid = createAsteroid(station.x, station.y, 50);
+            roid.xv = dir.xv;
+            roid.yv = dir.yv;
+            roids.push(roid);
+        });
     }
 }
 
@@ -177,17 +194,17 @@ function initBackground() {
 
 /* Ship factories moved to core.js */
 
-function spawnStation() {
-    const nearbyPlanets = roids.filter(r => r.isPlanet);
-
-    if (nearbyPlanets.length === 0) {
-        console.log("No near planets available for station spawn. Retrying soon.");
-        stationSpawnTimer = 300;
-        return;
+function spawnStation(hostPlanet = null) {
+    if (!hostPlanet) {
+        const nearbyPlanets = roids.filter(r => r.isPlanet);
+        if (nearbyPlanets.length === 0) {
+            console.log("No near planets available for station spawn. Retrying soon.");
+            stationSpawnTimer = 300;
+            return;
+        }
+        // Select a random planet to host the station
+        hostPlanet = nearbyPlanets[Math.floor(Math.random() * nearbyPlanets.length)];
     }
-
-    // Select a random planet to host the station
-    const hostPlanet = nearbyPlanets[Math.floor(Math.random() * nearbyPlanets.length)];
 
     const SAFE_ORBIT_FACTOR = 1.6;
     const STATION_R = 70;
@@ -216,7 +233,8 @@ function spawnStation() {
         orbitSpeed: (Math.random() > 0.5 ? 1 : -1) * 0.002, // Slow orbital rotation
         fleetHue: Math.floor(Math.random() * 360), // Unique color for the fleet
         blinkNum: 60,
-        z: hostPlanet.z || 0 // Inherit Z-depth from planet
+        z: hostPlanet.z || 0, // Inherit Z-depth from planet
+        hostPlanetId: hostPlanet.id // Store ID instead of reference
     });
     stationSpawnTimer = 600 + Math.random() * 300;
     console.log(`Station spawned at planet ${hostPlanet.name}`);
@@ -239,9 +257,10 @@ function spawnShipFromStation(station) {
         shieldHitTimer: 0,
         reloadTime: 100 + Math.random() * 100, mass: 30,
         fleetHue: station.fleetHue, // Inherit color from station
-        blinkNum: 30
+        blinkNum: 30,
+        z: 0 // Ships MUST be always in the default z
     });
-    AudioEngine.playExplosion('small'); // SFX Spawn
+    // AudioEngine.playExplosion('small'); // SFX Spawn REMOVED
 }
 
 /* Entity factories moved to core.js */
@@ -255,7 +274,7 @@ function shootLaser() {
     }
     playerReloadTime = PLAYER_RELOAD_TIME_MAX; // Set cooldown
 
-    AudioEngine.playLaser(); // SFX SHOOT
+    AudioEngine.playLaser(worldOffsetX, worldOffsetY); // SFX SHOOT
     const tier = getShipTier();
 
     // Tiered shooting logic: from single shot to omni-directional
@@ -453,6 +472,9 @@ function drawRadar() {
 
     // Dibuja enemigos (Amenazas)
     enemies.forEach(e => {
+        // RADAR FILTER: Only show default Z level
+        if (e.z > 0.1) return;
+
         if (e.type === 'station') {
             drawBlip(e.x, e.y, 'station', '#FF0000', 0);
         } else {
@@ -462,8 +484,8 @@ function drawRadar() {
 
     // Dibuja asteroides y planetas (Objetos)
     roids.forEach(r => {
-        // MODIFICADO: Muestra todos los planetas, oculta solo los asteroides lejanos
-        if (!r.isPlanet && r.z > 0.5) return;
+        // RADAR FILTER: Only show default Z level (ignore non-planets in far-z, filter all by z)
+        if (r.z > 0.1) return;
 
         if (r.isPlanet) {
             // Planetas: Usa el color principal del planeta (waterColor)
@@ -498,7 +520,7 @@ function createAsteroidCluster(cx, cy, clusterRadius, count) {
         const dist = Math.random() * clusterRadius;
         const x = cx + Math.cos(angle) * dist;
         const y = cy + Math.sin(angle) * dist;
-        const r = 15 + Math.random() * 30; // smaller roids in clusters
+        const r = 50 + Math.random() * 40; // larger roids in clusters
         const roid = createAsteroid(x, y, r);
 
         // Add cluster drift
@@ -515,7 +537,7 @@ function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
         const dist = innerRadius + Math.random() * (outerRadius - innerRadius);
         const x = cx + Math.cos(angle) * dist;
         const y = cy + Math.sin(angle) * dist;
-        const r = 20 + Math.random() * 40;
+        const r = 50 + Math.random() * 50;
         const roid = createAsteroid(x, y, r);
 
         // Small tangential velocity to give a sense of belt movement
@@ -559,7 +581,7 @@ function createLevel() {
     // Try to spawn a planet not at the dead center, to make it more interesting
     let planetX = (Math.random() - 0.5) * 5000;
     let planetY = (Math.random() - 0.5) * 5000;
-    roids.push(createAsteroid(planetX, planetY, PLANET_THRESHOLD * 2 + Math.random() * 200));
+    roids.push(createAsteroid(planetX, planetY, PLANET_THRESHOLD * 3.5 + Math.random() * 400, 0)); // Host planet at z=0
     planetSpawned = true;
     console.log(`Planet spawned at: (${planetX.toFixed(0)}, ${planetY.toFixed(0)})`);
 
@@ -579,7 +601,7 @@ function createLevel() {
         const binaryX = (Math.random() - 0.5) * WORLD_BOUNDS;
         const binaryY = (Math.random() - 0.5) * WORLD_BOUNDS;
         if (Math.hypot(binaryX, binaryY) < 15000) continue; // Avoid belt
-        createBinaryAsteroid(binaryX, binaryY, 20 + Math.random() * 20, 20 + Math.random() * 20, 100 + Math.random() * 50, 0.5 + Math.random());
+        createBinaryAsteroid(binaryX, binaryY, 50 + Math.random() * 30, 50 + Math.random() * 30, 100 + Math.random() * 50, 0.5 + Math.random());
     }
 
     // Add some sparse random asteroids
@@ -593,14 +615,17 @@ function createLevel() {
             d = Math.sqrt(x ** 2 + y ** 2);
         } while (d < 15000);
 
-        r = 20 + Math.random() * 80;
+        r = 50 + Math.random() * 100;
 
         // One more planet further out
         if (!planetSpawned || (i === Math.floor(roidCount / 2) && Math.random() < 0.3)) {
             if (d > 25000) {
-                r = PLANET_THRESHOLD + Math.random() * 50;
+                r = PLANET_THRESHOLD + 200 + Math.random() * 200;
                 planetSpawned = true;
-                console.log(`Outer Planet spawned at: (${x.toFixed(0)}, ${y.toFixed(0)}) with radius ${r}`);
+                const pZ = Math.random() * MAX_Z_DEPTH; // Random depth for secondary planets
+                roids.push(createAsteroid(x, y, r, pZ));
+                console.log(`Outer Planet spawned at: (${x.toFixed(0)}, ${y.toFixed(0)}) with radius ${r} at z=${pZ.toFixed(1)}`);
+                continue;
             }
         }
 
@@ -610,9 +635,17 @@ function createLevel() {
     // Fallback: If no planet was created (very unlikely)
     if (roids.filter(r => r.isPlanet).length === 0) {
         let x = WORLD_BOUNDS / 2; let y = WORLD_BOUNDS / 2;
-        roids.push(createAsteroid(x, y, PLANET_THRESHOLD + 30));
+        roids.push(createAsteroid(x, y, PLANET_THRESHOLD + 150));
         console.log("Fallback planet spawned.");
     }
+
+    // ALL PLANETS HAVE 1 OR 2 STATIONS
+    roids.filter(r => r.isPlanet).forEach(planet => {
+        const stationCount = Math.floor(Math.random() * 2) + 1; // 1 or 2
+        for (let i = 0; i < stationCount; i++) {
+            spawnStation(planet);
+        }
+    });
 }
 
 // REFRACTORIZADO: Función para manejar el daño al jugador (basado en structureHP)
@@ -625,7 +658,7 @@ function hitShip(damageAmount, sourceIsNearPlanet = false) {
     // Visual/Audio Feedback
     const vpX = width / 2; const vpY = height / 2;
     createExplosion(vpX, vpY, 10, '#0ff', 2);
-    AudioEngine.playExplosion('small');
+    // AudioEngine.playExplosion('small'); REMOVED
 
     // 3. Chequeo Estructural
     if (ship.structureHP <= 0) {
@@ -643,7 +676,7 @@ function killShip() {
 
     const vpX = width / 2; const vpY = height / 2;
     createExplosion(vpX, vpY, 60, '#0ff', 3);
-    AudioEngine.playExplosion('large');
+    AudioEngine.playExplosion('large', worldOffsetX, worldOffsetY);
     ship.dead = true;
 
     lives--;
@@ -674,7 +707,7 @@ function killShip() {
         const startBtn = document.getElementById('start-btn');
         if (startBtn) {
             startBtn.innerText = 'RESTART';
-            startBtn.onclick = () => location.reload();
+            startBtn.onclick = () => startGame(); // Direct restart without reload
         }
 
         AudioEngine.setTrack('menu');
@@ -719,11 +752,21 @@ function updatePhysics() {
 
         // Apply Z-depth movement (Parallax for planets)
         if (r1.isPlanet) {
-            // Movimiento oscilatorio Z
-            r1.z += r1.zSpeed;
-            // REVERTIR MOVIMIENTO Z AL LLEGAR AL LÍMITE REDUCIDO
-            if (r1.z > MAX_Z_DEPTH) r1.zSpeed *= -1;
-            if (r1.z < 0) { r1.z = 0; r1.zSpeed = Math.abs(r1.zSpeed); }
+            if (r1.zWait > 0) {
+                r1.zWait--;
+            } else {
+                // Movimiento oscilatorio Z
+                r1.z += r1.zSpeed;
+                // REVERTIR MOVIMIENTO Z AL LLEGAR AL LÍMITE REDUCIDO
+                if (r1.z > MAX_Z_DEPTH) r1.zSpeed *= -1;
+                if (r1.z < 0) {
+                    r1.z = 0;
+                    r1.zSpeed = Math.abs(r1.zSpeed);
+                    // Stay 3 times more time in default z than in other z distances
+                    // Travel time = 2 * MAX_Z_DEPTH / abs(zSpeed)
+                    r1.zWait = Math.floor(3 * (2 * MAX_Z_DEPTH / r1.zSpeed));
+                }
+            }
         }
 
         // Decrease asteroid invulnerability frames
@@ -771,23 +814,40 @@ function updatePhysics() {
             let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
 
             if (dist < r1.r + r2.r) {
-                const vpX = r1.x - worldOffsetX + width / 2;
-                const vpY = r1.y - worldOffsetY + height / 2;
+                const midX = (r1.x + r2.x) / 2;
+                const midY = (r1.y + r2.y) / 2;
+                const midVpX = midX - worldOffsetX + width / 2;
+                const midVpY = midY - worldOffsetY + height / 2;
 
                 // 1. Planet-Planet Collision
                 if (r1.isPlanet && r2.isPlanet) {
-                    if (Math.abs(r1.z - r2.z) < 0.1) { // Same Z-level check
-                        createExplosion(vpX, vpY, 80, '#ffaa00', 5, 'spark');
-                        createExplosion(vpX, vpY, 40, '#ff0000', 8, 'debris');
-                        AudioEngine.playExplosion('large');
-                        for (let k = 0; k < 50; k++) {
-                            let ast = createAsteroid((r1.x + r2.x) / 2, (r1.y + r2.y) / 2, 15 + Math.random() * 60);
-                            let ang = Math.random() * Math.PI * 2;
-                            let spd = 0.5 + Math.random() * 2;
-                            ast.xv = Math.cos(ang) * spd; ast.yv = Math.sin(ang) * spd;
+                    // Only in default z level (where ship is)
+                    if (r1.z < 0.1 && r2.z < 0.1) {
+                        createExplosion(midVpX, midVpY, 80, '#ffaa00', 5, 'spark');
+                        createExplosion(midVpX, midVpY, 40, '#ff0000', 8, 'debris');
+                        AudioEngine.playPlanetExplosion(midX, midY, r1.z); // Strong sound if visible
+
+                        const avgXv = (r1.xv + r2.xv) / 2;
+                        const avgYv = (r1.yv + r2.yv) / 2;
+
+                        // Throw away 20 asteroids in all directions, medium speed
+                        for (let k = 0; k < 20; k++) {
+                            const angle = (k / 20) * Math.PI * 2;
+                            const spd = 4 + Math.random() * 4; // Medium speed
+                            let ast = createAsteroid(midX, midY, 30);
+                            ast.xv = avgXv + Math.cos(angle) * spd;
+                            ast.yv = avgYv + Math.sin(angle) * spd;
+                            ast.blinkNum = 30;
                             roids.push(ast);
                         }
-                        createShockwave((r1.x + r2.x) / 2, (r1.y + r2.y) / 2);
+                        createShockwave(midX, midY);
+
+                        // Destroy both planets' stations
+                        for (let k = enemies.length - 1; k >= 0; k--) {
+                            if (enemies[k].hostPlanet === r1 || enemies[k].hostPlanet === r2) {
+                                enemies.splice(k, 1);
+                            }
+                        }
 
                         roids.splice(j, 1);
                         roids.splice(i, 1);
@@ -799,31 +859,42 @@ function updatePhysics() {
                     // Planet-Asteroid Coalescence
                     if (r1.isPlanet !== r2.isPlanet) {
                         let planet, asteroid, asteroidIndex;
-                        if (r1.isPlanet) { planet = r1; asteroid = r2; asteroidIndex = j; }
-                        else { planet = r2; asteroid = r1; asteroidIndex = i; let temp = r1; r1 = r2; r2 = temp; asteroidIndex = j; }
+                        // Determine which is the planet and which is the asteroid
+                        if (r1.isPlanet) {
+                            planet = r1;
+                            asteroid = r2;
+                            asteroidIndex = j;
+                        } else {
+                            planet = r2;
+                            asteroid = r1;
+                            asteroidIndex = i;
+                        }
 
                         let area1 = Math.PI * planet.r * planet.r;
                         let area2 = Math.PI * asteroid.r * asteroid.r;
                         let totalArea = area1 + area2;
                         let newR = Math.sqrt(totalArea / Math.PI);
-                        let totalMass = planet.mass + asteroid.mass;
-                        let newVX = (planet.xv * planet.mass + asteroid.xv * asteroid.mass) / totalMass;
-                        let newVY = (planet.yv * planet.mass + asteroid.yv * asteroid.mass) / totalMass;
-                        let newX = (planet.x * planet.mass + asteroid.x * asteroid.mass) / totalMass;
-                        let newY = (planet.y * planet.mass + asteroid.y * asteroid.mass) / totalMass;
 
-                        r1.x = newX; r1.y = newY;
-                        r1.xv = newVX; r1.yv = newVY;
-                        r1.targetR = newR; r1.r = newR;
-                        r1.mass = totalMass * 0.05;
+                        // Physics: Transfer momentum and mass
+                        let totalMass = planet.mass + asteroid.mass;
+                        planet.xv = (planet.xv * planet.mass + asteroid.xv * asteroid.mass) / totalMass;
+                        planet.yv = (planet.yv * planet.mass + asteroid.yv * asteroid.mass) / totalMass;
+                        planet.x = (planet.x * planet.mass + asteroid.x * asteroid.mass) / totalMass;
+                        planet.y = (planet.y * planet.mass + asteroid.y * asteroid.mass) / totalMass;
+
+                        // Smoothly grow to new size
+                        planet.targetR = newR;
+                        planet.mass = totalMass; // Update mass immediately for gravity
 
                         roids.splice(asteroidIndex, 1);
-                        i--; // Compensate for removal
-
-                        console.log(`Planeta ${r1.name} absorbió asteroide. Nuevo R=${newR.toFixed(1)}`);
-                        createExplosion(vpX, vpY, 20, '#00ffff', 3);
-                        AudioEngine.playExplosion('large');
-                        break;
+                        // If we removed the item at 'i', we must adjust 'i' and break
+                        if (asteroidIndex === i) {
+                            i--;
+                            break;
+                        } else {
+                            // If we removed 'j', just break the j-loop and continue with 'i'
+                            break;
+                        }
                     }
                     // Asteroid-Asteroid Merge
                     else {
@@ -848,13 +919,19 @@ function updatePhysics() {
                             initializePlanetAttributes(r1);
                             r1.targetR = newR;
                             console.log(`¡NUEVO PLANETA! Nombre: ${r1.name}, ID: ${r1.textureData.seed}.`);
-                            createExplosion(vpX, vpY, 30, '#fff', 5);
-                            AudioEngine.playExplosion('large');
+                            createExplosion(midVpX, midVpY, 30, '#fff', 5);
+                            // AudioEngine.playExplosion('large'); REMOVED
                         } else if (r1.isPlanet) {
                             r1.r = newR;
                             r1.mass = totalMass * 0.05;
                             console.log(`Planeta ${r1.name} (ID: ${r1.textureData.seed}) CRECE a R=${newR.toFixed(1)}`);
                         }
+
+                        // NEW: Audio feedback for asteroid fusion
+                        if (newR <= PLANET_THRESHOLD) {
+                            AudioEngine.playSoftThud(midX, midY, r1.z); // Soft sound for merge
+                        }
+
                         roids.splice(j, 1); j--; continue;
                     }
                 }
@@ -975,7 +1052,7 @@ function loop() {
         if (ship.thrusting) {
             deltaX += SHIP_THRUST * Math.cos(ship.a);
             deltaY -= SHIP_THRUST * Math.sin(ship.a);
-            if (Math.random() < 0.2) AudioEngine.playThrust();
+            if (Math.random() < 0.2) AudioEngine.playThrust(worldOffsetX, worldOffsetY);
         }
 
         // Desplazamiento lateral / Strafe (A/D)
@@ -983,13 +1060,13 @@ function loop() {
             const strafeAngle = ship.a + Math.PI / 2;
             deltaX += SHIP_THRUST * strafeMultiplier * Math.cos(strafeAngle);
             deltaY -= SHIP_THRUST * strafeMultiplier * Math.sin(strafeAngle);
-            if (Math.random() < 0.2) AudioEngine.playThrust();
+            if (Math.random() < 0.2) AudioEngine.playThrust(worldOffsetX, worldOffsetY);
         }
         if (keys.KeyD) { // Strafe Derecha (perpendicular a la derecha: ship.a - PI/2)
             const strafeAngle = ship.a - Math.PI / 2;
             deltaX += SHIP_THRUST * strafeMultiplier * Math.cos(strafeAngle);
             deltaY -= SHIP_THRUST * strafeMultiplier * Math.sin(strafeAngle);
-            if (Math.random() < 0.2) AudioEngine.playThrust();
+            if (Math.random() < 0.2) AudioEngine.playThrust(worldOffsetX, worldOffsetY);
         }
 
 
@@ -1181,7 +1258,8 @@ function loop() {
         let e = enemies[i];
 
         const cullRange = WORLD_BOUNDS * 1.5;
-        if (Math.hypot(e.x - worldOffsetX, e.y - worldOffsetY) > cullRange) {
+        // CULLING: Only cull ships, NOT stations
+        if (e.type !== 'station' && Math.hypot(e.x - worldOffsetX, e.y - worldOffsetY) > cullRange) {
             enemies.splice(i, 1);
             continue;
         }
@@ -1190,10 +1268,10 @@ function loop() {
 
         // 1. MOVIMIENTO ORBITAL (All in World Coords)
         let isOrbiting = false;
-        if (e.type === 'station' && e.hostPlanet) {
-            const host = roids.find(r => r === e.hostPlanet);
+        if (e.type === 'station' && e.hostPlanetId) {
+            const host = roids.find(r => r.id === e.hostPlanetId);
             if (!host) {
-                e.hostPlanet = null;
+                e.hostPlanetId = null;
                 e.xv = (Math.random() - 0.5) * 0.5; e.yv = (Math.random() - 0.5) * 0.5;
             } else {
                 // Actualizar la posición orbital
@@ -1240,7 +1318,7 @@ function loop() {
             let r = roids[k];
             if (r.z > 0.5) continue;
 
-            if ((e.type === 'station' && e.hostPlanet && r === e.hostPlanet) || e.blinkNum > 0) {
+            if ((e.type === 'station' && e.hostPlanetId && r.id === e.hostPlanetId) || e.blinkNum > 0) {
                 continue; // Skip collision check for the orbital anchor or if blinking
             }
 
@@ -1373,6 +1451,7 @@ function loop() {
                     createExplosion(vpX, vpY, 20, '#ff0055', 2, 'spark');
 
                     hitShip(1);
+                    AudioEngine.playSoftThud(e.x, e.y, e.z); // Soft sound for ship-ship collision
 
                     let ang = Math.atan2(e.y - worldOffsetY, e.x - worldOffsetX);
                     e.x += Math.cos(ang) * 60; e.y += Math.sin(ang) * 60;
@@ -1380,14 +1459,14 @@ function loop() {
                 } else {
                     enemies.splice(i, 1); i--;
                     scoreEl.innerText = score;
-                    AudioEngine.playExplosion('large');
+                    AudioEngine.playExplosion('large', e.x, e.y, e.z);
                 }
 
                 if (e.structureHP <= 0) {
                     let debrisColor = e.type === 'station' ? `hsl(${e.fleetHue}, 100%, 50%)` : `hsl(${e.fleetHue}, 100%, 40%)`;
                     createExplosion(vpX, vpY, 40, '#ffaa00', 3, 'spark'); createExplosion(vpX, vpY, 20, debrisColor, 4, 'debris');
-                    if (e.type === 'station') { onStationDestroyed(); } else { score += 200; }
-                    enemies.splice(i, 1); scoreEl.innerText = score; AudioEngine.playExplosion('large');
+                    if (e.type === 'station') { onStationDestroyed(e); } else { score += 200; }
+                    enemies.splice(i, 1); scoreEl.innerText = score; AudioEngine.playExplosion('large', e.x, e.y, e.z);
                 }
             }
         }
@@ -1433,6 +1512,21 @@ function loop() {
                 r.xv = (r.xv / speed) * MAX_PLANET_SPEED;
                 r.yv = (r.yv / speed) * MAX_PLANET_SPEED;
             }
+        }
+
+        // ENFORCE MINIMUM SPEED to avoid wobbling (stable direction)
+        const MIN_SPEED = r.isPlanet ? 0.05 : 0.2;
+        const currentSpeed = Math.hypot(r.xv, r.yv);
+
+        if (currentSpeed < MIN_SPEED) {
+            // Gently push velocity towards the stable direction
+            const angle = Math.atan2(r.stableYV, r.stableXV);
+            const targetXv = Math.cos(angle) * MIN_SPEED;
+            const targetYv = Math.sin(angle) * MIN_SPEED;
+
+            // Use a lerp-like approach to avoid jittery snaps
+            r.xv += (targetXv - r.xv) * 0.1;
+            r.yv += (targetYv - r.yv) * 0.1;
         }
 
         let depthScale = 1; let depthAlpha = 1;
@@ -1541,6 +1635,7 @@ function loop() {
                 // ASTEROID COLLISION: Player takes 1 hit, asteroid is destroyed.
                 if (r.blinkNum === 0) {
                     hitShip(1, isNearPlanetCollision);
+                    AudioEngine.playSoftThud(r.x, r.y, r.z); // Soft sound for asteroid impact
 
                     // Destruir asteroide
                     createExplosion(vpX, vpY, 15, '#0ff', 2, 'spark');
@@ -1701,6 +1796,8 @@ function loop() {
     ctx.shadowBlur = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalAlpha = 1;
 
     if (!ship.dead) {
+        ctx.save(); // PUSH 1: Isolate entire player ship rendering block
+
         // Regeneration is now solely for visual/Tesla effect, as structureHP manages hits
         if (ship.shield < ship.maxShield) ship.shield += 0.05;
 
@@ -1778,27 +1875,31 @@ function loop() {
                 const HULL_COLOR = '#1A1A1A'; const HULL_BORDER = '#333333';
                 const DETAIL_GRAY = '#666666'; const ACCENT_RED = '#FF4444';
                 const THRUST_COLOR = '#0088FF';
+
+                // Normalization scale to match Tier 7 visual radius (approx 1/1.7)
+                const norm = 0.6;
+
                 ctx.shadowBlur = 20; ctx.shadowColor = THRUST_COLOR;
                 ctx.beginPath();
-                ctx.moveTo(r * 1.6, 0);
-                ctx.lineTo(r * 0.5, r * 1.5); ctx.lineTo(-r * 1.2, r * 0.8);
-                ctx.lineTo(-r * 1.8, r * 0.4); ctx.lineTo(-r * 1.8, -r * 0.4);
-                ctx.lineTo(-r * 1.2, -r * 0.8); ctx.lineTo(r * 0.5, -r * 1.5);
+                ctx.moveTo(r * 1.6 * norm, 0);
+                ctx.lineTo(r * 0.5 * norm, r * 1.5 * norm); ctx.lineTo(-r * 1.2 * norm, r * 0.8 * norm);
+                ctx.lineTo(-r * 1.8 * norm, r * 0.4 * norm); ctx.lineTo(-r * 1.8 * norm, -r * 0.4 * norm);
+                ctx.lineTo(-r * 1.2 * norm, -r * 0.8 * norm); ctx.lineTo(r * 0.5 * norm, -r * 1.5 * norm);
                 ctx.closePath();
                 ctx.fillStyle = HULL_COLOR; ctx.fill();
                 ctx.lineWidth = 2; ctx.strokeStyle = HULL_BORDER; ctx.stroke();
                 ctx.shadowBlur = 0; ctx.fillStyle = DETAIL_GRAY;
-                ctx.beginPath(); ctx.moveTo(r * 1.6, 0); ctx.lineTo(r * 1.4, r * 0.1); ctx.lineTo(r * 1.4, -r * 0.1); ctx.closePath(); ctx.fill();
+                ctx.beginPath(); ctx.moveTo(r * 1.6 * norm, 0); ctx.lineTo(r * 1.4 * norm, r * 0.1 * norm); ctx.lineTo(r * 1.4 * norm, -r * 0.1 * norm); ctx.closePath(); ctx.fill();
                 ctx.fillStyle = DETAIL_GRAY;
-                ctx.fillRect(r * 0.2, r * 0.5, r * 0.3, r * 0.2); ctx.fillRect(r * 0.2, -r * 0.7, r * 0.3, r * 0.2);
-                ctx.fillStyle = ACCENT_RED; ctx.beginPath(); ctx.arc(-r * 0.5, 0, r * 0.2, 0, Math.PI * 2); ctx.fill();
+                ctx.fillRect(r * 0.2 * norm, r * 0.5 * norm, r * 0.3 * norm, r * 0.2 * norm); ctx.fillRect(r * 0.2 * norm, -r * 0.7 * norm, r * 0.3 * norm, r * 0.2 * norm);
+                ctx.fillStyle = ACCENT_RED; ctx.beginPath(); ctx.arc(-r * 0.5 * norm, 0, r * 0.2 * norm, 0, Math.PI * 2); ctx.fill();
                 ctx.shadowBlur = 30; ctx.shadowColor = THRUST_COLOR;
-                const EXHAUST_H = r * 0.7; const EXHAUST_X = -r * 1.8;
+                const EXHAUST_H = r * 0.7 * norm; const EXHAUST_X = -r * 1.8 * norm;
                 ctx.fillStyle = HULL_BORDER; ctx.fillRect(EXHAUST_X, -EXHAUST_H / 2, 5, EXHAUST_H);
                 if (ship.thrusting) {
                     ctx.fillStyle = `rgba(0, 136, 255, ${0.5 + Math.random() * 0.5})`;
                     ctx.beginPath(); ctx.moveTo(EXHAUST_X + 5, -EXHAUST_H / 2); ctx.lineTo(EXHAUST_X + 5, EXHAUST_H / 2);
-                    ctx.lineTo(EXHAUST_X - 25 * (0.8 + Math.random() * 0.4), 0); ctx.closePath(); ctx.fill();
+                    ctx.lineTo(EXHAUST_X - 25 * norm * (0.8 + Math.random() * 0.4), 0); ctx.closePath(); ctx.fill();
                 }
                 ctx.shadowBlur = 0;
             } else {
@@ -1842,6 +1943,7 @@ function loop() {
             ctx.restore();
         }
         if (ship.blinkNum > 0) ship.blinkNum--;
+        ctx.restore(); // POP 1: Restore state after ship block
     }
 
     ctx.shadowColor = '#ff0000'; ctx.fillStyle = '#ff0000';
@@ -1906,8 +2008,9 @@ function loop() {
                 }
                 else {
                     createExplosion(rVpX, rVpY, 10, '#aa00ff', 1, 'debris');
-                    if (r.r > 30) { roids.push(createAsteroid(r.x, r.y, r.r / 2)); roids.push(createAsteroid(r.x, r.y, r.r / 2)); } // New asteroids get world coords
+                    if (r.r > 100) { roids.push(createAsteroid(r.x, r.y, r.r / 2)); roids.push(createAsteroid(r.x, r.y, r.r / 2)); } // New asteroids get world coords
                     roids.splice(j, 1);
+                    AudioEngine.playExplosion('small', r.x, r.y, r.z); // Added for asteroid destruction by enemy
                 }
                 enemyBullets.splice(i, 1); hit = true; break;
             }
@@ -1990,9 +2093,9 @@ function loop() {
                         bullets.splice(i, 1); hit = true; break;
                     }
                     createExplosion(rVpX, rVpY, 15, '#ff0055', 1, 'spark'); createExplosion(rVpX, rVpY, 5, '#888', 2, 'debris');
-                    if (r.r > 30) { roids.push(createAsteroid(r.x, r.y, r.r / 2)); roids.push(createAsteroid(r.x, r.y, r.r / 2)); }
+                    if (r.r > 100) { roids.push(createAsteroid(r.x, r.y, r.r / 2)); roids.push(createAsteroid(r.x, r.y, r.r / 2)); }
                     roids.splice(j, 1);
-                    AudioEngine.playExplosion('small');
+                    AudioEngine.playExplosion('small', r.x, r.y, r.z);
                 }
                 if (!r.isPlanet) {
                     score += 50; scoreEl.innerText = score;
@@ -2017,11 +2120,11 @@ function loop() {
                 if (e.structureHP <= 0) {
                     let debrisColor = e.type === 'station' ? `hsl(${e.fleetHue}, 100%, 50%)` : `hsl(${e.fleetHue}, 100%, 40%)`;
                     createExplosion(eVpX, eVpY, 40, '#ffaa00', 3, 'spark'); createExplosion(eVpX, eVpY, 20, debrisColor, 4, 'debris');
-                    if (e.type === 'station') { onStationDestroyed(); } else { score += 200; }
+                    if (e.type === 'station') { onStationDestroyed(e); } else { score += 200; }
                     enemies.splice(j, 1); scoreEl.innerText = score;
-                    AudioEngine.playExplosion('large');
+                    AudioEngine.playExplosion('large', e.x, e.y, e.z);
                 } else {
-                    AudioEngine.playExplosion('small');
+                    // AudioEngine.playExplosion('small'); REMOVED
                 }
                 break;
             } else if (e.blinkNum > 0 && Math.hypot(b.x - e.x, b.y - e.y) < e.r + 15) {
@@ -2084,6 +2187,11 @@ function startGame() {
     scoreEl.innerText = score;
 
     ship = newShip();
+    particles = [];
+    ambientFogs = [];
+    bullets = [];
+    enemyBullets = [];
+    shockwaves = [];
 
     drawLives(); // NEW: Initial draw
 
@@ -2097,7 +2205,11 @@ function startGame() {
     // Determine initial input mode based on device
     if (window.matchMedia("(pointer: coarse)").matches) { inputMode = 'touch'; mobileControls.style.opacity = '1'; }
     else { inputMode = 'mouse'; mobileControls.style.opacity = '0'; gestureHint.innerText = ""; }
-    loop();
+
+    if (!loopStarted) {
+        loopStarted = true;
+        loop();
+    }
 }
 
 resize();

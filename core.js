@@ -21,8 +21,8 @@ const MAX_TIER_HP = 9;
 
 const ZOOM_LEVELS = [2500, 5000, 12500, 25000, 75000];
 const G_CONST = 0.5;
-const PLANET_THRESHOLD = 150;
-const MAX_Z_DEPTH = 3;
+const PLANET_THRESHOLD = 200;
+const MAX_Z_DEPTH = 5;
 
 const WORLD_BOUNDS = 75000;
 const BOUNDARY_DAMPENING = 0.5;
@@ -64,6 +64,7 @@ let stationSpawnTimer = 0;
 let stationsDestroyedCount = 0;
 let level = 0;
 let gameRunning = false;
+let loopStarted = false;
 let inputMode = 'mouse';
 let keys = { ArrowUp: false, ArrowDown: false, Space: false, ArrowLeft: false, ArrowRight: false, KeyA: false, KeyD: false };
 let mouse = { x: 0, y: 0 };
@@ -166,7 +167,19 @@ const AudioEngine = {
     playKick: function (time) { },
     playSnare: function (time) { },
 
-    playLaser: function () {
+    isVisible: function (worldX, worldY, z = 0) {
+        if (worldX === undefined || worldX === null) return true;
+        let depthScale = 1;
+        if (z > 0) depthScale = 1 / (1 + z);
+        const vpX = (worldX - worldOffsetX) * depthScale + width / 2;
+        const vpY = (worldY - worldOffsetY) * depthScale + height / 2;
+        const padding = 100;
+        return vpX >= -padding && vpX <= width + padding &&
+            vpY >= -padding && vpY <= height + padding;
+    },
+
+    playLaser: function (worldX, worldY) {
+        if (!this.isVisible(worldX, worldY)) return;
         if (!this.enabled || !this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
@@ -179,9 +192,11 @@ const AudioEngine = {
         osc.start(); osc.stop(this.ctx.currentTime + 0.2);
     },
 
-    playExplosion: function (size = 'small') {
+    playExplosion: function (size = 'small', worldX, worldY, z = 0) {
+        if (!this.isVisible(worldX, worldY, z)) return;
         if (!this.enabled || !this.ctx) return;
-        const bufferSize = this.ctx.sampleRate * (size === 'large' ? 1.5 : 0.5);
+        const duration = size === 'large' ? 1.0 : 0.3;
+        const bufferSize = this.ctx.sampleRate * (duration + 0.2);
         const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
         const data = buffer.getChannelData(0);
         for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
@@ -190,14 +205,55 @@ const AudioEngine = {
         const filter = this.ctx.createBiquadFilter();
         filter.type = 'lowpass';
         filter.frequency.setValueAtTime(1000, this.ctx.currentTime);
-        filter.frequency.exponentialRampToValueAtTime(10, this.ctx.currentTime + (size === 'large' ? 1.0 : 0.3));
+        filter.frequency.exponentialRampToValueAtTime(10, this.ctx.currentTime + duration);
         gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + (size === 'large' ? 1.0 : 0.3));
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
         noise.connect(filter); filter.connect(gain); gain.connect(this.masterGain);
         noise.start();
     },
 
-    playThrust: function () {
+    playSoftThud: function (worldX, worldY, z = 0) {
+        if (!this.isVisible(worldX, worldY, z)) return;
+        if (!this.enabled || !this.ctx) return;
+        const duration = 0.2;
+        const bufferSize = this.ctx.sampleRate * duration;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        const noise = this.ctx.createBufferSource(); noise.buffer = buffer;
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(300, this.ctx.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(20, this.ctx.currentTime + duration);
+        gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+        noise.connect(filter); filter.connect(gain); gain.connect(this.masterGain);
+        noise.start();
+    },
+
+    playPlanetExplosion: function (worldX, worldY, z = 0) {
+        if (!this.isVisible(worldX, worldY, z)) return;
+        if (!this.enabled || !this.ctx) return;
+        const duration = 2.5; // Much longer
+        const bufferSize = this.ctx.sampleRate * duration;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        const noise = this.ctx.createBufferSource(); noise.buffer = buffer;
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(500, this.ctx.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(5, this.ctx.currentTime + duration);
+        gain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+        noise.connect(filter); filter.connect(gain); gain.connect(this.masterGain);
+        noise.start();
+    },
+
+    playThrust: function (worldX, worldY) {
+        if (!this.isVisible(worldX, worldY)) return;
         if (!this.enabled || !this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
@@ -310,16 +366,19 @@ function newShip() {
         dead: false,
         thrusting: false,
         mass: 20,
-        structureHP: startingHP
+        structureHP: startingHP,
+        effectiveR: SHIP_SIZE / 2
     };
 }
 
+let roidCounter = 0;
 function createAsteroid(x, y, r, z = 0) {
     let isPlanet = r > PLANET_THRESHOLD;
     let roid = {
+        id: ++roidCounter,
         x, y,
-        xv: (Math.random() * 30 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
-        yv: (Math.random() * 30 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
+        xv: (0.5 + Math.random() * 25 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
+        yv: (0.5 + Math.random() * 25 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
         r, a: Math.random() * Math.PI * 2,
         vert: Math.floor(Math.random() * 8 + 6), offs: [],
         mass: r * r * 0.05,
@@ -332,6 +391,8 @@ function createAsteroid(x, y, r, z = 0) {
         blinkNum: 0,
         targetR: r
     };
+    roid.stableXV = roid.xv;
+    roid.stableYV = roid.yv;
     if (isPlanet) initializePlanetAttributes(roid);
     for (let i = 0; i < roid.vert; i++) roid.offs.push(Math.random() * 0.3 * 2 + 1 - 0.3);
     return roid;
@@ -384,6 +445,7 @@ function initializePlanetAttributes(roid) {
             ageFactorRng: rng() * 0.5 + 0.5
         });
     }
+    roid.zWait = 0;
     roid.textureData = textureData;
     if (Math.random() < 0.25 || r > PLANET_THRESHOLD + 100) {
         roid.rings = {
