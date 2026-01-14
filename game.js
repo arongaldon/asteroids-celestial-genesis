@@ -14,14 +14,19 @@ function onStationDestroyed(station) {
     // Spawn 4 minimum size asteroids in 4 directions
     if (station) {
         const directions = [
-            { xv: 0, yv: -2 }, // Up
-            { xv: 2, yv: 0 },  // Right
-            { xv: 0, yv: 2 },  // Down
-            { xv: -2, yv: 0 }  // Left
+            { xv: 0, yv: -20 }, // North
+            { xv: 20, yv: 0 },  // East
+            { xv: 0, yv: 20 },  // South
+            { xv: -20, yv: 0 }  // West
         ];
 
         directions.forEach(dir => {
-            const roid = createAsteroid(station.x, station.y, 50);
+            const offset = 100; // Spawn offset distance
+            const roid = createAsteroid(
+                station.x + (dir.xv !== 0 ? Math.sign(dir.xv) * offset : 0),
+                station.y + (dir.yv !== 0 ? Math.sign(dir.yv) * offset : 0),
+                50
+            );
             roid.xv = dir.xv;
             roid.yv = dir.yv;
             roids.push(roid);
@@ -233,7 +238,7 @@ function spawnStation(hostPlanet = null) {
         orbitSpeed: (Math.random() > 0.5 ? 1 : -1) * 0.002, // Slow orbital rotation
         fleetHue: Math.floor(Math.random() * 360), // Unique color for the fleet
         blinkNum: 60,
-        z: hostPlanet.z || 0, // Inherit Z-depth from planet
+        z: 0, // Always at default Z-depth for radar visibility
         hostPlanetId: hostPlanet.id // Store ID instead of reference
     });
     stationSpawnTimer = 600 + Math.random() * 300;
@@ -813,6 +818,21 @@ function updatePhysics() {
             let dx = r2.x - r1.x; let dy = r2.y - r1.y; // World Distance Vector
             let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
 
+            // Gravitational attraction between asteroids when close (for natural merging)
+            const attractionRange = (r1.r + r2.r) * 3; // 3x combined radii
+            if (dist < attractionRange && dist > 1) {
+                // Calculate gravitational force (stronger for larger mass difference)
+                const force = (G_CONST * r1.mass * r2.mass) / Math.max(distSq, 100);
+                const forceX = (dx / dist) * force * 0.5; // Reduced strength for smooth approach
+                const forceY = (dy / dist) * force * 0.5;
+
+                // Apply force to both asteroids (smaller accelerates more toward larger)
+                r1.xv += forceX / r1.mass;
+                r1.yv += forceY / r1.mass;
+                r2.xv -= forceX / r2.mass;
+                r2.yv -= forceY / r2.mass;
+            }
+
             if (dist < r1.r + r2.r) {
                 const midX = (r1.x + r2.x) / 2;
                 const midY = (r1.y + r2.y) / 2;
@@ -830,16 +850,26 @@ function updatePhysics() {
                         const avgXv = (r1.xv + r2.xv) / 2;
                         const avgYv = (r1.yv + r2.yv) / 2;
 
-                        // Throw away 20 asteroids in all directions, medium speed
-                        for (let k = 0; k < 20; k++) {
-                            const angle = (k / 20) * Math.PI * 2;
-                            const spd = 4 + Math.random() * 4; // Medium speed
-                            let ast = createAsteroid(midX, midY, 30);
-                            ast.xv = avgXv + Math.cos(angle) * spd;
-                            ast.yv = avgYv + Math.sin(angle) * spd;
+                        // Spawn 4 large asteroids in cardinal directions
+                        const directions = [
+                            { xv: 0, yv: -25 },  // North
+                            { xv: 25, yv: 0 },   // East
+                            { xv: 0, yv: 25 },   // South
+                            { xv: -25, yv: 0 }   // West
+                        ];
+
+                        directions.forEach(dir => {
+                            const offset = 200; // Spawn offset distance for large asteroids
+                            let ast = createAsteroid(
+                                midX + (dir.xv !== 0 ? Math.sign(dir.xv) * offset : 0),
+                                midY + (dir.yv !== 0 ? Math.sign(dir.yv) * offset : 0),
+                                150
+                            ); // Large asteroid
+                            ast.xv = avgXv + dir.xv;
+                            ast.yv = avgYv + dir.yv;
                             ast.blinkNum = 30;
                             roids.push(ast);
-                        }
+                        });
                         createShockwave(midX, midY);
 
                         // Destroy both planets' stations
@@ -1282,7 +1312,8 @@ function loop() {
                 // Forzar la posición de la estación a ser la del host + el offset orbital.
                 e.x = host.x + dx_orbit;
                 e.y = host.y + dy_orbit;
-                e.z = host.z; // Sync Z-depth (since planets oscillate)
+                // Keep station at default Z-depth for radar visibility
+                // e.z = host.z; // REMOVED: Don't sync Z with planet
 
                 e.xv = host.xv;
                 e.yv = host.yv;
@@ -1514,20 +1545,7 @@ function loop() {
             }
         }
 
-        // ENFORCE MINIMUM SPEED to avoid wobbling (stable direction)
-        const MIN_SPEED = r.isPlanet ? 0.05 : 0.2;
-        const currentSpeed = Math.hypot(r.xv, r.yv);
-
-        if (currentSpeed < MIN_SPEED) {
-            // Gently push velocity towards the stable direction
-            const angle = Math.atan2(r.stableYV, r.stableXV);
-            const targetXv = Math.cos(angle) * MIN_SPEED;
-            const targetYv = Math.sin(angle) * MIN_SPEED;
-
-            // Use a lerp-like approach to avoid jittery snaps
-            r.xv += (targetXv - r.xv) * 0.1;
-            r.yv += (targetYv - r.yv) * 0.1;
-        }
+        // Natural movement - no minimum speed enforcement for smoother physics
 
         let depthScale = 1; let depthAlpha = 1;
 
@@ -1635,11 +1653,34 @@ function loop() {
                 // ASTEROID COLLISION: Player takes 1 hit, asteroid is destroyed.
                 if (r.blinkNum === 0) {
                     hitShip(1, isNearPlanetCollision);
-                    AudioEngine.playSoftThud(r.x, r.y, r.z); // Soft sound for asteroid impact
+                    AudioEngine.playSoftThud(r.x, r.y, r.z);
 
-                    // Destruir asteroide
+                    // Create explosions
                     createExplosion(vpX, vpY, 15, '#0ff', 2, 'spark');
                     createExplosion(vpX, vpY, 8, '#fff', 1, 'debris');
+
+                    // Split asteroid if larger than minimum size
+                    const MIN_ASTEROID_SIZE = 80;
+                    if (r.r > MIN_ASTEROID_SIZE) {
+                        const newSize = r.r * 0.6;
+                        const splitSpeed = 8;
+                        const offset = 100;
+
+                        // West asteroid
+                        let westAst = createAsteroid(r.x - offset, r.y, newSize);
+                        westAst.xv = r.xv - splitSpeed;
+                        westAst.yv = r.yv;
+                        westAst.blinkNum = 30;
+                        roids.push(westAst);
+
+                        // East asteroid
+                        let eastAst = createAsteroid(r.x + offset, r.y, newSize);
+                        eastAst.xv = r.xv + splitSpeed;
+                        eastAst.yv = r.yv;
+                        eastAst.blinkNum = 30;
+                        roids.push(eastAst);
+                    }
+
                     roids.splice(i, 1);
 
                     let ang = Math.atan2(r.y - worldOffsetY, r.x - worldOffsetX); // World Angle
@@ -2092,8 +2133,31 @@ function loop() {
                     if (r.blinkNum > 0) {
                         bullets.splice(i, 1); hit = true; break;
                     }
-                    createExplosion(rVpX, rVpY, 15, '#ff0055', 1, 'spark'); createExplosion(rVpX, rVpY, 5, '#888', 2, 'debris');
-                    if (r.r > 100) { roids.push(createAsteroid(r.x, r.y, r.r / 2)); roids.push(createAsteroid(r.x, r.y, r.r / 2)); }
+                    createExplosion(rVpX, rVpY, 15, '#ff0055', 1, 'spark');
+                    createExplosion(rVpX, rVpY, 5, '#888', 2, 'debris');
+
+                    // Split asteroid if larger than minimum size
+                    const MIN_ASTEROID_SIZE = 80;
+                    if (r.r > MIN_ASTEROID_SIZE) {
+                        const newSize = r.r * 0.6;
+                        const splitSpeed = 8;
+                        const offset = 100;
+
+                        // West asteroid
+                        let westAst = createAsteroid(r.x - offset, r.y, newSize);
+                        westAst.xv = r.xv - splitSpeed;
+                        westAst.yv = r.yv;
+                        westAst.blinkNum = 30;
+                        roids.push(westAst);
+
+                        // East asteroid
+                        let eastAst = createAsteroid(r.x + offset, r.y, newSize);
+                        eastAst.xv = r.xv + splitSpeed;
+                        eastAst.yv = r.yv;
+                        eastAst.blinkNum = 30;
+                        roids.push(eastAst);
+                    }
+
                     roids.splice(j, 1);
                     AudioEngine.playExplosion('small', r.x, r.y, r.z);
                 }

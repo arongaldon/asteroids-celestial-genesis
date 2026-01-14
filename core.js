@@ -472,8 +472,8 @@ function createBullet(angleOffset, perpOffset, rOffset = 0, isPrimary = true) {
     return {
         x: startWorldX,
         y: startWorldY,
-        xv: (700 * Math.cos(angle) / FPS) + velocity.x,
-        yv: (-700 * Math.sin(angle) / FPS) + velocity.y,
+        xv: (1200 * Math.cos(angle) / FPS) + velocity.x,
+        yv: (-1200 * Math.sin(angle) / FPS) + velocity.y,
         dist: 0,
         life: lifetime,
         size: size
