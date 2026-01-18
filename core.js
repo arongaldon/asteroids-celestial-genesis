@@ -21,7 +21,7 @@ const MAX_TIER_HP = 9;
 
 const ZOOM_LEVELS = [2500, 5000, 12500, 25000, 75000];
 const G_CONST = 0.5;
-const PLANET_THRESHOLD = 200;
+const PLANET_THRESHOLD = 350;
 const MAX_Z_DEPTH = 5;
 
 const WORLD_BOUNDS = 75000;
@@ -178,18 +178,35 @@ const AudioEngine = {
             vpY >= -padding && vpY <= height + padding;
     },
 
-    playLaser: function (worldX, worldY) {
+    playLaser: function (worldX, worldY, tier = 0) {
         if (!this.isVisible(worldX, worldY)) return;
         if (!this.enabled || !this.ctx) return;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(880, this.ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(110, this.ctx.currentTime + 0.15);
-        gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+
+        // Tiered Sounds
+        if (tier >= 8) { // Ultimate
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(150, this.ctx.currentTime);
+            osc.frequency.linearRampToValueAtTime(800, this.ctx.currentTime + 0.1); // Sweeping up "Beam" sound
+            gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.4);
+        } else if (tier >= 4) { // Plasma
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(200, this.ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(600, this.ctx.currentTime + 0.2); // Low to High Zap
+            gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.25);
+        } else { // Standard
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(880 + (tier * 100), this.ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(110, this.ctx.currentTime + 0.15);
+            gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+        }
+
         osc.connect(gain); gain.connect(this.masterGain);
-        osc.start(); osc.stop(this.ctx.currentTime + 0.2);
+        osc.start(); osc.stop(this.ctx.currentTime + 0.4);
     },
 
     playExplosion: function (size = 'small', worldX, worldY, z = 0) {
@@ -406,7 +423,23 @@ function initializePlanetAttributes(roid) {
     const hue = rng() * 360;
     roid.isPlanet = true;
     roid.name = generatePlanetName();
+
+    // ORBITAL INITIALIZATION
+    // Calculate distance from center to determine orbit radius
+    roid.orbitRadius = Math.hypot(roid.x, roid.y);
+    if (roid.orbitRadius < 1000) roid.orbitRadius = 1000; // Minimum orbit size
+
+    // Initial angle based on position
+    roid.orbitAngle = Math.atan2(roid.y, roid.x);
+
+    // Orbital Speed (The farther, the slower, naturally, but we can tune this)
+    // Using a base speed divided by radius for angular velocity
+    // Random direction (CW or CCW)
+    const baseOrbitSpeed = 10; // Reduced from 40 to 10
+    roid.orbitSpeed = (baseOrbitSpeed / roid.orbitRadius) * (rng() < 0.5 ? 1 : -1);
+
     roid.zSpeed = (rng() * 0.001) + 0.0005;
+
     let textureData = {
         seed: seed,
         waterColor: `hsl(${hue}, 60%, 30%)`,
@@ -460,7 +493,7 @@ function initializePlanetAttributes(roid) {
     }
 }
 
-function createBullet(angleOffset, perpOffset, rOffset = 0, isPrimary = true) {
+function createBullet(angleOffset, perpOffset, rOffset = 0, isPrimary = true, tier = 0) {
     const angle = ship.a + angleOffset;
     const offsetX = (Math.cos(ship.a + Math.PI / 2) * perpOffset);
     const offsetY = (Math.sin(ship.a + Math.PI / 2) * perpOffset);
@@ -476,7 +509,8 @@ function createBullet(angleOffset, perpOffset, rOffset = 0, isPrimary = true) {
         yv: (-1200 * Math.sin(angle) / FPS) + velocity.y,
         dist: 0,
         life: lifetime,
-        size: size
+        size: size,
+        tier: tier
     };
 }
 
