@@ -198,6 +198,11 @@ document.addEventListener('touchmove', (e) => {
     if (!isTouching || !gameRunning || ship.dead) return;
     e.preventDefault();
 
+    const duration = Date.now() - touchStartTime;
+    if (duration < MIN_DURATION_TAP_TO_MOVE) {
+        return;
+    }
+
     const currentX = e.touches[0].clientX;
     const currentY = e.touches[0].clientY;
 
@@ -224,10 +229,9 @@ document.addEventListener('touchend', (e) => {
     isTouching = false;
     keys.ArrowUp = false; // Stop Accelerating
 
-    // Tap Detection (Short press + no big movement)
-    // We didn't track total movement, but if touches list is empty, we can assume tap if short time?
+    // Short tap => shoot still
     const duration = Date.now() - touchStartTime;
-    if (duration < 200) {
+    if (duration < MIN_DURATION_TAP_TO_MOVE) {
         shootLaser();
     }
 });

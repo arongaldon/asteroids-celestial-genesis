@@ -37,6 +37,7 @@ const PRIMARY_BULLET_SIZE = 5;
 const SECONDARY_BULLET_SIZE = 2;
 
 const PLAYER_RELOAD_TIME_MAX = 8;
+const MIN_DURATION_TAP_TO_MOVE = 200; // Touch mode only
 
 const syllables = ["KRON", "XER", "ZAN", "TOR", "AER", "ION", "ULA", "PROX", "VEX", "NOV", "SOL", "LUNA", "TER", "MAR", "JUP"];
 const suffixes = ["PRIME", "IV", "X", "ALPHA", "BETA", "MAJOR", "MINOR", "ZERO", "AEON"];
