@@ -5,24 +5,28 @@
 /* =========================================
    CONSTANTS & UTILS
    ========================================= */
+const ASTEROID_SPAWN_TIMER = 5 * 60; // seconds at 60 FPS
 const FPS = 60;
 const FRICTION = 0.99;
 const SHIP_SIZE = 30;
 const SHIP_THRUST = 0.9;
 const BASE_MAX_SHIELD = 100;
 const TOUCH_ROTATION_SENSITIVITY = 0.008;
-const MAX_LIVES = 3;
+const INITIAL_LIVES = 3;
 const MAX_SPEED = 50;
 const WORLD_SCALE = 10;
-const EVOLUTION_SCORE_STEP = 10;
+const EVOLUTION_SCORE_STEP = 1000;
 
 const STANDARD_SHIP_HP = 3;
-const MAX_TIER_HP = 9;
+const MAX_TIER_HP = 11;
 
 const ZOOM_LEVELS = [2500, 5000, 12500, 25000, 75000];
 const G_CONST = 0.5;
 const PLANET_THRESHOLD = 350;
 const MAX_Z_DEPTH = 5;
+const PLANET_MAX_SIZE = 500;
+const MAX_PLANETS = 10;
+const FRIENDLY_BLUE_HUE = 210; // Unified Sky Blue
 
 const WORLD_BOUNDS = 75000;
 const BOUNDARY_DAMPENING = 0.5;
@@ -47,7 +51,7 @@ const suffixes = ["PRIME", "IV", "X", "ALPHA", "BETA", "MAJOR", "MINOR", "ZERO",
   ========================================= */
 let width, height;
 let score = 0;
-let lives = MAX_LIVES;
+let lives = INITIAL_LIVES;
 let ship;
 let worldOffsetX = 0;
 let worldOffsetY = 0;
@@ -64,6 +68,9 @@ let playerReloadTime = 0;
 let stationSpawnTimer = 0;
 let stationsDestroyedCount = 0;
 let level = 0;
+let homePlanetId = null; // NEW: The player's home planet
+let isLoneWolf = false; // NEW: Player betrayal status
+let screenMessages = []; // NEW: Array for temporary on-screen notifications
 let gameRunning = false;
 let loopStarted = false;
 let inputMode = 'mouse';
@@ -418,12 +425,12 @@ function createAsteroid(x, y, r, z = 0) {
     return roid;
 }
 
-function initializePlanetAttributes(roid) {
+function initializePlanetAttributes(roid, forcedHue = null) {
     if (roid.isPlanet && roid.textureData) return;
     const r = roid.r;
     const seed = Math.floor(Math.random() * 100000);
     const rng = mulberry32(seed);
-    const hue = rng() * 360;
+    const hue = forcedHue !== null ? forcedHue : rng() * 360;
     roid.isPlanet = true;
     roid.name = generatePlanetName();
 
