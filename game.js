@@ -176,8 +176,8 @@ let isTouching = false;
 let touchStartTime = 0;
 
 document.addEventListener('touchstart', (e) => {
-    // Virtual Joystick & Tap to Shoot
-    if (e.target.closest('.btn')) return;
+    if (!gameRunning) return; // Allow interaction with start screen
+    if (e.target.closest('.btn') || e.target.closest('.start-btn')) return;
 
     inputMode = 'touch';
     isTouching = true;
@@ -187,11 +187,14 @@ document.addEventListener('touchstart', (e) => {
     touchStartY = e.touches[0].clientY;
     touchStartTime = Date.now();
 
-    // Start Accelerating immediately
-    keys.ArrowUp = true;
+    // Rotate ship to face the tap immediately
+    const dx = touchStartX - width / 2;
+    const dy = touchStartY - height / 2;
+    ship.a = Math.atan2(-dy, dx);
 
     gestureHint.style.opacity = '1';
     gestureHint.innerText = "MOVE FINGER TO STEER / RELEASE TO SHOOT";
+    e.preventDefault();
 }, { passive: false });
 
 document.addEventListener('touchmove', (e) => {
@@ -212,9 +215,9 @@ document.addEventListener('touchmove', (e) => {
     // Deadzone to prevent jitter
     if (Math.hypot(dx, dy) > 10) {
         // Steer towards the drag vector
-        // Note: dy is screen coordinates (down is Is positive), but ship angle 0 is Right.
-        // If I drag UP (negative dy), atan2 gives negative angle -> Correct for screen.
-        let targetAngle = Math.atan2(dy, dx);
+        // Note: dy is screen coordinates (down is positive), but ship angle 0 is Right.
+        // We negate dy to match the mathematical atan2 (positive y is up).
+        let targetAngle = Math.atan2(-dy, dx);
 
         // Smooth rotate towards target
         let angleDiff = targetAngle - ship.a;
@@ -226,14 +229,16 @@ document.addEventListener('touchmove', (e) => {
 }, { passive: false });
 
 document.addEventListener('touchend', (e) => {
+    if (!gameRunning) return;
+    if (e.target.closest('.btn') || e.target.closest('.start-btn')) return;
     isTouching = false;
-    keys.ArrowUp = false; // Stop Accelerating
 
     // Short tap => shoot still
     const duration = Date.now() - touchStartTime;
     if (duration < MIN_DURATION_TAP_TO_MOVE) {
         shootLaser();
     }
+    e.preventDefault();
 });
 
 /* Background factories moved to core.js */
@@ -371,7 +376,16 @@ function shootLaser() {
     AudioEngine.playLaser(worldOffsetX, worldOffsetY, tier); // SFX SHOOT, pass tier
 
     // Pass tier to bullet creation for visuals/logic
-    if (tier >= 8) {
+    if (tier >= 9) { // Tier 10 (tier index 9)
+        bullets.push(createBullet(0, 0, 0, true, tier)); // Center
+        bullets.push(createBullet(-0.1, -15, -5, false, tier)); // Left
+        bullets.push(createBullet(0.1, 15, -5, false, tier)); // Right
+        bullets.push(createBullet(-0.2, -30, -10, false, tier)); // Far Left
+        bullets.push(createBullet(0.2, 30, -10, false, tier)); // Far Right
+        // NEW Tier 10 Lateral small lasers (closer to ship, spreading out)
+        bullets.push(createBullet(-0.3, -45, -15, false, tier));
+        bullets.push(createBullet(0.3, 45, -15, false, tier));
+    } else if (tier >= 8) {
         bullets.push(createBullet(0, 0, 0, true, tier)); // Center
         bullets.push(createBullet(-0.1, -15, -5, false, tier)); // Left
         bullets.push(createBullet(0.1, 15, -5, false, tier)); // Right
@@ -1196,6 +1210,18 @@ function loop() {
     // Clear canvas
     ctx.fillStyle = '#010103'; ctx.fillRect(0, 0, width, height);
 
+    ctx.save();
+
+    // Smooth transition for viewport scaling
+    const targetScale = (inputMode === 'touch') ? 0.8 : 1.0;
+    viewScale += (targetScale - viewScale) * 0.1; // Simple lerp for smoothness
+
+    if (viewScale !== 1.0) {
+        // Scale and translate to keep (width/2, height/2) at the center
+        ctx.translate(width / 2 * (1 - viewScale), height / 2 * (1 - viewScale));
+        ctx.scale(viewScale, viewScale);
+    }
+
     // --- Ship Movement and World Boundary Check ---
     if (!ship.dead) {
         // ... (Ship Movement Physics remains the same) ...
@@ -1207,7 +1233,11 @@ function loop() {
             // Keyboard/Touch swipe control: Arrow keys handle rotation
             if (keys.ArrowLeft) ship.a += 0.1; if (keys.ArrowRight) ship.a -= 0.1;
         }
-        ship.thrusting = keys.ArrowUp;
+        if (inputMode === 'touch') {
+            ship.thrusting = isTouching && (Date.now() - touchStartTime >= MIN_DURATION_TAP_TO_MOVE);
+        } else {
+            ship.thrusting = keys.ArrowUp;
+        }
 
         // 1. Calculate desired displacement vector
         let deltaX = 0;
@@ -2647,7 +2677,7 @@ function loop() {
             ctx.beginPath();
             for (let k = 0; k < sides; k++) {
                 let ang = k * (2 * Math.PI / sides);
-                let r = b.size * (1 + tier * 0.1);
+                let r = b.size; // Size already accounts for tier boost in createBullet
                 if (k === 0) ctx.moveTo(r * Math.cos(ang), r * Math.sin(ang));
                 else ctx.lineTo(r * Math.cos(ang), r * Math.sin(ang));
             }
@@ -2669,7 +2699,8 @@ function loop() {
             let r = roids[j];
             if (r.z > 0.5) continue;
 
-            if (Math.hypot(b.x - r.x, b.y - r.y) < r.r) {
+            // Use bullet size for effective collision radius
+            if (Math.hypot(b.x - r.x, b.y - r.y) < r.r + b.size) {
                 const rVpX = r.x - worldOffsetX + width / 2;
                 const rVpY = r.y - worldOffsetY + height / 2;
 
@@ -2737,7 +2768,8 @@ function loop() {
         // Collision with enemies (World Coords)
         for (let j = enemies.length - 1; j >= 0; j--) {
             let e = enemies[j];
-            if (e.blinkNum === 0 && Math.hypot(b.x - e.x, b.y - e.y) < e.r + 15) {
+            // Use bullet size for effective collision radius
+            if (e.blinkNum === 0 && Math.hypot(b.x - e.x, b.y - e.y) < e.r + b.size) {
                 e.structureHP--;
                 e.shieldHitTimer = 5;
                 bullets.splice(i, 1);
@@ -2756,7 +2788,7 @@ function loop() {
                     // AudioEngine.playExplosion('small'); REMOVED
                 }
                 break;
-            } else if (e.blinkNum > 0 && Math.hypot(b.x - e.x, b.y - e.y) < e.r + 15) {
+            } else if (e.blinkNum > 0 && Math.hypot(b.x - e.x, b.y - e.y) < e.r + b.size) {
                 bullets.splice(i, 1); hit = true; break;
             }
         }
@@ -2791,6 +2823,7 @@ function loop() {
 
     drawRadar();
     ctx.shadowBlur = 0;
+    ctx.restore();
     requestAnimationFrame(loop);
 }
 

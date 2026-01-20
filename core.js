@@ -14,7 +14,7 @@ const TOUCH_ROTATION_SENSITIVITY = 0.008;
 const MAX_LIVES = 3;
 const MAX_SPEED = 50;
 const WORLD_SCALE = 10;
-const EVOLUTION_SCORE_STEP = 1000;
+const EVOLUTION_SCORE_STEP = 10;
 
 const STANDARD_SHIP_HP = 3;
 const MAX_TIER_HP = 9;
@@ -32,7 +32,7 @@ const BULLET_GRAVITY_FACTOR = 90;
 const BULLET_LIFETIME = 100;
 const BULLET_FADE_FRAMES = 5;
 
-const SIDE_BULLET_LIFETIME = 10;
+const SIDE_BULLET_LIFETIME = 60; // Increased from 10 to 60 for visibility
 const PRIMARY_BULLET_SIZE = 5;
 const SECONDARY_BULLET_SIZE = 2;
 
@@ -71,6 +71,7 @@ let keys = { ArrowUp: false, ArrowDown: false, Space: false, ArrowLeft: false, A
 let mouse = { x: 0, y: 0 };
 let currentZoomIndex = 2;
 let RADAR_RANGE = ZOOM_LEVELS[currentZoomIndex];
+let viewScale = 1.0; // Dynamic scale for smooth transitions
 
 /* =========================================
   AUDIO ENGINE (MENU/GAME OVER ONLY)
@@ -343,8 +344,9 @@ function mulberry32(a) {
     }
 }
 
-function getShipTier() { return Math.floor(score / EVOLUTION_SCORE_STEP); }
+function getShipTier() { return Math.max(0, Math.floor(score / EVOLUTION_SCORE_STEP)); }
 function getShapeName(tier) {
+    if (tier >= 9) return "THE CELESTIAL";
     if (tier >= 8) return "THE SPHERE";
     const shapes = ["TRIANGLE", "SQUARE", "PENTAGON", "HEXAGON", "HEPTAGON", "OCTAGON", "NONAGON", "DECAGON"];
     return shapes[Math.min(tier, shapes.length - 1)];
@@ -502,7 +504,12 @@ function createBullet(angleOffset, perpOffset, rOffset = 0, isPrimary = true, ti
     const startWorldX = worldOffsetX + radius * Math.cos(ship.a) - offsetX;
     const startWorldY = worldOffsetY - radius * Math.sin(ship.a) + offsetY;
     const lifetime = isPrimary ? BULLET_LIFETIME : SIDE_BULLET_LIFETIME;
-    const size = isPrimary ? PRIMARY_BULLET_SIZE : SECONDARY_BULLET_SIZE;
+
+    // Scale size by tier: tiers 1-8 get gradual increase, tier 9+ gets extra boost
+    let tierSizeBoost = 1 + (tier * 0.15);
+    if (tier >= 9) tierSizeBoost = 2.5; // Tier 9 and 10 are extra powerful
+
+    const size = isPrimary ? (PRIMARY_BULLET_SIZE * tierSizeBoost) : (SECONDARY_BULLET_SIZE * tierSizeBoost);
     return {
         x: startWorldX,
         y: startWorldY,
