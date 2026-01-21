@@ -17,10 +17,11 @@ const MAX_SPEED = 50;
 const WORLD_SCALE = 10;
 const EVOLUTION_SCORE_STEP = 1000;
 
-const STANDARD_SHIP_HP = 3;
-const MAX_TIER_HP = 11;
+// Damage resistance
+const SHIP_RESISTANCE = 2;
+const STATION_RESISTANCE = 6;
 
-const ZOOM_LEVELS = [2500, 5000, 12500, 25000, 75000];
+const ZOOM_LEVELS = [2500, 5000, 12500, 25000, 50000];
 const G_CONST = 0.5;
 const PLANET_THRESHOLD = 350;
 const MAX_Z_DEPTH = 5;
@@ -28,7 +29,7 @@ const PLANET_MAX_SIZE = 500;
 const MAX_PLANETS = 10;
 const FRIENDLY_BLUE_HUE = 210; // Unified Sky Blue
 
-const WORLD_BOUNDS = 75000;
+const WORLD_BOUNDS = 50000;
 const BOUNDARY_DAMPENING = 0.5;
 const BOUNDARY_TOLERANCE = 100;
 
@@ -382,7 +383,7 @@ function animateLedText(text, element) {
    ========================================= */
 function newShip() {
     const currentTier = getShipTier();
-    const startingHP = currentTier >= 8 ? MAX_TIER_HP : STANDARD_SHIP_HP;
+    const startingHP = SHIP_RESISTANCE;
     return {
         a: 90 / 180 * Math.PI,
         r: SHIP_SIZE / 2,

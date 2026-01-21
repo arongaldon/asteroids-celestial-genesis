@@ -10,12 +10,12 @@ function onStationDestroyed(station) {
     ship.shield = ship.maxShield; // Restore shield
     score += 500;
     stationsDestroyedCount++;
-    lives++; // Always grant life
+    lives++;
+    addScreenMessage("EXTRA LIFE!");
     drawLives();
 
     // Reward: Full Repair
-    const tier = getShipTier();
-    ship.structureHP = tier >= 8 ? MAX_TIER_HP : STANDARD_SHIP_HP;
+    ship.structureHP = SHIP_RESISTANCE;
     ship.shield = ship.maxShield;
 
     // Initial reward logic (score, etc) kept below, removing duplicate lives logic from here 
@@ -293,7 +293,7 @@ function spawnStation(hostPlanet = null) {
         xv: hostPlanet.xv, // Inherit planet velocity
         yv: hostPlanet.yv,
         r: STATION_R, a: Math.random() * Math.PI * 2, rotSpeed: 0.005,
-        structureHP: MAX_TIER_HP,
+        structureHP: STATION_RESISTANCE,
         shieldHitTimer: 0,
         spawnTimer: 180, reloadTime: 120, mass: 500,
         hostPlanet: hostPlanet, // Reference to the planet object
@@ -336,7 +336,7 @@ function spawnEnemySquad(station) {
                 yv: station.yv,
                 r: 35,
                 a: station.a,
-                structureHP: STANDARD_SHIP_HP,
+                structureHP: SHIP_RESISTANCE,
                 shieldHitTimer: 0,
                 reloadTime: 100 + Math.random() * 100,
                 mass: 30,
@@ -383,7 +383,7 @@ function spawnEnemySquad(station) {
             yv: station.yv,
             r: 35,
             a: spawnAngle + Math.PI, // Face away from station initially
-            structureHP: STANDARD_SHIP_HP,
+            structureHP: SHIP_RESISTANCE,
             shieldHitTimer: 0,
             reloadTime: 100 + Math.random() * 100,
             mass: 30,
@@ -730,21 +730,7 @@ function drawRadar() {
         }
     });
 
-    // 4. Dibuja al Jugador (Luz Azul/Blanco) sobre todo
-    if (!ship.dead) {
-        const pSize = 3;
-        const color = '#00FFFF';
-        const rx = radarCanvas.width / 2 + (worldOffsetX / WORLD_BOUNDS) * (radarCanvas.width / 2);
-        const ry = radarCanvas.height / 2 + (worldOffsetY / WORLD_BOUNDS) * (radarCanvas.height / 2);
-
-        radarCtx.fillStyle = '#FFFFFF'; // White center for player
-        radarCtx.shadowColor = color;
-        radarCtx.shadowBlur = 5;
-        radarCtx.beginPath();
-        radarCtx.arc(rx, ry, pSize, 0, Math.PI * 2);
-        radarCtx.fill();
-        radarCtx.shadowBlur = 0;
-    }
+    // 4. Player position is already drawn at center (line 647) - no additional marker needed
 }
 
 function drawHeart(ctx, x, y, size) {
@@ -970,17 +956,6 @@ function killShip() {
     lives--;
     drawLives();
 
-    // --- ENEMY EVOLUTION ON PLAYER DEATH ---
-    enemies.forEach(e => {
-        if (e.type === 'ship' || e.type === 'station') {
-            e.structureHP = Math.min(e.structureHP + 2, MAX_TIER_HP); // Heal/Buff HP
-            e.reloadTime *= 0.9; // Fire faster
-            e.fleetHue = (e.fleetHue + 30) % 360; // Visual feedback
-            e.r *= 1.1; // Grow slightly
-        }
-    });
-    console.log("ENEMIES EVOLVED!");
-
     score -= 1000;
     scoreEl.innerText = score;
 
@@ -1067,7 +1042,6 @@ function updatePhysics() {
                     const hasStation = enemies.some(e => e.type === 'station' && e.hostPlanetId === r1.id);
                     if (!hasStation) {
                         spawnStation(r1);
-                        console.log(`Station respawned on ${r1.name} (Return trip)`);
                     }
                     r1.hasSpawnedStationThisCycle = true;
                 }
@@ -1075,7 +1049,6 @@ function updatePhysics() {
                     r1.hasSpawnedStationThisCycle = false; // Reset when far away
                 }
 
-                // REVERTIR MOVIMIENTO Z AL LLEGAR AL LÍMITE REDUCIDO
                 if (r1.z > MAX_Z_DEPTH) r1.zSpeed *= -1;
                 if (r1.z < 0) {
                     r1.z = 0;
@@ -1277,7 +1250,7 @@ function updatePhysics() {
                                 r1.r = newR;
                                 initializePlanetAttributes(r1);
                                 r1.targetR = newR;
-                                console.log(`¡New planet! Nombre: ${r1.name}, ID: ${r1.textureData.seed}.`);
+                                console.log(`New planet!: ${r1.name}, ID: ${r1.textureData.seed}.`);
                                 createExplosion(midVpX, midVpY, 30, '#fff', 5);
                             } else {
                                 r1.r = newR;
@@ -1413,21 +1386,43 @@ function loop() {
     } else {
         asteroidSpawnTimer = ASTEROID_SPAWN_TIMER;
 
-        // Spawn at border, approach center
+        // Spawn a cluster of asteroids at border, approaching center
         const angle = Math.random() * Math.PI * 2;
         const spawnDist = WORLD_BOUNDS * 0.8;
-        const x = Math.cos(angle) * spawnDist;
-        const y = Math.sin(angle) * spawnDist;
-        const r = 150 + Math.random() * 100;
+        const baseX = Math.cos(angle) * spawnDist;
+        const baseY = Math.sin(angle) * spawnDist;
 
-        const roid = createAsteroid(x, y, r);
+        // Create 3-6 asteroids in a cluster
+        const clusterSize = 3 + Math.floor(Math.random() * 4); // 3 to 6 asteroids
         const driftSpeed = 0.5 + Math.random() * 1.5;
-        // Vector towards center (0,0)
-        roid.xv = -Math.cos(angle) * driftSpeed;
-        roid.yv = -Math.sin(angle) * driftSpeed;
 
-        roids.push(roid);
-        console.log("Big asteroid approaching from deep space!");
+        // Base velocity towards center
+        const baseVX = -Math.cos(angle) * driftSpeed;
+        const baseVY = -Math.sin(angle) * driftSpeed;
+
+        for (let i = 0; i < clusterSize; i++) {
+            // Spread asteroids in a small cluster formation
+            const spreadAngle = Math.random() * Math.PI * 2;
+            const spreadDist = Math.random() * 300; // Cluster spread radius
+            const x = baseX + Math.cos(spreadAngle) * spreadDist;
+            const y = baseY + Math.sin(spreadAngle) * spreadDist;
+
+            // Vary asteroid sizes: small, medium, and large
+            const sizeRoll = Math.random();
+            let r;
+            if (sizeRoll < 0.4) r = 40 + Math.random() * 60;      // Small (40-100)
+            else if (sizeRoll < 0.8) r = 100 + Math.random() * 80; // Medium (100-180)
+            else r = 180 + Math.random() * 100;                    // Large (180-280)
+
+            const roid = createAsteroid(x, y, r);
+
+            // All asteroids in cluster travel together with slight variation
+            const speedVariation = 0.9 + Math.random() * 0.2; // 90% to 110% of base speed
+            roid.xv = baseVX * speedVariation + (Math.random() - 0.5) * 0.2;
+            roid.yv = baseVY * speedVariation + (Math.random() - 0.5) * 0.2;
+
+            roids.push(roid);
+        }
     }
 
     // Safety check against NaN/Infinity in velocity/world calculation
@@ -1462,7 +1457,7 @@ function loop() {
     ctx.save();
 
     // Smooth transition for viewport scaling
-    const targetScale = (inputMode === 'touch') ? 0.8 : 1.0;
+    const targetScale = (inputMode === 'touch') ? 0.65 : 1.0;
     viewScale += (targetScale - viewScale) * 0.1; // Simple lerp for smoothness
 
     if (viewScale !== 1.0) {
@@ -1488,26 +1483,23 @@ function loop() {
             ship.thrusting = keys.ArrowUp;
         }
 
-        // 1. Calculate desired displacement vector
         let deltaX = 0;
         let deltaY = 0;
         const strafeMultiplier = 0.7; // 70% power for strafing
 
-        // Propulsión frontal/trasera (W/S)
         if (ship.thrusting) {
             deltaX += SHIP_THRUST * Math.cos(ship.a);
             deltaY -= SHIP_THRUST * Math.sin(ship.a);
             if (Math.random() < 0.2) AudioEngine.playThrust(worldOffsetX, worldOffsetY);
         }
 
-        // Desplazamiento lateral / Strafe (A/D)
-        if (keys.KeyA) { // Strafe Izquierda (perpendicular a la izquierda: ship.a + PI/2)
+        if (keys.KeyA) { // Strafe Left
             const strafeAngle = ship.a + Math.PI / 2;
             deltaX += SHIP_THRUST * strafeMultiplier * Math.cos(strafeAngle);
             deltaY -= SHIP_THRUST * strafeMultiplier * Math.sin(strafeAngle);
             if (Math.random() < 0.2) AudioEngine.playThrust(worldOffsetX, worldOffsetY);
         }
-        if (keys.KeyD) { // Strafe Derecha (perpendicular a la derecha: ship.a - PI/2)
+        if (keys.KeyD) { // Strafe Right
             const strafeAngle = ship.a - Math.PI / 2;
             deltaX += SHIP_THRUST * strafeMultiplier * Math.cos(strafeAngle);
             deltaY -= SHIP_THRUST * strafeMultiplier * Math.sin(strafeAngle);
@@ -1515,7 +1507,6 @@ function loop() {
         }
 
 
-        // 2. Update instantaneous velocity (in World Units/Frame)
         velocity.x += deltaX;
         velocity.y += deltaY;
 
@@ -1530,7 +1521,6 @@ function loop() {
         // 3. Update Player's World Position (worldOffsetX/Y)
         let nextWorldX = worldOffsetX + velocity.x;
         let nextWorldY = worldOffsetY + velocity.y;
-
 
         // NEW: Directional Shadow Calculation
         let shadow = [];
@@ -1586,22 +1576,8 @@ function loop() {
         } else {
             boundaryAlertEl.style.boxShadow = 'none';
         }
-
-        // NEW: Adjust player ship HP if they transition to Tier 8
-        const currentTier = getShipTier();
-        if (currentTier < 8 && ship.structureHP === MAX_TIER_HP) {
-            // If tier drops below 8 (by losing score), reset HP to standard max
-            ship.structureHP = STANDARD_SHIP_HP;
-            console.log("Player ship HP normalized to standard structure HP (3).");
-        }
-
     }
     // --- End Ship Movement and World Boundary Check ---
-
-    // Obtener el nivel de evolución de la nave para el dibujo (FIX para ReferenceError)
-    const tier = getShipTier();
-
-    // The music is permanently stopped in 'game' mode
 
     // --- Shockwave Update (All in World Coords) ---
     shockwaves.forEach((sw, index) => {
@@ -1765,12 +1741,9 @@ function loop() {
 
                 isOrbiting = true; // Use physics integration below
 
-                // USER REQUEST: Recover shield and make station effectively "gone" if far away
+                // Recover shield and make station effectively "gone" if far away
                 if (e.z >= 0.5) {
-                    if (e.structureHP < MAX_TIER_HP) {
-                        e.structureHP = MAX_TIER_HP;
-                        console.log("Station shield recovered in hyperspace (far Z).");
-                    }
+                    e.structureHP = STATION_RESISTANCE;
                 }
             }
         }
@@ -2564,58 +2537,54 @@ function loop() {
             }
         }
 
-        ctx.restore(); // Restore context back to (0,0) before drawing shield bar
+        ctx.restore();
+        ctx.globalAlpha = 1;
 
-        ctx.globalAlpha = 1; // Reset opacity before drawing shield/health bar
-
-        // --- Draw shield/health bar around enemy (uses Viewport Position) ---
         let currentHP = e.structureHP;
-        let maxHP = e.type === 'station' ? MAX_TIER_HP : STANDARD_SHIP_HP;
+        let maxHP = e.type === 'station' ? STATION_RESISTANCE : SHIP_RESISTANCE;
         let shieldOpacity = 0;
         let r, g, b;
 
-        if (currentHP > 0) {
-            if (maxHP === STANDARD_SHIP_HP) {
-                if (currentHP === 3) {
-                    r = 0; g = 255; b = 255; // Cian
-                    shieldOpacity = 0.8;
-                } else {
-                    shieldOpacity = 0;
-                }
-            } else {
+        if (currentHP === maxHP) {
+            r = 0; g = 255; b = 255; // Cian
+            shieldOpacity = 0.8;
+        } else {
+            shieldOpacity = 0;
+        }
 
-                // USER REQUEST: Shield is invisible when at far Z
-                if (e.type === 'station' && e.z >= 0.5) {
-                    return;
-                }
-                if (currentHP >= 7) { // Phase 1: HP 9-7 (Green/Blue - High Shield)
-                    r = 0; g = 255; b = 255; // Cian
-                    shieldOpacity = 1.0;
-                } else if (currentHP >= 4) { // Phase 2: HP 6-4 (Yellow/Orange - Mid Shield/Warning)
-                    r = 255; g = 165; b = 0;
-                    shieldOpacity = 0.7;
-                } else { // Phase 3: HP 3-1 (Red - Critical Structure)
-                    r = 255; g = 0; b = 0;
-                    shieldOpacity = 0.5;
-                }
+        if (e.type === 'station') {
+            // Shield is invisible when at far Z
+            if (e.z >= 0.5) {
+                return;
             }
-
-            ctx.lineWidth = 2;
-            if (shieldOpacity > 0) { // Solo dibujar el arco si el escudo visual está activo
-                if (e.shieldHitTimer > 0) {
-                    ctx.shadowColor = '#fff';
-                    ctx.strokeStyle = `rgba(255,255,255,${shieldOpacity})`;
-                    e.shieldHitTimer--;
-                }
-                else {
-                    ctx.shadowColor = `rgb(${r},${g},${b})`;
-                    ctx.strokeStyle = `rgba(${r},${g},${b},${shieldOpacity})`;
-                }
-                ctx.beginPath(); ctx.arc(vpX, vpY, e.r + 10, 0, Math.PI * 2); ctx.stroke();
+            if (currentHP >= STATION_RESISTANCE * 2 / 3) { // Phase 1: Green/Blue - High Shield
+                r = 0; g = 255; b = 255; // Cian
+                shieldOpacity = 1.0;
+            } else if (currentHP >= STATION_RESISTANCE / 2) { // Phase 2: Yellow/Orange - Mid Shield/Warning
+                r = 255; g = 165; b = 0;
+                shieldOpacity = 0.7;
+            } else { // Phase 3: Red - Critical Structure
+                r = 255; g = 0; b = 0;
+                shieldOpacity = 0.5;
             }
         }
 
-    });
+        ctx.lineWidth = 2;
+        if (shieldOpacity > 0) {
+            if (e.shieldHitTimer > 0) {
+                ctx.shadowColor = '#fff';
+                ctx.strokeStyle = `rgba(255,255,255,${shieldOpacity})`;
+                e.shieldHitTimer--;
+            }
+            else {
+                ctx.shadowColor = `rgb(${r},${g},${b})`;
+                ctx.strokeStyle = `rgba(${r},${g},${b},${shieldOpacity})`;
+            }
+            ctx.beginPath(); ctx.arc(vpX, vpY, e.r + 10, 0, Math.PI * 2); ctx.stroke();
+        }
+    }
+
+    );
 
     ctx.shadowBlur = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalAlpha = 1;
 
@@ -2637,8 +2606,6 @@ function loop() {
         const centerX = width / 2; const centerY = height / 2;
         const r = ship.effectiveR;
 
-        const shipMaxHP = tier >= 8 ? MAX_TIER_HP : STANDARD_SHIP_HP;
-
         if (ship.blinkNum % 2 === 0) { // Invulnerability blink effect
 
             let shieldAlpha = 0;
@@ -2649,19 +2616,11 @@ function loop() {
 
             if (tier >= 8) {
                 shieldRadius = ship.effectiveR * EPIC_SHIELD_FACTOR;
+            }
 
-                if (ship.structureHP >= 7) { // HP 9-7 (Fase 1 - Alto)
-                    shieldAlpha = isTesla ? (0.7 + Math.random() * 0.3) : 0.6;
-                    strokeWidth = isTesla ? 2.5 : 2;
-                } else if (ship.structureHP >= 4) { // HP 6-4 (Fase 2 - Medio)
-                    shieldAlpha = isTesla ? (0.3 + Math.random() * 0.2) : 0.4;
-                    strokeWidth = isTesla ? 2 : 1.5;
-                }
-            } else {
-                if (ship.structureHP === 3) {
-                    shieldAlpha = isTesla ? (0.5 + Math.random() * 0.2) : 0.5;
-                    strokeWidth = isTesla ? 1.5 : 1;
-                }
+            if (ship.structureHP === SHIP_RESISTANCE) {
+                shieldAlpha = isTesla ? (0.5 + Math.random() * 0.2) : 0.5;
+                strokeWidth = isTesla ? 1.5 : 1;
             }
 
             if (shieldAlpha > 0) {
@@ -2670,7 +2629,7 @@ function loop() {
 
                 let baseColor, shadowColor;
 
-                if (ship.structureHP <= 3 && tier < 8) {
+                if (ship.structureHP <= SHIP_RESISTANCE && tier < 8) {
                     baseColor = '#0ff'; shadowColor = 'rgba(0, 255, 255, 0.7)';
                 } else if (ship.structureHP >= 7) {
                     baseColor = '#0ff'; shadowColor = 'rgba(0, 255, 255, 0.7)';
@@ -3185,6 +3144,143 @@ function loop() {
     }
 
     drawRadar();
+
+    ctx.restore();
+    ctx.shadowBlur = 0;
+
+    // --- Off-Screen Enemy Indicators ---
+    // Show red dots at screen borders for enemies that are approaching but not visible
+    // Draw in screen space (unscaled) to work correctly in touch mode
+    ctx.save();
+    ctx.resetTransform(); // Draw in screen space, not affected by viewport scaling
+    const INDICATOR_SIZE = 8;
+    const BORDER_PADDING = 20;
+    const DETECTION_RANGE = 3000; // How far off-screen to detect enemies
+
+    enemies.forEach(e => {
+        if (e.isFriendly || e.z > 0.5) return; // Skip friendly ships and far-away enemies
+
+        // Calculate viewport position (in world viewport space)
+        const depthScale = 1 / (1 + e.z);
+        const worldVpX = (e.x - worldOffsetX) * depthScale + width / 2;
+        const worldVpY = (e.y - worldOffsetY) * depthScale + height / 2;
+
+        // Apply viewScale transformation to get screen position
+        const vpX = worldVpX * viewScale + width / 2 * (1 - viewScale);
+        const vpY = worldVpY * viewScale + height / 2 * (1 - viewScale);
+
+        // Since we're using resetTransform(), screen boundaries are the full canvas
+        const screenLeft = 0;
+        const screenRight = width;
+        const screenTop = 0;
+        const screenBottom = height;
+
+        // Check if enemy is off-screen but within detection range
+        const isOffScreen = vpX < screenLeft || vpX > screenRight || vpY < screenTop || vpY > screenBottom;
+        const distToPlayer = Math.hypot(e.x - worldOffsetX, e.y - worldOffsetY);
+
+        if (isOffScreen && distToPlayer < DETECTION_RANGE) {
+            // Calculate indicator position at screen border
+            let indicatorX = vpX;
+            let indicatorY = vpY;
+
+            // Clamp to screen borders with padding
+            if (vpX < screenLeft) indicatorX = screenLeft + BORDER_PADDING;
+            else if (vpX > screenRight) indicatorX = screenRight - BORDER_PADDING;
+
+            if (vpY < screenTop) indicatorY = screenTop + BORDER_PADDING;
+            else if (vpY > screenBottom) indicatorY = screenBottom - BORDER_PADDING;
+
+            // Draw pulsing red indicator
+            const pulseAlpha = 0.5 + Math.sin(Date.now() / 200) * 0.3;
+            ctx.globalAlpha = pulseAlpha;
+            ctx.fillStyle = '#FF0000';
+            ctx.shadowColor = '#FF0000';
+            ctx.shadowBlur = 10;
+
+            // Draw arrow pointing towards enemy
+            const angleToEnemy = Math.atan2(vpY - indicatorY, vpX - indicatorX);
+            ctx.save();
+            ctx.translate(indicatorX, indicatorY);
+            ctx.rotate(angleToEnemy);
+
+            // Draw triangle arrow
+            ctx.beginPath();
+            ctx.moveTo(INDICATOR_SIZE, 0);
+            ctx.lineTo(-INDICATOR_SIZE / 2, -INDICATOR_SIZE / 2);
+            ctx.lineTo(-INDICATOR_SIZE / 2, INDICATOR_SIZE / 2);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.restore();
+            ctx.globalAlpha = 1;
+        }
+    });
+
+    // --- Off-Screen Asteroid Indicators ---
+    // Show gray indicators at screen borders for asteroids that are approaching but not visible
+    roids.forEach(r => {
+        if (r.isPlanet || r.z > 0.5) return; // Skip planets and far-away asteroids
+
+        // Calculate viewport position (in world viewport space)
+        const depthScale = 1 / (1 + r.z);
+        const worldVpX = (r.x - worldOffsetX) * depthScale + width / 2;
+        const worldVpY = (r.y - worldOffsetY) * depthScale + height / 2;
+
+        // Apply viewScale transformation to get screen position
+        const vpX = worldVpX * viewScale + width / 2 * (1 - viewScale);
+        const vpY = worldVpY * viewScale + height / 2 * (1 - viewScale);
+
+        // Since we're using resetTransform(), screen boundaries are the full canvas
+        const screenLeft = 0;
+        const screenRight = width;
+        const screenTop = 0;
+        const screenBottom = height;
+
+        // Check if asteroid is off-screen but within detection range
+        const isOffScreen = vpX < screenLeft || vpX > screenRight || vpY < screenTop || vpY > screenBottom;
+        const distToPlayer = Math.hypot(r.x - worldOffsetX, r.y - worldOffsetY);
+
+        if (isOffScreen && distToPlayer < DETECTION_RANGE) {
+            // Calculate indicator position at screen border
+            let indicatorX = vpX;
+            let indicatorY = vpY;
+
+            // Clamp to screen borders with padding
+            if (vpX < screenLeft) indicatorX = screenLeft + BORDER_PADDING;
+            else if (vpX > screenRight) indicatorX = screenRight - BORDER_PADDING;
+
+            if (vpY < screenTop) indicatorY = screenTop + BORDER_PADDING;
+            else if (vpY > screenBottom) indicatorY = screenBottom - BORDER_PADDING;
+
+            // Draw subtle gray indicator
+            const pulseAlpha = 0.4 + Math.sin(Date.now() / 250) * 0.2;
+            ctx.globalAlpha = pulseAlpha;
+            ctx.fillStyle = '#AAAAAA';
+            ctx.shadowColor = '#AAAAAA';
+            ctx.shadowBlur = 8;
+
+            // Draw arrow pointing towards asteroid
+            const angleToAsteroid = Math.atan2(vpY - indicatorY, vpX - indicatorX);
+            ctx.save();
+            ctx.translate(indicatorX, indicatorY);
+            ctx.rotate(angleToAsteroid);
+
+            // Draw triangle arrow (slightly smaller than enemy indicators)
+            const asteroidIndicatorSize = INDICATOR_SIZE * 0.75;
+            ctx.beginPath();
+            ctx.moveTo(asteroidIndicatorSize, 0);
+            ctx.lineTo(-asteroidIndicatorSize / 2, -asteroidIndicatorSize / 2);
+            ctx.lineTo(-asteroidIndicatorSize / 2, asteroidIndicatorSize / 2);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.restore();
+            ctx.globalAlpha = 1;
+        }
+    });
+
+    ctx.restore();
     ctx.shadowBlur = 0;
 
     // --- Render Screen Messages ---
@@ -3192,7 +3288,11 @@ function loop() {
         ctx.save();
         ctx.resetTransform(); // Draw in screen space
         ctx.textAlign = 'center';
-        ctx.font = 'bold 24px Courier New';
+
+        // Responsive font size based on screen width
+        const baseFontSize = 24;
+        const fontSize = Math.max(14, Math.min(baseFontSize, width / 30)); // Scale between 14px and 24px
+        ctx.font = `bold ${fontSize}px Courier New`;
 
         for (let i = screenMessages.length - 1; i >= 0; i--) {
             const m = screenMessages[i];
@@ -3203,8 +3303,11 @@ function loop() {
             ctx.shadowColor = m.color;
 
             // Draw relative to center, offset by message index
-            const yPos = height * 0.3 + (i * 40);
-            ctx.fillText(m.text, width / 2, yPos);
+            const yPos = height * 0.3 + (i * (fontSize + 16));
+
+            // Use maxWidth to prevent text overflow (90% of screen width)
+            const maxWidth = width * 0.9;
+            ctx.fillText(m.text, width / 2, yPos, maxWidth);
 
             m.life--;
             if (m.life <= 0) screenMessages.splice(i, 1);
