@@ -61,14 +61,9 @@ const livesDisplay = document.getElementById('lives-display');
 const startScreen = document.getElementById('start-screen');
 const audioPrompt = document.getElementById('audio-prompt');
 const gestureHint = document.getElementById('gesture-hint');
-const gravityAlert = document.getElementById('gravity-alert');
 const startBtn = document.getElementById('start-btn');
 const boundaryAlertEl = document.getElementById('boundary-alert');
 const fadeOverlay = document.getElementById('fade-overlay');
-
-let asteroidSpawnTimer = ASTEROID_SPAWN_TIMER;
-
-/* Game state is initialized in core.js */
 
 function resize() {
     width = Math.max(window.innerWidth, 100);
@@ -109,14 +104,12 @@ function changeRadarZoom(direction) {
 
     let newIndex = currentZoomIndex + direction;
 
-    // Clamp index between 0 and max index
     if (newIndex < 0) newIndex = 0;
     if (newIndex >= ZOOM_LEVELS.length) newIndex = ZOOM_LEVELS.length - 1;
 
     if (newIndex !== currentZoomIndex) {
         currentZoomIndex = newIndex;
         RADAR_RANGE = ZOOM_LEVELS[currentZoomIndex];
-        // No longer updating radarRangeEl text element.
     }
 }
 
@@ -647,17 +640,15 @@ function drawRadar() {
     radarCtx.fillStyle = '#0ff'; radarCtx.beginPath(); radarCtx.arc(cX, cY, 3, 0, Math.PI * 2); radarCtx.fill(); // Ship blip (center)
 
     const radarRadius = rW / 2;
-    // La escala se basa en el rango visible (RADAR_RANGE)
     const scale = radarRadius / RADAR_RANGE;
 
-    // Modificamos drawBlip para manejar diferentes tipos de objetos
     const drawBlip = (worldX, worldY, type, color, size) => {
         if (isNaN(worldX) || isNaN(worldY)) return;
 
         // 1. Calculate World Relative Position (in World Units)
-        let dx = worldX - worldOffsetX; // Vector from Player to Object (in World Units)
+        let dx = worldX - worldOffsetX;
         let dy = worldY - worldOffsetY;
-        let dist = Math.sqrt(dx * dx + dy * dy); // World Distance
+        let dist = Math.sqrt(dx * dx + dy * dy);
 
         // 2. Filter: Only draw if within RADAR_RANGE
         if (dist > RADAR_RANGE) return;
@@ -674,51 +665,43 @@ function drawRadar() {
         let rx = cX + radarDist * Math.cos(angle);
         let ry = cY + radarDist * Math.sin(angle);
 
-        // DIBUJO ESPECÍFICO POR TIPO
         radarCtx.fillStyle = color;
         radarCtx.strokeStyle = color;
 
         if (type === 'station') {
-            // Estaciones espaciales como la letra 'O' roja
             radarCtx.font = "bold 12px Courier New";
             radarCtx.textAlign = 'center';
             radarCtx.textBaseline = 'middle';
             radarCtx.fillText('O', rx, ry);
         } else if (type === 'ship') {
-            // Naves enemigas como puntos rojos (tamaño reducido para ser "puntos pequeños")
             radarCtx.beginPath();
             radarCtx.arc(rx, ry, 2, 0, Math.PI * 2); // Punto de 2px
             radarCtx.fill();
         } else if (type === 'planet') {
-            // Planetas: Usa el color principal del planeta
             radarCtx.beginPath();
             radarCtx.arc(rx, ry, Math.max(4, size), 0, Math.PI * 2); // Proportional size
             radarCtx.fill();
         } else {
-            // Asteroides: Puntos grises
             radarCtx.beginPath();
             radarCtx.arc(rx, ry, 2, 0, Math.PI * 2);
             radarCtx.fill();
         }
     };
 
-    // 1. Dibuja planetas primero (al fondo) - Siempre visibles, tamaño proporcional a Z
     roids.forEach(r => {
         if (r.isPlanet) {
             const color = r.textureData ? r.textureData.waterColor : 'rgba(0, 150, 255, 0.7)';
-            // Proportional size for all planets based on Z depth
             const radarSize = (r.r * scale) / (1 + r.z);
             drawBlip(r.x, r.y, 'planet', color, radarSize);
         }
     });
 
-    // 2. Dibuja asteroides (encima de planetas)
     roids.forEach(r => {
         if (!r.isPlanet && r.z <= 0.1) {
             drawBlip(r.x, r.y, 'asteroid', 'rgba(170, 170, 170, 0.7)', 2);
         }
     });
-    // 3. Dibuja enemigos y naves (encima de todo)
+
     enemies.forEach(e => {
         if (e.z <= 0.1) {
             const color = e.isFriendly ? '#0088FF' : '#FF0000';
@@ -729,8 +712,6 @@ function drawRadar() {
             }
         }
     });
-
-    // 4. Player position is already drawn at center (line 647) - no additional marker needed
 }
 
 function drawHeart(ctx, x, y, size) {
@@ -751,55 +732,13 @@ function drawLives() {
     livesDisplay.style.marginTop = '5px'; // Minor align adjustment
 }
 
-function createAsteroidCluster(cx, cy, clusterRadius, count) {
-    const clusterDriftVx = (Math.random() - 0.5) * 0.5;
-    const clusterDriftVy = (Math.random() - 0.5) * 0.5;
-
-    for (let i = 0; i < count; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const dist = Math.random() * clusterRadius;
-        const x = cx + Math.cos(angle) * dist;
-        const y = cy + Math.sin(angle) * dist;
-        const r = 50 + Math.random() * 40; // larger roids in clusters
-        const roid = createAsteroid(x, y, r);
-
-        // Add cluster drift
-        roid.xv += clusterDriftVx;
-        roid.yv += clusterDriftVy;
-
-        roids.push(roid);
-    }
-}
-
-function createCollisionBubble(cx, cy, radius, count) {
-    for (let i = 0; i < count; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const dist = Math.random() * radius * 0.1; // Start very close to center
-        const x = cx + Math.cos(angle) * dist;
-        const y = cy + Math.sin(angle) * dist;
-        const r = 30 + Math.random() * 40;
-        const roid = createAsteroid(x, y, r);
-
-        // Initial blast velocity
-        const blastSpeed = 10 + Math.random() * 15;
-        roid.xv = Math.cos(angle) * blastSpeed;
-        roid.yv = Math.sin(angle) * blastSpeed;
-
-        // Bubble physics properties
-        roid.isBubbleDebris = true;
-        roid.bubbleFriction = 0.94 + Math.random() * 0.03; // Slower and slower
-
-        roids.push(roid);
-    }
-}
-
 function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
     for (let i = 0; i < count; i++) {
         const angle = Math.random() * Math.PI * 2;
         const dist = innerRadius + Math.random() * (outerRadius - innerRadius);
         const x = cx + Math.cos(angle) * dist;
         const y = cy + Math.sin(angle) * dist;
-        const r = 50 + Math.random() * 50;
+        const r = MIN_ASTEROID_SIZE + Math.random() * (MAX_ASTEROID_SIZE - MIN_ASTEROID_SIZE);
         const roid = createAsteroid(x, y, r);
 
         // Small tangential velocity to give a sense of belt movement
@@ -840,16 +779,14 @@ function createLevel() {
     roids = []; enemies = []; enemyBullets = []; bullets = []; shockwaves = [];
 
     let planetSpawned = false;
-    // Try to spawn a planet not at the dead center, to make it more interesting
     let planetX = (Math.random() - 0.5) * 5000;
     let planetY = (Math.random() - 0.5) * 5000;
-    let firstPlanet = createAsteroid(planetX, planetY, PLANET_THRESHOLD * 3.5 + Math.random() * 400, 0);
-    roids.push(firstPlanet); // Host planet at z=0
-    homePlanetId = firstPlanet.id; // Mark as Home Planet
-    firstPlanet.name = "Home";
-    firstPlanet.zSpeed = 0; // Lock at Z=0 for visibility
+    let firstPlanet = createAsteroid(planetX, planetY, PLANET_THRESHOLD + 1, 0);
+    roids.push(firstPlanet);
+    homePlanetId = firstPlanet.id;
+    firstPlanet.name = "HOME";
+    firstPlanet.zSpeed = 0;
 
-    // USER REQUEST: Home planet color always blue
     if (firstPlanet.textureData) {
         firstPlanet.textureData.waterColor = `hsl(${FRIENDLY_BLUE_HUE}, 60%, 30%)`;
         firstPlanet.textureData.atmosphereColor = `hsl(${FRIENDLY_BLUE_HUE}, 80%, 60%)`;
@@ -857,65 +794,11 @@ function createLevel() {
     }
 
     planetSpawned = true;
-    console.log(`Home Planet spawned as "Home" (Blue) at: (${planetX.toFixed(0)}, ${planetY.toFixed(0)}) with ID ${homePlanetId}`);
 
-    // Create a large asteroid belt
-    createAsteroidBelt(0, 0, 7500, 12500, 750);
+    createAsteroidBelt(0, 0, ASTEROID_BELT_INNER_RADIUS, ASTEROID_BELT_OUTER_RADIUS, NUM_ASTEROIDS_PER_BELT);
 
-    // Create some clusters
-    for (let i = 0; i < 3; i++) {
-        const clusterX = (Math.random() - 0.5) * WORLD_BOUNDS;
-        const clusterY = (Math.random() - 0.5) * WORLD_BOUNDS;
-        if (Math.hypot(clusterX, clusterY) < 15000) continue; // Avoid belt
-        createAsteroidCluster(clusterX, clusterY, 3000 + Math.random() * 2000, 100 + Math.random() * 100);
-    }
-
-    // Create some binary asteroids
-    for (let i = 0; i < 15; i++) {
-        const binaryX = (Math.random() - 0.5) * WORLD_BOUNDS;
-        const binaryY = (Math.random() - 0.5) * WORLD_BOUNDS;
-        if (Math.hypot(binaryX, binaryY) < 15000) continue; // Avoid belt
-        createBinaryAsteroid(binaryX, binaryY, 50 + Math.random() * 30, 50 + Math.random() * 30, 100 + Math.random() * 50, 0.5 + Math.random());
-    }
-
-    // Add some sparse random asteroids
-    let roidCount = 250 + level * 10;
-    for (let i = 0; i < roidCount; i++) {
-        let x, y, d, r;
-        // Ensure asteroids spawn away from the center
-        do {
-            x = (Math.random() - 0.5) * WORLD_BOUNDS * 1.8;
-            y = (Math.random() - 0.5) * WORLD_BOUNDS * 1.8;
-            d = Math.sqrt(x ** 2 + y ** 2);
-        } while (d < 15000);
-
-        r = 50 + Math.random() * 100;
-
-        // One more planet further out
-        if (!planetSpawned || (i === Math.floor(roidCount / 2) && Math.random() < 0.3)) {
-            if (d > 25000) {
-                r = PLANET_THRESHOLD + 200 + Math.random() * 200;
-                planetSpawned = true;
-                const pZ = Math.random() * MAX_Z_DEPTH; // Random depth for secondary planets
-                roids.push(createAsteroid(x, y, r, pZ));
-                console.log(`Outer Planet spawned at: (${x.toFixed(0)}, ${y.toFixed(0)}) with radius ${r} at z=${pZ.toFixed(1)}`);
-                continue;
-            }
-        }
-
-        roids.push(createAsteroid(x, y, r));
-    }
-
-    // Fallback: If no planet was created (very unlikely)
-    if (roids.filter(r => r.isPlanet).length === 0) {
-        let x = WORLD_BOUNDS / 2; let y = WORLD_BOUNDS / 2;
-        roids.push(createAsteroid(x, y, PLANET_THRESHOLD + 150));
-        console.log("Fallback planet spawned.");
-    }
-
-    // ALL PLANETS HAVE 1 OR 2 STATIONS
     roids.filter(r => r.isPlanet).forEach(planet => {
-        const stationCount = Math.floor(Math.random() * 2) + 1; // 1 or 2
+        const stationCount = Math.floor(Math.random() * NUM_STATIONS_PER_PLANET) + 1;
         for (let i = 0; i < stationCount; i++) {
             spawnStation(planet);
         }
@@ -1164,9 +1047,7 @@ function updatePhysics() {
                         createExplosion(midVpX, midVpY, 40, '#ff0000', 8, 'debris');
                         AudioEngine.playPlanetExplosion(midX, midY, r1.z); // Strong sound if visible
 
-                        // USER REQUEST: New ring of asteroids (similar as the first when the game starts)
-                        createCollisionBubble(midX, midY, 1500, 300);
-
+                        createAsteroidBelt(midX, midY, ASTEROID_BELT_INNER_RADIUS / 2, ASTEROID_BELT_OUTER_RADIUS / 2, NUM_ASTEROIDS_PER_BELT / 2);
                         createShockwave(midX, midY);
 
                         // Destroy both planets' stations
@@ -1338,8 +1219,6 @@ function updatePhysics() {
             }
         }
     }
-    // Display gravity warning if applicable
-    if (nearbyGravity) gravityAlert.style.display = 'block'; else gravityAlert.style.display = 'none';
 }
 
 // NEW: Function to draw planetary rings (fixed attributes, dynamic scale)
@@ -1380,66 +1259,17 @@ function loop() {
     // Decrement player reload timer
     if (playerReloadTime > 0) playerReloadTime--;
 
-    // SPAWNER UPDATE: Periodic Big Asteroid
-    if (asteroidSpawnTimer > 0) {
-        asteroidSpawnTimer--;
-    } else {
-        asteroidSpawnTimer = ASTEROID_SPAWN_TIMER;
-
-        // Spawn a cluster of asteroids at border, approaching center
-        const angle = Math.random() * Math.PI * 2;
-        const spawnDist = WORLD_BOUNDS * 0.8;
-        const baseX = Math.cos(angle) * spawnDist;
-        const baseY = Math.sin(angle) * spawnDist;
-
-        // Create 3-6 asteroids in a cluster
-        const clusterSize = 3 + Math.floor(Math.random() * 4); // 3 to 6 asteroids
-        const driftSpeed = 0.5 + Math.random() * 1.5;
-
-        // Base velocity towards center
-        const baseVX = -Math.cos(angle) * driftSpeed;
-        const baseVY = -Math.sin(angle) * driftSpeed;
-
-        for (let i = 0; i < clusterSize; i++) {
-            // Spread asteroids in a small cluster formation
-            const spreadAngle = Math.random() * Math.PI * 2;
-            const spreadDist = Math.random() * 300; // Cluster spread radius
-            const x = baseX + Math.cos(spreadAngle) * spreadDist;
-            const y = baseY + Math.sin(spreadAngle) * spreadDist;
-
-            // Vary asteroid sizes: small, medium, and large
-            const sizeRoll = Math.random();
-            let r;
-            if (sizeRoll < 0.4) r = 40 + Math.random() * 60;      // Small (40-100)
-            else if (sizeRoll < 0.8) r = 100 + Math.random() * 80; // Medium (100-180)
-            else r = 180 + Math.random() * 100;                    // Large (180-280)
-
-            const roid = createAsteroid(x, y, r);
-
-            // All asteroids in cluster travel together with slight variation
-            const speedVariation = 0.9 + Math.random() * 0.2; // 90% to 110% of base speed
-            roid.xv = baseVX * speedVariation + (Math.random() - 0.5) * 0.2;
-            roid.yv = baseVY * speedVariation + (Math.random() - 0.5) * 0.2;
-
-            roids.push(roid);
-        }
-    }
-
     // Safety check against NaN/Infinity in velocity/world calculation
     if (isNaN(velocity.x) || isNaN(velocity.y) || !isFinite(velocity.x) || !isFinite(velocity.y)) {
         velocity = { x: 0, y: 0 };
-        console.log("Velocity stabilization system activated");
     }
     if (isNaN(worldOffsetX) || isNaN(worldOffsetY) || !isFinite(worldOffsetX) || !isFinite(worldOffsetY)) {
         worldOffsetX = 0; worldOffsetY = 0;
-        console.log("World position stabilization system activated");
     }
 
-    // Enemy station spawning: now tied to stationSpawnTimer and presence of ANY planet
     if (stationSpawnTimer > 0) stationSpawnTimer--;
     if (stationSpawnTimer <= 0 && enemies.length < 3) {
         spawnStation();
-        // The timer is set inside spawnStation now (either 1200+ or 300 if no planets found)
     }
 
     // Función de seguridad para validar coordenadas

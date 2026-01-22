@@ -77,14 +77,6 @@ canvas {
     line-height: 1;
 }
 
-#gravity-alert {
-    color: #ff4444;
-    font-size: 12px;
-    display: none;
-    text-shadow: 0 0 5px #f00;
-    animation: blink 0.5s infinite;
-}
-
 @keyframes blink {
     0% {
         opacity: 1;

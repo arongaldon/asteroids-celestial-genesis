@@ -5,47 +5,44 @@
 /* =========================================
    CONSTANTS & UTILS
    ========================================= */
-const ASTEROID_SPAWN_TIMER = 5 * 60; // seconds at 60 FPS
-const FPS = 60;
-const FRICTION = 0.99;
-const SHIP_SIZE = 30;
-const SHIP_THRUST = 0.9;
+const ASTEROID_BELT_INNER_RADIUS = 3000
+const ASTEROID_BELT_OUTER_RADIUS = 25000
 const BASE_MAX_SHIELD = 100;
-const TOUCH_ROTATION_SENSITIVITY = 0.008;
-const INITIAL_LIVES = 3;
-const MAX_SPEED = 50;
-const WORLD_SCALE = 10;
-const EVOLUTION_SCORE_STEP = 1000;
-
-// Damage resistance
-const SHIP_RESISTANCE = 2;
-const STATION_RESISTANCE = 6;
-
-const ZOOM_LEVELS = [2500, 5000, 12500, 25000, 50000];
-const G_CONST = 0.5;
-const PLANET_THRESHOLD = 350;
-const MAX_Z_DEPTH = 5;
-const PLANET_MAX_SIZE = 500;
-const MAX_PLANETS = 10;
-const FRIENDLY_BLUE_HUE = 210; // Unified Sky Blue
-
-const WORLD_BOUNDS = 50000;
 const BOUNDARY_DAMPENING = 0.5;
 const BOUNDARY_TOLERANCE = 100;
-
+const BULLET_FADE_FRAMES = 5;
 const BULLET_GRAVITY_FACTOR = 90;
 const BULLET_LIFETIME = 100;
-const BULLET_FADE_FRAMES = 5;
-
-const SIDE_BULLET_LIFETIME = 60; // Increased from 10 to 60 for visibility
+const EVOLUTION_SCORE_STEP = 1000;
+const FPS = 60;
+const FRICTION = 0.99;
+const FRIENDLY_BLUE_HUE = 210;
+const G_CONST = 0.5;
+const INITIAL_LIVES = 3;
+const MAX_PLANETS = 10;
+const MAX_SPEED = 30;
+const MAX_Z_DEPTH = 0.5;
+const MIN_DURATION_TAP_TO_MOVE = 200;
+const MAX_ASTEROID_SIZE = 160;
+const MIN_ASTEROID_SIZE = 70;
+const NUM_ASTEROIDS_PER_BELT = 1000;
+const NUM_STATIONS_PER_PLANET = 2;
+const PLANET_MAX_SIZE = 1000;
+const PLANET_THRESHOLD = 400;
+const PLAYER_RELOAD_TIME_MAX = 8;
 const PRIMARY_BULLET_SIZE = 5;
 const SECONDARY_BULLET_SIZE = 2;
-
-const PLAYER_RELOAD_TIME_MAX = 8;
-const MIN_DURATION_TAP_TO_MOVE = 200; // Touch mode only
-
-const syllables = ["KRON", "XER", "ZAN", "TOR", "AER", "ION", "ULA", "PROX", "VEX", "NOV", "SOL", "LUNA", "TER", "MAR", "JUP"];
+const SHIP_RESISTANCE = 2;
+const SHIP_SIZE = 30;
+const SHIP_THRUST = 0.9;
+const SIDE_BULLET_LIFETIME = 60;
+const STATION_RESISTANCE = 6;
+const TOUCH_ROTATION_SENSITIVITY = 0.008;
+const WORLD_BOUNDS = 25000;
+const WORLD_SCALE = 5;
+const ZOOM_LEVELS = [1000, 2000, 3000, 5000, 8000, 13000, 21000];
 const suffixes = ["PRIME", "IV", "X", "ALPHA", "BETA", "MAJOR", "MINOR", "ZERO", "AEON"];
+const syllables = ["KRON", "XER", "ZAN", "TOR", "AER", "ION", "ULA", "PROX", "VEX", "NOV", "SOL", "LUNA", "TER", "MAR", "JUP"];
 
 /* =========================================
   GLOBAL STATE (Shared)
