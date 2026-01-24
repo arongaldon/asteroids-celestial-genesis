@@ -1,15 +1,15 @@
-function onShipDestroyed(ship, killer = null) {
-    if (killer === playerShip) {
-        if (ship.isFriendly && !isLoneWolf) {
+function onShipDestroyed(ship, killerShip = null) {
+    if (killerShip === playerShip) {
+        if (ship.isFriendly && !playerShip.loneWolf) {
             triggerBetrayal();
             return;
         }
 
-        score += SHIP_KILLED_REWARD;
+        increaseShipScore(killerShip, SHIP_KILLED_REWARD);
     }
 }
 
-function onStationDestroyed(station, killer = null) {
+function onStationDestroyed(station, killerShip = null) {
     if (station) {
         let junkAst = createAsteroid(station.x + ASTEROID_SPLIT_OFFSET, station.y, ASTEROID_MIN_SIZE);
         junkAst.xv = station.xv + ASTEROID_SPLIT_SPEED;
@@ -18,14 +18,14 @@ function onStationDestroyed(station, killer = null) {
         roids.push(junkAst);
     };
 
-    if (killer === playerShip) {
-        if (station.isFriendly && !isLoneWolf) {
+    if (killerShip === playerShip) {
+        if (station.isFriendly && !playerShip.loneWolf) {
             triggerBetrayal();
             return;
         }
 
         playerShip.shield = playerShip.maxShield;
-        score += STATION_KILLED_REWARD;
+        increaseShipScore(killerShip, STATION_KILLED_REWARD);
         stationsDestroyedCount++;
 
         playerShip.lives++;
@@ -304,27 +304,28 @@ function spawnShipsSquad(station) {
         }
         else {
             e = {
-                type: 'ship',
-                role: slot.role,
-                squadId: squadId,
-                isFriendly: station.isFriendly,
-                formationOffset: { x: slot.x, y: slot.y },
-                leaderRef: null,
-                x: squadX + slot.x,
-                y: squadY + slot.y,
-                xv: station.xv,
-                yv: station.yv,
-                r: 35,
                 a: spawnAngle + Math.PI,
-                structureHP: SHIP_RESISTANCE,
-                shieldHitTimer: 0,
-                reloadTime: 100 + Math.random() * 100,
-                mass: 30,
-                fleetHue: station.fleetHue,
-                blinkNum: 30,
-                z: 0,
                 aiState: 'FORMATION',
-                score: 0
+                blinkNum: 30,
+                fleetHue: station.fleetHue,
+                formationOffset: { x: slot.x, y: slot.y },
+                isFriendly: station.isFriendly,
+                leaderRef: null,
+                mass: 30,
+                r: 35,
+                reloadTime: 100 + Math.random() * 100,
+                role: slot.role,
+                score: 0,
+                shieldHitTimer: 0,
+                squadId: squadId,
+                structureHP: SHIP_RESISTANCE,
+                tier: 0,
+                type: 'ship',
+                x: squadX + slot.x,
+                xv: station.xv,
+                y: squadY + slot.y,
+                yv: station.yv,
+                z: 0
             };
         }
         if (slot.role === 'leader') {
@@ -365,7 +366,7 @@ function triggerBetrayal() {
 
 function fireEntityWeapon(ship, bulletList, isEnemy = true) {
     const isPlayer = (ship === playerShip);
-    const tier = isPlayer ? getShipTier() : Math.floor(ship.score / EVOLUTION_SCORE_STEP);
+    const tier = isPlayer ? ship.tier : Math.floor(ship.score / SHIP_EVOLUTION_SCORE_STEP);
     const hue = ship.fleetHue !== undefined ? ship.fleetHue : 200;
     const ySign = isPlayer ? -1 : 1;
     const a = isPlayer ? playerShip.a : ship.a;
@@ -743,8 +744,7 @@ function killPlayerShip() {
 
     velocity = { x: 0, y: 0 };
 
-    score -= 1000;
-    scoreDisplay.innerText = score;
+    increaseShipScore(playerShip, -1000);
 
     if (playerShip.lives > 0) setTimeout(() => {
         playerShip.dead = false;
@@ -1846,7 +1846,6 @@ function loop() {
                     ship.x += Math.cos(ang) * 60; ship.y += Math.sin(ang) * 60;
                 } else {
                     ships.splice(i, 1); i--;
-                    scoreDisplay.innerText = score;
                     AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
                 }
 
@@ -1855,7 +1854,7 @@ function loop() {
                     createExplosion(vpX, vpY, 40, '#ffaa00', 3, 'spark'); createExplosion(vpX, vpY, 20, debrisColor, 4, 'debris');
                     if (ship.type === 'station') { onStationDestroyed(ship); }
                     else { onShipDestroyed(ship); }
-                    ships.splice(i, 1); scoreDisplay.innerText = score; AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
+                    ships.splice(i, 1); AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
                 }
             }
         }
@@ -2046,8 +2045,8 @@ function loop() {
 
         if (shipToDraw.type === 'ship') {
 
-            // --- INDIVIDUAL EVOLUTION: ships match their OWN score visuals ---
-            const tier = Math.floor((shipToDraw.score || 0) / EVOLUTION_SCORE_STEP);
+            // Individual evolution: ships match their OWN score visuals
+            const tier = Math.floor((shipToDraw.score || 0) / SHIP_EVOLUTION_SCORE_STEP);
             const r = shipToDraw.r;
 
             // Generate Palette based on fleetHue (Host Planet)
@@ -2262,7 +2261,7 @@ function loop() {
 
         let isTesla = playerShip.maxShield > SHIP_BASE_MAX_SHIELD;
 
-        const tier = getShipTier();
+        const tier = playerShip.tier;
 
         const BASE_SHIP_RADIUS = SHIP_SIZE / 2;
         const MAX_TIER_RADIUS = BASE_SHIP_RADIUS + (7 * 2); // Tier 7 size
@@ -2697,7 +2696,7 @@ function loop() {
                     AudioEngine.playExplosion('small', r.x, r.y, r.z);
                 }
                 if (!r.isPlanet) {
-                    score += ASTEROID_DESTROYED_REWARD; scoreDisplay.innerText = score;
+                    increaseShipScore(playerShip, ASTEROID_DESTROYED_REWARD);
                 }
                 playerShipBullets.splice(i, 1); hit = true; break;
             }
@@ -2709,7 +2708,7 @@ function loop() {
             let ship = ships[j];
 
             // If we are NOT a lone wolf, hitting friends triggers a warning
-            if (ship.isFriendly && !isLoneWolf) {
+            if (ship.isFriendly && !playerShip.loneWolf) {
                 if (Math.hypot(playerShipBullet.x - ship.x, playerShipBullet.y - ship.y) < ship.r + playerShipBullet.size) {
                     addScreenMessage("⚠ WARNING: CEASE FIRE ON ALLIES!", "#ffcc00");
                     ship.structureHP -= 1.0;
@@ -2753,7 +2752,7 @@ function loop() {
                     createExplosion(eVpX, eVpY, 40, '#ffaa00', 3, 'spark'); createExplosion(eVpX, eVpY, 20, debrisColor, 4, 'debris');
                     if (ship.type === 'station') { onStationDestroyed(ship, playerShipBullet.owner); }
                     else { onShipDestroyed(ship, playerShipBullet.owner); }
-                    ships.splice(j, 1); scoreDisplay.innerText = score;
+                    ships.splice(j, 1);
                     AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
                 }
                 break;
@@ -2971,7 +2970,7 @@ function startGame() {
     // Hide start/restart button in order to gradually show it again in the game over screen.
     startBtn.style.display = 'none';
 
-    startScreen.style.display = 'none'; level = 0; score = 0; homePlanetId = null; isLoneWolf = false; screenMessages = [];
+    startScreen.style.display = 'none'; level = 0; homePlanetId = null; screenMessages = [];
 
     // startScreen.classList.remove('game-over-bg');
     fadeOverlay.style.background = 'rgba(0, 0, 0, 0)';
@@ -2982,9 +2981,9 @@ function startGame() {
     stationSpawnTimer = STATIONS_SPAWN_TIMER;
     stationsDestroyedCount = 0;
     playerReloadTime = 0; // Reset reload timer
-    scoreDisplay.innerText = score;
 
     playerShip = newPlayerShip();
+    increaseShipScore(playerShip, 0);
     ships.push(playerShip);
     particles = [];
     ambientFogs = [];

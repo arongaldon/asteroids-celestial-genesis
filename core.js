@@ -3,7 +3,7 @@
  */
 
 /* =========================================
-   CONSTANTS & UTILS
+   PARAMETERS
    ========================================= */
 const ASTEROIDS_PER_BELT = 1000;
 const ASTEROID_BELT_INNER_RADIUS = 2000
@@ -15,7 +15,6 @@ const ASTEROID_SPLIT_OFFSET = 90;
 const ASTEROID_SPLIT_SPEED = 3;
 const BOUNDARY_DAMPENING = 0.5;
 const BOUNDARY_TOLERANCE = 100;
-const EVOLUTION_SCORE_STEP = 1000;
 const FPS = 60;
 const FRICTION = 0.99;
 const G_CONST = 0.9; // Gravity Constant
@@ -27,8 +26,8 @@ const PLANET_MAX_SIZE = 900;
 const PLANET_THRESHOLD = 450;
 const PLAYER_INITIAL_LIVES = 3;
 const PLAYER_RELOAD_TIME_MAX = 8;
-const SCALE_IN_TOUCH_MODE = 0.6;
 const SCALE_IN_MOUSE_MODE = 1.0;
+const SCALE_IN_TOUCH_MODE = 0.6;
 const SHIPS_COMBAT_ORBIT_DISTANCE = 340;
 const SHIPS_MAX_NUMBER = 18;
 const SHIPS_SEPARATION_DISTANCE = 120;
@@ -40,6 +39,7 @@ const SHIP_BULLET2_LIFETIME = 20;
 const SHIP_BULLET2_SIZE = 3;
 const SHIP_BULLET_FADE_FRAMES = 5;
 const SHIP_BULLET_GRAVITY_FACTOR = 90;
+const SHIP_EVOLUTION_SCORE_STEP = 1000;
 const SHIP_FRIENDLY_BLUE_HUE = 210;
 const SHIP_FRIENDS_EACH_SPAWN = 6;
 const SHIP_KILLED_REWARD = 200;
@@ -62,7 +62,6 @@ const syllables = ["KRON", "XER", "ZAN", "TOR", "AER", "ION", "ULA", "PROX", "VE
   GLOBAL STATE (Shared)
   ========================================= */
 let width, height;
-let score = 0;
 let playerShip;
 let worldOffsetX = 0;
 let worldOffsetY = 0;
@@ -80,7 +79,6 @@ let stationSpawnTimer = 0;
 let stationsDestroyedCount = 0;
 let level = 0;
 let homePlanetId = null;
-let isLoneWolf = false;
 let screenMessages = [];
 let gameRunning = false;
 let loopStarted = false;
@@ -359,7 +357,29 @@ function mulberry32(a) {
     }
 }
 
-function getShipTier() { return Math.max(0, Math.floor(score / EVOLUTION_SCORE_STEP)); }
+function increaseShipScore(ship, reward) {
+    ship.score += reward;
+    const newTier = getShipTier(ship);
+
+    if (ship === playerShip) {
+        if (newTier > ship.tier) {
+            addScreenMessage(`EVOLVED TO THE ${getShapeName(newTier)}`, "#00ff00");
+            console.log(`Player score: ${ship.score}, evolved tier: ${ship.tier}`);
+        }
+        else if (newTier < ship.tier) {
+            addScreenMessage(`DEVOLVED TO THE ${getShapeName(newTier)}`, "#ff0000");
+            console.log(`Player score: ${ship.score}, devolved tier: ${ship.tier}`);
+        }
+        scoreDisplay.innerText = playerShip.score;
+    }
+
+    ship.tier = newTier;
+}
+
+function getShipTier(ship) {
+    return Math.max(0, Math.floor(ship.score / SHIP_EVOLUTION_SCORE_STEP));
+}
+
 function getShapeName(tier) {
     if (tier >= 9) return "THE CELESTIAL";
     if (tier === 8) return "THE SPHERE";
@@ -389,7 +409,6 @@ function showInfoLEDText(text) {
    ENTITY FACTORIES
    ========================================= */
 function newPlayerShip() {
-    const currentTier = getShipTier();
     const startingHP = SHIP_RESISTANCE;
     return {
         a: 90 / 180 * Math.PI,
@@ -405,10 +424,12 @@ function newPlayerShip() {
         maxShield: SHIP_BASE_MAX_SHIELD,
         r: SHIP_SIZE / 2,
         role: null,
+        score: 0,
         shield: SHIP_BASE_MAX_SHIELD,
         squadId: null,
         structureHP: startingHP,
         thrusting: false,
+        tier: 0,
         type: 'ship'
     };
 }
