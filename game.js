@@ -235,7 +235,7 @@ function spawnStation(hostPlanet = null) {
         hostPlanet = nearbyPlanets[Math.floor(Math.random() * nearbyPlanets.length)];
     }
 
-    const SAFE_ORBIT_FACTOR = 0.3; // Much closer (User Request)
+    const SAFE_ORBIT_FACTOR = 0.3; // Much closer
     const STATION_R = 70;
     const orbitDistance = hostPlanet.r + (hostPlanet.r * SAFE_ORBIT_FACTOR) + STATION_R;
 
@@ -244,6 +244,8 @@ function spawnStation(hostPlanet = null) {
     // Calculate initial ABSOLUTE WORLD position relative to the planet center
     const startX = hostPlanet.x + Math.cos(orbitAngle) * orbitDistance;
     const startY = hostPlanet.y + Math.sin(orbitAngle) * orbitDistance;
+
+    const friendly = playerShip.loneWolf === false && homePlanetId !== null && hostPlanet.id === homePlanetId;
 
     ships.push({
         type: 'station',
@@ -259,26 +261,24 @@ function spawnStation(hostPlanet = null) {
         orbitDistance: orbitDistance,
         orbitAngle: orbitAngle,
         orbitSpeed: (Math.random() > 0.5 ? 1 : -1) * 0.002, // Slow orbital rotation
-        fleetHue: (homePlanetId !== null && hostPlanet.id === homePlanetId) ? SHIP_FRIENDLY_BLUE_HUE : Math.floor(Math.random() * 360), // Unique color for the fleet
+        fleetHue: friendly ? SHIP_FRIENDLY_BLUE_HUE : Math.floor(Math.random() * 360),
         blinkNum: 60,
         z: 0, // Always at default Z-depth for radar visibility
         hostPlanetId: hostPlanet.id, // Store ID instead of reference
-        isFriendly: (homePlanetId !== null && hostPlanet.id === homePlanetId) // Mark station as friendly if on home planet
+        isFriendly: friendly
     });
     stationSpawnTimer = STATIONS_SPAWN_TIMER + Math.random() * STATIONS_SPAWN_TIMER;
     console.log(`New station at ${hostPlanet.name}.`);
 }
 
 function spawnShipsSquad(station) {
-    const isFriendlyStation = (homePlanetId !== null && station.hostPlanetId === homePlanetId) && !isLoneWolf;
-
     // Avoid more than 6 friends, since all of them want to join the player ship formation, and there are only 6 slots.
-    if (isFriendlyStation) {
+    if (station.isFriendly) {
         const currentFriendlyShips = ships.filter(en => en.type === 'ship' && en.isFriendly === true);
         if (currentFriendlyShips.length > 0) { return; }
     }
     const squadId = Math.random();
-    console.log(`New squad ${squadId} from ${isFriendlyStation ? 'friendly' : 'hostile'} station at planet ${station.hostPlanet.name}.`);
+    console.log(`New squad ${squadId} from ${station.isFriendly ? 'friendly' : 'hostile'} station at planet ${station.hostPlanet.name}.`);
 
     const formationData = [
         { role: 'leader', x: 0, y: 0 },
@@ -297,7 +297,7 @@ function spawnShipsSquad(station) {
     let leader = null;
 
     formationData.forEach(slot => {
-        if (isFriendlyStation && playerShip.dead === false && playerShip.squadId === null) {
+        if (station.isFriendly && playerShip.dead === false && playerShip.squadId === null) {
             e = playerShip;
             e.squadId = squadId;
             console.log(`Player ship becomes the leader of the squad ${squadId}.`);
@@ -307,7 +307,7 @@ function spawnShipsSquad(station) {
                 type: 'ship',
                 role: slot.role,
                 squadId: squadId,
-                isFriendly: isFriendlyStation,
+                isFriendly: station.isFriendly,
                 formationOffset: { x: slot.x, y: slot.y },
                 leaderRef: null,
                 x: squadX + slot.x,
@@ -1176,7 +1176,7 @@ function loop() {
     canvasContext.save();
 
     // In touch mode, zoom out to see more of the world
-    const targetScale = (inputMode === 'touch') ? 0.5 : 1.0;
+    const targetScale = (inputMode === 'touch') ? SCALE_IN_TOUCH_MODE : SCALE_IN_MOUSE_MODE;
     viewScale += (targetScale - viewScale) * 0.1;
 
     if (viewScale !== 1.0) {
@@ -1425,7 +1425,7 @@ function loop() {
                 ship.xv *= 0.8; // Heavy damping to stop oscillation
                 ship.yv *= 0.8;
 
-                // AVOIDANCE LOGIC (Stations avoid crashing)
+                // Stations avoid crashing.
                 for (let r of roids) {
                     if (r === host) continue; // Don't avoid host
                     if (r.z > 0.5) continue;
@@ -1571,7 +1571,6 @@ function loop() {
                     const dy = targetY - ship.y;
                     const distToTarget = Math.hypot(dx, dy);
 
-                    // --- COLLISION AVOIDANCE (User Request) ---
                     // Break formation if about to crash while player is active
                     const isPlayerActive = Math.abs(velocity.x) > 0.5 || Math.abs(velocity.y) > 0.5 ||
                         keys.KeyA || keys.KeyD || keys.ArrowLeft || keys.ArrowRight ||
@@ -1766,12 +1765,9 @@ function loop() {
                 // Smoother elegant rotation (Reduced from 0.1 to 0.04)
                 ship.a += angleDiff * 0.04;
 
-                // Orbital Combat Movement
-                const DESIRED_DIST = 350;
-
                 // 1. Radial Force (Push/Pull) - Proportional smooth spring
                 // Instead of hard ±0.8, we scale by distance diff
-                const distError = d - DESIRED_DIST;
+                const distError = d - SHIPS_COMBAT_ORBIT_DISTANCE;
                 // If positive (too far), pull in. If negative (too close), push out.
                 const radialForce = distError * 0.002; // Small spring constant
 
@@ -1983,11 +1979,10 @@ function loop() {
 
                 const isNearPlanetCollision = r.isPlanet && r.z < 0.5;
 
-                // --- PLANET COLLISION LOGIC: PASS-THROUGH ---
+                // Go through planets.
                 if (r.isPlanet) {
                     continue;
                 }
-                // --- END PLANET COLLISION LOGIC ---
 
                 // ASTEROID COLLISION: Player takes 1 hit, asteroid is destroyed.
                 if (r.blinkNum === 0) {
@@ -2565,8 +2560,8 @@ function loop() {
         let playerShipBullet = playerShipBullets[i];
 
         for (let r of roids) {
-            if (r.isPlanet && r.z < 0.5) { // Solo si el planeta es cercano
-                let dx = r.x - playerShipBullet.x; let dy = r.y - playerShipBullet.y; // World Distance Vector
+            if (r.isPlanet && r.z < 0.5) {
+                let dx = r.x - playerShipBullet.x; let dy = r.y - playerShipBullet.y;
                 let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
                 let force = (G_CONST * r.mass) / Math.max(distSq, 1000);
                 if (dist < r.r * 8 && dist > 1) {
