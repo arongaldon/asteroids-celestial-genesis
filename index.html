@@ -17,6 +17,7 @@
 
 <body>
     <canvas id="gameCanvas"></canvas>
+
     <div id="ui-layer">
         <div class="hud-top">
             <div class="stats-block">
@@ -25,12 +26,11 @@
                 <div id="radar-container"><canvas id="radar-canvas" width="140" height="140"></canvas></div>
             </div>
         </div>
-        <div id="gesture-hint">MOUSE / TOUCH MODE ACTIVE</div>
-        <div id="boundary-alert"
-            style="position:fixed; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:90; box-shadow:none; transition:box-shadow 0.1s linear;">
-        </div>
+        <div id="boundary-alert"></div>
     </div>
+
     <div id="fade-overlay"></div>
+
     <div id="start-screen">
         <h1>ASTEROIDS: CELESTIAL GENESIS</h1>
         <div class="instructions">

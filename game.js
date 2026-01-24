@@ -1,69 +1,51 @@
-/* =========================================
-   GAME INITIALIZATION & CALLBACKS
-   ========================================= */
+function onShipDestroyed(station) {
+    if (station.isFriendly && !isLoneWolf) {
+        triggerBetrayal();
+        return;
+    }
+
+    playerShip.shield = playerShip.maxShield;
+    score += SHIP_KILLED_REWARD;
+    stationsDestroyedCount++;
+}
 
 function onStationDestroyed(station) {
     if (station.isFriendly && !isLoneWolf) {
         triggerBetrayal();
-        return; // No rewards for betrayal
+        return;
     }
-    ship.shield = ship.maxShield; // Restore shield
-    score += 500;
+
+    playerShip.shield = playerShip.maxShield;
+    score += STATION_KILLED_REWARD;
     stationsDestroyedCount++;
+
     lives++;
-    addScreenMessage("EXTRA LIFE!");
     drawLives();
+    addScreenMessage("EXTRA LIFE!");
 
-    // Reward: Full Repair
-    ship.structureHP = SHIP_RESISTANCE;
-    ship.shield = ship.maxShield;
+    playerShip.structureHP = SHIP_RESISTANCE;
+    playerShip.shield = playerShip.maxShield;
 
-    // Initial reward logic (score, etc) kept below, removing duplicate lives logic from here 
-    // since we do it every time now? Or user said "Each time I destroy a station".
-    // So yes, every time.
-
-
-    // Spawn 4 minimum size asteroids in 4 directions
     if (station) {
-        const directions = [
-            { xv: 0, yv: -20 }, // North
-            { xv: 20, yv: 0 },  // East
-            { xv: 0, yv: 20 },  // South
-            { xv: -20, yv: 0 }  // West
-        ];
-
-        directions.forEach(dir => {
-            const offset = 100; // Spawn offset distance
-            const roid = createAsteroid(
-                station.x + (dir.xv !== 0 ? Math.sign(dir.xv) * offset : 0),
-                station.y + (dir.yv !== 0 ? Math.sign(dir.yv) * offset : 0),
-                50
-            );
-            roid.xv = dir.xv;
-            roid.yv = dir.yv;
-            roids.push(roid);
-        });
-    }
+        let junkAst = createAsteroid(station.x + ASTEROID_SPLIT_OFFSET, station.y, ASTEROID_MIN_SIZE);
+        junkAst.xv = station.xv + ASTEROID_SPLIT_SPEED;
+        junkAst.yv = station.yv;
+        junkAst.blinkNum = 30;
+        roids.push(junkAst);
+    };
 }
 
-
-
-/* =========================================
-   GAME CODE
-   ========================================= */
+const audioPrompt = document.getElementById('audio-prompt');
+const boundaryAlertEl = document.getElementById('boundary-alert');
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+const fadeOverlay = document.getElementById('fade-overlay');
+const livesDisplay = document.getElementById('lives-display');
 const radarCanvas = document.getElementById('radar-canvas');
 const radarCtx = radarCanvas.getContext('2d');
-
 const scoreEl = document.getElementById('scoreEl');
-const livesDisplay = document.getElementById('lives-display');
-const startScreen = document.getElementById('start-screen');
-const audioPrompt = document.getElementById('audio-prompt');
-const gestureHint = document.getElementById('gesture-hint');
 const startBtn = document.getElementById('start-btn');
-const boundaryAlertEl = document.getElementById('boundary-alert');
-const fadeOverlay = document.getElementById('fade-overlay');
+const startScreen = document.getElementById('start-screen');
 
 function resize() {
     width = Math.max(window.innerWidth, 100);
@@ -131,9 +113,6 @@ document.addEventListener('keydown', (e) => {
 
     if (e.code === 'KeyA') keys.KeyA = true;
     if (e.code === 'KeyD') keys.KeyD = true;
-
-    // Hide gesture hint if keyboard is used on desktop
-    if (inputMode === 'mouse' && window.innerWidth > 768) { gestureHint.style.opacity = '0'; }
 });
 document.addEventListener('keyup', (e) => {
     if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.ArrowUp = false;
@@ -148,7 +127,6 @@ document.addEventListener('keyup', (e) => {
 document.addEventListener('mousemove', (e) => {
     if (e.target.closest('.btn')) return; // Ignore if over a button
     inputMode = 'mouse'; mouse.x = e.clientX; mouse.y = e.clientY;
-    if (gameRunning) { gestureHint.innerText = ""; }
 });
 document.addEventListener('mousedown', (e) => {
     if (!gameRunning || e.target.closest('button')) return;
@@ -189,15 +167,13 @@ document.addEventListener('touchstart', (e) => {
     // Rotate ship to face the tap immediately
     const dx = touchStartX - width / 2;
     const dy = touchStartY - height / 2;
-    ship.a = Math.atan2(-dy, dx);
+    playerShip.a = Math.atan2(-dy, dx);
 
-    gestureHint.style.opacity = '1';
-    gestureHint.innerText = "MOVE FINGER TO STEER / RELEASE TO SHOOT";
     e.preventDefault();
 }, { passive: false });
 
 document.addEventListener('touchmove', (e) => {
-    if (!isTouching || !gameRunning || ship.dead) return;
+    if (!isTouching || !gameRunning || playerShip.dead) return;
     e.preventDefault();
 
     const duration = Date.now() - touchStartTime;
@@ -219,11 +195,11 @@ document.addEventListener('touchmove', (e) => {
         let targetAngle = Math.atan2(-dy, dx);
 
         // Smooth rotate towards target
-        let angleDiff = targetAngle - ship.a;
+        let angleDiff = targetAngle - playerShip.a;
         while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
         while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
 
-        ship.a += angleDiff * 0.2; // Responsiveness
+        playerShip.a += angleDiff * 0.2; // Responsiveness
     }
 }, { passive: false });
 
@@ -279,7 +255,7 @@ function spawnStation(hostPlanet = null) {
     const startX = hostPlanet.x + Math.cos(orbitAngle) * orbitDistance;
     const startY = hostPlanet.y + Math.sin(orbitAngle) * orbitDistance;
 
-    enemies.push({
+    ships.push({
         type: 'station',
         x: startX, // World Coordinate X
         y: startY, // World Coordinate Y
@@ -290,7 +266,7 @@ function spawnStation(hostPlanet = null) {
         shieldHitTimer: 0,
         spawnTimer: 180, reloadTime: 120, mass: 500,
         hostPlanet: hostPlanet, // Reference to the planet object
-        orbitDistance: orbitDistance, // Nueva distancia segura
+        orbitDistance: orbitDistance,
         orbitAngle: orbitAngle,
         orbitSpeed: (Math.random() > 0.5 ? 1 : -1) * 0.002, // Slow orbital rotation
         fleetHue: (homePlanetId !== null && hostPlanet.id === homePlanetId) ? FRIENDLY_BLUE_HUE : Math.floor(Math.random() * 360), // Unique color for the fleet
@@ -299,54 +275,16 @@ function spawnStation(hostPlanet = null) {
         hostPlanetId: hostPlanet.id, // Store ID instead of reference
         isFriendly: (homePlanetId !== null && hostPlanet.id === homePlanetId) // Mark station as friendly if on home planet
     });
-    stationSpawnTimer = 600 + Math.random() * 300;
-    console.log(`Station spawned at planet ${hostPlanet.name}`);
+    stationSpawnTimer = STATIONS_SPAWN_TIMER + Math.random() * STATIONS_SPAWN_TIMER;
+    console.log(`New station at ${hostPlanet.name}`);
 }
 
-function spawnEnemySquad(station) {
+function spawnShipsSquad(station) {
     const isFriendlyStation = (homePlanetId !== null && station.hostPlanetId === homePlanetId) && !isLoneWolf;
 
-    if (isFriendlyStation) {
-        const currentFriendlies = enemies.filter(en => en.type === 'ship' && en.isFriendly).length;
-        if (currentFriendlies >= 4) return; // Max 4 friends
+    const squadId = Math.random();
+    console.log('New squad ' + squadId);
 
-        // Spawn 2 or 4 friends if possible
-        const toSpawn = Math.min(4 - currentFriendlies, 4);
-        const friendOffsets = [
-            { x: -140, y: -140 }, { x: 140, y: -140 },
-            { x: -280, y: -280 }, { x: 280, y: -280 }
-        ];
-
-        for (let i = 0; i < toSpawn; i++) {
-            const slot = friendOffsets[i];
-            enemies.push({
-                type: 'ship',
-                isFriendly: true,
-                formationOffset: { x: slot.x, y: slot.y },
-                x: station.x + slot.x,
-                y: station.y + slot.y,
-                xv: station.xv,
-                yv: station.yv,
-                r: 35,
-                a: station.a,
-                structureHP: SHIP_RESISTANCE,
-                shieldHitTimer: 0,
-                reloadTime: 100 + Math.random() * 100,
-                mass: 30,
-                fleetHue: FRIENDLY_BLUE_HUE, // Unified Sky Blue for friends
-                blinkNum: 60,
-                z: 0,
-                aiState: 'FORMATION',
-                score: 0
-            });
-        }
-        return;
-    }
-
-    // Spawns a V-formation squad: 1 Leader + 6 Wingmen relative to station
-    const squadId = Math.random(); // Unique ID for this squad
-
-    // Define V-Formation Offsets (Relative to Leader's rotation)
     const formationData = [
         { role: 'leader', x: 0, y: 0 },
         { role: 'wingman', x: -120, y: -120 }, { role: 'wingman', x: 120, y: -120 },
@@ -356,44 +294,51 @@ function spawnEnemySquad(station) {
 
     const spawnDist = station.r * 2.0;
     const spawnAngle = Math.random() * Math.PI * 2;
-    // Initial Squad Position
+
     const squadX = station.x + Math.cos(spawnAngle) * spawnDist;
     const squadY = station.y + Math.sin(spawnAngle) * spawnDist;
 
+    let e = null;
     let leader = null;
 
     formationData.forEach(slot => {
-        let e = {
-            type: 'ship',
-            role: slot.role,
-            squadId: squadId,
-            isFriendly: false,
-            formationOffset: { x: slot.x, y: slot.y },
-            leaderRef: null, // Wingmen will hold reference to leader
-            x: squadX + slot.x,
-            y: squadY + slot.y,
-            xv: station.xv,
-            yv: station.yv,
-            r: 35,
-            a: spawnAngle + Math.PI, // Face away from station initially
-            structureHP: SHIP_RESISTANCE,
-            shieldHitTimer: 0,
-            reloadTime: 100 + Math.random() * 100,
-            mass: 30,
-            fleetHue: station.fleetHue,
-            blinkNum: 30,
-            z: 0,
-            aiState: 'FORMATION',
-            score: 0
-        };
-
+        if (isFriendlyStation && playerShip.squadId === null) {
+            e = playerShip;
+            e.squadId = squadId;
+            console.log('Player ship becomes the leader of the squad ' + squadId);
+        }
+        else {
+            e = {
+                type: 'ship',
+                role: slot.role,
+                squadId: squadId,
+                isFriendly: isFriendlyStation,
+                formationOffset: { x: slot.x, y: slot.y },
+                leaderRef: null,
+                x: squadX + slot.x,
+                y: squadY + slot.y,
+                xv: station.xv,
+                yv: station.yv,
+                r: 35,
+                a: spawnAngle + Math.PI,
+                structureHP: SHIP_RESISTANCE,
+                shieldHitTimer: 0,
+                reloadTime: 100 + Math.random() * 100,
+                mass: 30,
+                fleetHue: station.fleetHue,
+                blinkNum: 30,
+                z: 0,
+                aiState: 'FORMATION',
+                score: 0
+            };
+        }
         if (slot.role === 'leader') {
             leader = e;
         } else {
             e.leaderRef = leader;
         }
 
-        enemies.push(e);
+        ships.push(e);
     });
 }
 
@@ -411,8 +356,8 @@ function triggerBetrayal() {
     addScreenMessage("⚠ BETRAYAL: YOU ARE NOW A LONE WOLF!", "#ff0000");
     addScreenMessage("NO MORE ALLIES WILL SUPPORT YOU.", "#ff4444");
 
-    // Turn all current friends into enemies
-    enemies.forEach(e => {
+    // Turn all current friends into ships
+    ships.forEach(e => {
         if (e.isFriendly) {
             e.isFriendly = false;
             e.aiState = 'COMBAT';
@@ -422,11 +367,11 @@ function triggerBetrayal() {
 }
 
 function fireEntityWeapon(e, bulletList, isEnemy = true) {
-    const isPlayer = (e === ship);
+    const isPlayer = (e === playerShip);
     const tier = isPlayer ? getShipTier() : Math.floor(e.score / EVOLUTION_SCORE_STEP);
     const hue = e.fleetHue !== undefined ? e.fleetHue : 200;
     const ySign = isPlayer ? -1 : 1;
-    const a = isPlayer ? ship.a : e.a;
+    const a = isPlayer ? playerShip.a : e.a;
 
     const pushBullet = (angleOffset, perpOffset, rOffset = 0, isPrimary = true) => {
         const shootAngle = a + angleOffset;
@@ -438,7 +383,7 @@ function fireEntityWeapon(e, bulletList, isEnemy = true) {
         const radius = (e.effectiveR || e.r) + rOffset;
         let tierSizeBoost = 1 + (tier * 0.15);
         if (tier >= 9) tierSizeBoost = 2.5;
-        const size = isPrimary ? (PRIMARY_BULLET_SIZE * tierSizeBoost) : (SECONDARY_BULLET_SIZE * tierSizeBoost);
+        const size = isPrimary ? (SHIP_BULLET1_SIZE * tierSizeBoost) : (SHIP_BULLET2_SIZE * tierSizeBoost);
 
         const bullet = {
             x: (isPlayer ? worldOffsetX : e.x) + (fwdX * radius) + (rightX * perpOffset),
@@ -447,7 +392,7 @@ function fireEntityWeapon(e, bulletList, isEnemy = true) {
             yv: (Math.sin(shootAngle) * (isPlayer ? -20 : 20)) + (isPlayer ? velocity.y : e.yv),
             a: shootAngle,
             dist: 0,
-            life: isPrimary ? BULLET_LIFETIME : SIDE_BULLET_LIFETIME,
+            life: isPrimary ? SHIP_BULLET1_LIFETIME : SHIP_BULLET2_LIFETIME,
             size: size,
             tier: tier,
             hue: hue,
@@ -487,12 +432,10 @@ function fireEntityWeapon(e, bulletList, isEnemy = true) {
 }
 
 function shootLaser() {
-    if (!gameRunning || ship.dead) return;
+    if (!gameRunning || playerShip.dead) return;
     if (playerReloadTime > 0) return;
     playerReloadTime = PLAYER_RELOAD_TIME_MAX;
-
-
-    fireEntityWeapon(ship, bullets, false);
+    fireEntityWeapon(playerShip, bullets, false);
 }
 
 // --- ASTEROID EXPULSION LOGIC REMOVED ---
@@ -502,7 +445,7 @@ function isTrajectoryClear(e, targetX, targetY) {
     const distToTarget = Math.hypot(targetX - e.x, targetY - e.y);
 
     // Check against player
-    if (!ship.dead) {
+    if (!playerShip.dead) {
         if (e.isFriendly) {
             // Friendlies check if player is in way
             const distToPlayer = Math.hypot(worldOffsetX - e.x, worldOffsetY - e.y);
@@ -513,13 +456,13 @@ function isTrajectoryClear(e, targetX, targetY) {
                 if (diff < 0.2) return false; // Player is in way
             }
         } else {
-            // Enemies check if other enemies are in way
+            // ships check if other ships are in way
             // (Standard enemy behavior handled in enemyShoot, but let's be thorough)
         }
     }
 
     // Check against all other ships/stations
-    for (let other of enemies) {
+    for (let other of ships) {
         if (other === e) continue;
 
         let shouldRespect = false;
@@ -543,7 +486,7 @@ function proactiveCombatScanner(e) {
     if (e.reloadTime > 0) return;
 
     // 1. SCAN FOR RIVALS
-    for (let target of enemies) {
+    for (let target of ships) {
         if (target === e || target.type === 'station') continue;
 
         let isRival = false;
@@ -571,7 +514,7 @@ function proactiveCombatScanner(e) {
     }
 
     // 3. SCAN FOR PLAYER (if enemy)
-    if (!e.isFriendly && !ship.dead) {
+    if (!e.isFriendly && !playerShip.dead) {
         const dist = Math.hypot(worldOffsetX - e.x, worldOffsetY - e.y);
         if (dist < 1000) {
             enemyShoot(e, worldOffsetX, worldOffsetY);
@@ -599,7 +542,7 @@ function enemyShoot(e, tx, ty) {
 
     let clearShot = true;
 
-    for (let other of enemies) {
+    for (let other of ships) {
         if (other === e) continue;
         let distToOther = Math.hypot(other.x - e.x, other.y - e.y); // World distance
         let distToTarget = Math.hypot(tx - e.x, ty - e.y); // World distance
@@ -624,20 +567,10 @@ function enemyShoot(e, tx, ty) {
     }
 }
 
-/* Explosion and Shockwave moved to core.js */
-
 function drawRadar() {
-    // Renders the enemy/asteroid radar on the top right
     const rW = radarCanvas.width; const rH = radarCanvas.height;
     const cX = rW / 2; const cY = rH / 2;
     radarCtx.clearRect(0, 0, rW, rH);
-
-    // Draw crosshair and boundary
-    radarCtx.strokeStyle = 'rgba(0, 255, 255, 0.2)'; radarCtx.lineWidth = 1;
-    radarCtx.beginPath(); radarCtx.moveTo(cX, 0); radarCtx.lineTo(cX, rH); radarCtx.stroke();
-    radarCtx.beginPath(); radarCtx.moveTo(0, cY); radarCtx.lineTo(rW, cY); radarCtx.stroke();
-    radarCtx.beginPath(); radarCtx.arc(cX, cY, rW / 2 - 1, 0, Math.PI * 2); radarCtx.stroke();
-    radarCtx.fillStyle = '#0ff'; radarCtx.beginPath(); radarCtx.arc(cX, cY, 3, 0, Math.PI * 2); radarCtx.fill(); // Ship blip (center)
 
     const radarRadius = rW / 2;
     const scale = radarRadius / RADAR_RANGE;
@@ -645,19 +578,15 @@ function drawRadar() {
     const drawBlip = (worldX, worldY, type, color, size) => {
         if (isNaN(worldX) || isNaN(worldY)) return;
 
-        // 1. Calculate World Relative Position (in World Units)
         let dx = worldX - worldOffsetX;
         let dy = worldY - worldOffsetY;
         let dist = Math.sqrt(dx * dx + dy * dy);
 
-        // 2. Filter: Only draw if within RADAR_RANGE
         if (dist > RADAR_RANGE) return;
 
-        // 3. Scale to Radar View
         let angle = Math.atan2(dy, dx);
         let radarDist = dist * scale;
 
-        // CLAMPING: Ancla el blip al borde si está fuera del rango visible. 
         if (radarDist > radarRadius - size) {
             radarDist = radarRadius - size - 1;
         }
@@ -675,11 +604,11 @@ function drawRadar() {
             radarCtx.fillText('O', rx, ry);
         } else if (type === 'ship') {
             radarCtx.beginPath();
-            radarCtx.arc(rx, ry, 2, 0, Math.PI * 2); // Punto de 2px
+            radarCtx.arc(rx, ry, 2, 0, Math.PI * 2);
             radarCtx.fill();
         } else if (type === 'planet') {
             radarCtx.beginPath();
-            radarCtx.arc(rx, ry, Math.max(4, size), 0, Math.PI * 2); // Proportional size
+            radarCtx.arc(rx, ry, Math.max(4, size), 0, Math.PI * 2);
             radarCtx.fill();
         } else {
             radarCtx.beginPath();
@@ -702,7 +631,7 @@ function drawRadar() {
         }
     });
 
-    enemies.forEach(e => {
+    ships.forEach(e => {
         if (e.z <= 0.1) {
             const color = e.isFriendly ? '#0088FF' : '#FF0000';
             if (e.type === 'station') {
@@ -712,6 +641,12 @@ function drawRadar() {
             }
         }
     });
+
+    radarCtx.strokeStyle = 'rgba(0, 255, 255, 0.2)'; radarCtx.lineWidth = 1;
+    radarCtx.beginPath(); radarCtx.moveTo(cX, 0); radarCtx.lineTo(cX, rH); radarCtx.stroke();
+    radarCtx.beginPath(); radarCtx.moveTo(0, cY); radarCtx.lineTo(rW, cY); radarCtx.stroke();
+    radarCtx.beginPath(); radarCtx.arc(cX, cY, rW / 2 - 1, 0, Math.PI * 2); radarCtx.stroke();
+    radarCtx.fillStyle = '#0ff'; radarCtx.beginPath(); radarCtx.arc(cX, cY, 3, 0, Math.PI * 2); radarCtx.fill();
 }
 
 function drawHeart(ctx, x, y, size) {
@@ -728,8 +663,8 @@ function drawHeart(ctx, x, y, size) {
 
 function drawLives() {
     livesDisplay.innerText = `LIVES: ${lives}`;
-    livesDisplay.style.color = '#0ff'; // Ensure consistency
-    livesDisplay.style.marginTop = '5px'; // Minor align adjustment
+    livesDisplay.style.color = '#0ff';
+    livesDisplay.style.marginTop = '5px';
 }
 
 function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
@@ -738,7 +673,7 @@ function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
         const dist = innerRadius + Math.random() * (outerRadius - innerRadius);
         const x = cx + Math.cos(angle) * dist;
         const y = cy + Math.sin(angle) * dist;
-        const r = MIN_ASTEROID_SIZE + Math.random() * (MAX_ASTEROID_SIZE - MIN_ASTEROID_SIZE);
+        const r = ASTEROID_MIN_SIZE + Math.random() * (ASTEROID_MAX_SIZE - ASTEROID_MIN_SIZE);
         const roid = createAsteroid(x, y, r);
 
         // Small tangential velocity to give a sense of belt movement
@@ -751,32 +686,8 @@ function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
     }
 }
 
-function createBinaryAsteroid(cx, cy, r1, r2, dist, speed) {
-    const angle = Math.random() * Math.PI * 2;
-    const ax = cx + Math.cos(angle) * dist / 2;
-    const ay = cy + Math.sin(angle) * dist / 2;
-    const bx = cx - Math.cos(angle) * dist / 2;
-    const by = cy - Math.sin(angle) * dist / 2;
-
-    const roid1 = createAsteroid(ax, ay, r1);
-    const roid2 = createAsteroid(bx, by, r2);
-
-    const tangentAngle = angle + Math.PI / 2;
-    const vx = Math.cos(tangentAngle) * speed;
-    const vy = Math.sin(tangentAngle) * speed;
-
-    roid1.xv += vx;
-    roid1.yv += vy;
-    roid2.xv -= vx;
-    roid2.yv -= vy;
-
-    roids.push(roid1, roid2);
-}
-
-// Función reinsertada para inicializar el nivel y poblar el mundo del juego
 function createLevel() {
-    // Reset and populate the world with initial asteroids
-    roids = []; enemies = []; enemyBullets = []; bullets = []; shockwaves = [];
+    roids = []; ships = []; enemyBullets = []; bullets = []; shockwaves = [];
 
     let planetSpawned = false;
     let planetX = (Math.random() - 0.5) * 5000;
@@ -795,7 +706,7 @@ function createLevel() {
 
     planetSpawned = true;
 
-    createAsteroidBelt(0, 0, ASTEROID_BELT_INNER_RADIUS, ASTEROID_BELT_OUTER_RADIUS, NUM_ASTEROIDS_PER_BELT);
+    createAsteroidBelt(0, 0, ASTEROID_BELT_INNER_RADIUS, ASTEROID_BELT_OUTER_RADIUS, ASTEROIDS_PER_BELT);
 
     roids.filter(r => r.isPlanet).forEach(planet => {
         const stationCount = Math.floor(Math.random() * NUM_STATIONS_PER_PLANET) + 1;
@@ -805,36 +716,29 @@ function createLevel() {
     });
 }
 
-// REFRACTORIZADO: Función para manejar el daño al jugador (basado en structureHP)
 function hitShip(damageAmount, sourceIsNearPlanet = false) {
-    if (ship.blinkNum > 0 || ship.dead) return;
+    if (playerShip.blinkNum > 0 || playerShip.dead) return;
 
-    // Reducir estructura (un golpe = una capa de defensa)
-    ship.structureHP--;
+    playerShip.structureHP--;
 
-    // Visual/Audio Feedback
     const vpX = width / 2; const vpY = height / 2;
     createExplosion(vpX, vpY, 10, '#0ff', 2);
-    // AudioEngine.playExplosion('small'); REMOVED
 
-    // 3. Chequeo Estructural
-    if (ship.structureHP <= 0) {
-        ship.structureHP = 0;
+    if (playerShip.structureHP <= 0) {
+        playerShip.structureHP = 0;
         killShip();
     }
     else {
-        ship.blinkNum = 15; // Activar invulnerabilidad temporal
-        velocity.x *= -0.5; velocity.y *= -0.5; // Aplicar retroceso
+        playerShip.blinkNum = 15;
+        velocity.x *= -0.5; velocity.y *= -0.5;
     }
 }
 
-
 function killShip() {
-
     const vpX = width / 2; const vpY = height / 2;
     createExplosion(vpX, vpY, 60, '#0ff', 3);
     AudioEngine.playExplosion('large', worldOffsetX, worldOffsetY);
-    ship.dead = true;
+    playerShip.dead = true;
 
     lives--;
     drawLives();
@@ -843,12 +747,11 @@ function killShip() {
     scoreEl.innerText = score;
 
     if (lives > 0) setTimeout(() => {
-        ship = newShip();
+        playerShip = newShip();
         velocity = { x: 0, y: 0 };
-        drawLives(); // Actualizar vidas al respawn (por si el modo épico fue activado)
+        drawLives();
     }, 1500);
     else {
-        // NEW: Apply Game Over background and start fade to black
         startScreen.style.display = 'flex';
         startScreen.classList.add('game-over-bg');
 
@@ -857,14 +760,14 @@ function killShip() {
         if (instructions) {
             instructions.innerHTML = '<div id="game-over-led"></div>';
             const gameOverEl = document.getElementById('game-over-led');
-            const gameOverText = "Communication lost. Vital signs interrupted. Rest in eternity.";
+            const gameOverText = "Communication lost. Rest in eternity.";
             animateLedText(gameOverText, gameOverEl);
         }
 
         const startBtn = document.getElementById('start-btn');
         if (startBtn) {
             startBtn.innerText = 'RESTART';
-            startBtn.onclick = () => startGame(); // Direct restart without reload
+            startBtn.onclick = () => startGame();
         }
 
         AudioEngine.setTrack('menu');
@@ -879,8 +782,6 @@ function killShip() {
         }, 100);
     }
 }
-
-// REMOVED: No more wrapObject function to enforce hard boundaries
 
 function updatePhysics() {
     let nearbyGravity = false;
@@ -922,7 +823,7 @@ function updatePhysics() {
                 // Let's use a flag or simple check.
                 if (r1.z < 0.2 && !r1.hasSpawnedStationThisCycle) {
                     // Check if station exists
-                    const hasStation = enemies.some(e => e.type === 'station' && e.hostPlanetId === r1.id);
+                    const hasStation = ships.some(e => e.type === 'station' && e.hostPlanetId === r1.id);
                     if (!hasStation) {
                         spawnStation(r1);
                     }
@@ -986,14 +887,14 @@ function updatePhysics() {
             let dist = Math.sqrt(distSq);
 
             // Gravedad solo activa en la zona de influencia y fuera del radio de la nave (para evitar atascos)
-            if (dist < r1.r * 8 && dist > ship.r) {
+            if (dist < r1.r * 8 && dist > playerShip.r) {
                 nearbyGravity = true;
 
                 // Inverse square law for gravity: F = G * M / D^2
                 let clampedDistSq = Math.max(distSq, 100);
 
                 // Feathering factor to smoothly drop force to zero at the ship's center
-                let effectiveDist = Math.max(0, dist - ship.r);
+                let effectiveDist = Math.max(0, dist - playerShip.r);
                 let feather = effectiveDist / (r1.r * 8);
                 feather = Math.min(1, feather * 5);
 
@@ -1047,13 +948,13 @@ function updatePhysics() {
                         createExplosion(midVpX, midVpY, 40, '#ff0000', 8, 'debris');
                         AudioEngine.playPlanetExplosion(midX, midY, r1.z); // Strong sound if visible
 
-                        createAsteroidBelt(midX, midY, ASTEROID_BELT_INNER_RADIUS / 2, ASTEROID_BELT_OUTER_RADIUS / 2, NUM_ASTEROIDS_PER_BELT / 2);
+                        createAsteroidBelt(midX, midY, 0, ASTEROID_BELT_OUTER_RADIUS / 10, ASTEROIDS_PER_BELT / 10);
                         createShockwave(midX, midY);
 
                         // Destroy both planets' stations
-                        for (let k = enemies.length - 1; k >= 0; k--) {
-                            if (enemies[k].hostPlanet === r1 || enemies[k].hostPlanet === r2) {
-                                enemies.splice(k, 1);
+                        for (let k = ships.length - 1; k >= 0; k--) {
+                            if (ships[k].hostPlanet === r1 || ships[k].hostPlanet === r2) {
+                                ships.splice(k, 1);
                             }
                         }
 
@@ -1131,7 +1032,7 @@ function updatePhysics() {
                                 r1.r = newR;
                                 initializePlanetAttributes(r1);
                                 r1.targetR = newR;
-                                console.log(`New planet!: ${r1.name}, ID: ${r1.textureData.seed}.`);
+                                console.log(`New planet ${r1.name}, ID: ${r1.textureData.seed}.`);
                                 createExplosion(midVpX, midVpY, 30, '#fff', 5);
                             } else {
                                 r1.r = newR;
@@ -1268,7 +1169,7 @@ function loop() {
     }
 
     if (stationSpawnTimer > 0) stationSpawnTimer--;
-    if (stationSpawnTimer <= 0 && enemies.length < 3) {
+    if (stationSpawnTimer <= 0 && ships.length < 3) {
         spawnStation();
     }
 
@@ -1277,7 +1178,7 @@ function loop() {
 
     // Limpia cualquier objeto con coordenadas inválidas (NaN o Infinity)
     roids = roids.filter(isSafe);
-    enemies = enemies.filter(isSafe);
+    ships = ships.filter(isSafe);
     bullets = bullets.filter(isSafe);
     enemyBullets = enemyBullets.filter(isSafe);
 
@@ -1297,45 +1198,43 @@ function loop() {
     }
 
     // --- Ship Movement and World Boundary Check ---
-    if (!ship.dead) {
-        // ... (Ship Movement Physics remains the same) ...
+    if (!playerShip.dead) {
         if (inputMode === 'mouse') { // Mouse/Pointer control: rotate towards cursor
             const dx = mouse.x - width / 2; const dy = -(mouse.y - height / 2);
-            ship.a = Math.atan2(dy, dx);
+            playerShip.a = Math.atan2(dy, dx);
         }
         else {
             // Keyboard/Touch swipe control: Arrow keys handle rotation
-            if (keys.ArrowLeft) ship.a += 0.1; if (keys.ArrowRight) ship.a -= 0.1;
+            if (keys.ArrowLeft) playerShip.a += 0.1; if (keys.ArrowRight) playerShip.a -= 0.1;
         }
         if (inputMode === 'touch') {
-            ship.thrusting = isTouching && (Date.now() - touchStartTime >= MIN_DURATION_TAP_TO_MOVE);
+            playerShip.thrusting = isTouching && (Date.now() - touchStartTime >= MIN_DURATION_TAP_TO_MOVE);
         } else {
-            ship.thrusting = keys.ArrowUp;
+            playerShip.thrusting = keys.ArrowUp;
         }
 
         let deltaX = 0;
         let deltaY = 0;
         const strafeMultiplier = 0.7; // 70% power for strafing
 
-        if (ship.thrusting) {
-            deltaX += SHIP_THRUST * Math.cos(ship.a);
-            deltaY -= SHIP_THRUST * Math.sin(ship.a);
+        if (playerShip.thrusting) {
+            deltaX += SHIP_THRUST * Math.cos(playerShip.a);
+            deltaY -= SHIP_THRUST * Math.sin(playerShip.a);
             if (Math.random() < 0.2) AudioEngine.playThrust(worldOffsetX, worldOffsetY);
         }
 
         if (keys.KeyA) { // Strafe Left
-            const strafeAngle = ship.a + Math.PI / 2;
+            const strafeAngle = playerShip.a + Math.PI / 2;
             deltaX += SHIP_THRUST * strafeMultiplier * Math.cos(strafeAngle);
             deltaY -= SHIP_THRUST * strafeMultiplier * Math.sin(strafeAngle);
             if (Math.random() < 0.2) AudioEngine.playThrust(worldOffsetX, worldOffsetY);
         }
         if (keys.KeyD) { // Strafe Right
-            const strafeAngle = ship.a - Math.PI / 2;
+            const strafeAngle = playerShip.a - Math.PI / 2;
             deltaX += SHIP_THRUST * strafeMultiplier * Math.cos(strafeAngle);
             deltaY -= SHIP_THRUST * strafeMultiplier * Math.sin(strafeAngle);
             if (Math.random() < 0.2) AudioEngine.playThrust(worldOffsetX, worldOffsetY);
         }
-
 
         velocity.x += deltaX;
         velocity.y += deltaY;
@@ -1352,7 +1251,6 @@ function loop() {
         let nextWorldX = worldOffsetX + velocity.x;
         let nextWorldY = worldOffsetY + velocity.y;
 
-        // NEW: Directional Shadow Calculation
         let shadow = [];
         const SHADOW_SIZE = 50; // Size of the inset shadow border
 
@@ -1421,7 +1319,7 @@ function loop() {
         ctx.beginPath(); ctx.arc(vpX, vpY, sw.r, 0, Math.PI * 2);
         ctx.strokeStyle = `rgba(255, 200, 50, ${sw.alpha})`; ctx.lineWidth = 5; ctx.stroke();
 
-        // Apply force to asteroids, enemies, and player (Force is World Units)
+        // Apply force to asteroids, ships, and player (Force is World Units)
         const applyShockwaveForce = (obj) => {
             let dx = obj.x - sw.x; let dy = obj.y - sw.y; // World Distance Vector
             let dist = Math.sqrt(dx * dx + dy * dy);
@@ -1433,7 +1331,7 @@ function loop() {
             }
         }
         roids.forEach(applyShockwaveForce);
-        enemies.forEach(applyShockwaveForce);
+        ships.forEach(applyShockwaveForce);
 
         // Player knockback from shockwave
         let dx = worldOffsetX - sw.x; let dy = worldOffsetY - sw.y; // World Distance Vector
@@ -1504,20 +1402,19 @@ function loop() {
     ctx.shadowBlur = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 
     // --- Enemy Update and MOVEMENT/AI (Separated from Drawing for Z-order) ---
-    let enemiesToDraw = [];
-    for (let i = enemies.length - 1; i >= 0; i--) {
-        let e = enemies[i];
+    let shipsToDraw = [];
+    for (let i = ships.length - 1; i >= 0; i--) {
+        let e = ships[i];
 
         const cullRange = WORLD_BOUNDS * 1.5;
         // CULLING: Only cull ships, NOT stations
         if (e.type !== 'station' && Math.hypot(e.x - worldOffsetX, e.y - worldOffsetY) > cullRange) {
-            enemies.splice(i, 1);
+            ships.splice(i, 1);
             continue;
         }
 
         if (e.blinkNum > 0) e.blinkNum--;
 
-        // 1. MOVIMIENTO ORBITAL (All in World Coords)
         let isOrbiting = false;
         if (e.type === 'station' && e.hostPlanetId) {
             const host = roids.find(r => r.id === e.hostPlanetId);
@@ -1525,7 +1422,6 @@ function loop() {
                 e.hostPlanetId = null;
                 e.xv = (Math.random() - 0.5) * 0.5; e.yv = (Math.random() - 0.5) * 0.5;
             } else {
-                // Actualizar la posición orbital ideal
                 e.orbitAngle += e.orbitSpeed;
 
                 // Dynamic distance: host.r + 30% of host.r + station radius
@@ -1590,7 +1486,6 @@ function loop() {
         const vpX = (e.x - worldOffsetX) * depthScale + width / 2;
         const vpY = (e.y - worldOffsetY) * depthScale + height / 2;
 
-        // 2. Collision Check with Asteroids
         for (let k = 0; k < roids.length; k++) {
             let r = roids[k];
             if (r.z > 0.5) continue;
@@ -1627,7 +1522,7 @@ function loop() {
                     createExplosion(rVpX, rVpY, 5, '#aa00ff', 1, 'debris');
                     if (e.structureHP <= 0) {
                         createExplosion(vpX, vpY, 30, '#ffaa00', 3, 'spark');
-                        enemies.splice(i, 1);
+                        ships.splice(i, 1);
                         i--;
                         break;
                     }
@@ -1636,9 +1531,8 @@ function loop() {
         }
         if (i < 0) continue;
 
-        // 3. Enemy AI/Movement/Rotation (IA agresiva)
         let threat = null; let minThreatDist = Infinity;
-        if (!ship.dead) {
+        if (!playerShip.dead) {
             // Player is ALWAYS a threat regardless of distance
             threat = { x: worldOffsetX, y: worldOffsetY };
             minThreatDist = Math.hypot(e.x - worldOffsetX, e.y - worldOffsetY);
@@ -1660,16 +1554,11 @@ function loop() {
             e.a += e.rotSpeed;
             e.spawnTimer--;
             if (e.spawnTimer <= 0) {
-                const isFriendlyStation = (homePlanetId !== null && e.hostPlanetId === homePlanetId);
-                const currentShips = enemies.filter(en => en.type === 'ship').length;
-                const currentFriendlies = enemies.filter(en => en.type === 'ship' && en.isFriendly).length;
-
-                if (isFriendlyStation && !isLoneWolf) { // Only spawn friendlies if not a lone wolf
-                    if (currentFriendlies < 4) spawnEnemySquad(e);
-                } else if (currentShips < 15) {
-                    spawnEnemySquad(e);
+                const currentShips = ships.filter(en => en.type === 'ship').length;
+                if (currentShips <= SHIPS_MAX_NUMBER) {
+                    spawnShipsSquad(e);
                 }
-                e.spawnTimer = 1800 + Math.random() * 600;
+                e.spawnTimer = SHIPS_SPAWN_TIME + Math.random() * SHIPS_SPAWN_TIME;
             }
         } else {
             // --- ADVANCED SHIP AI ---
@@ -1677,7 +1566,7 @@ function loop() {
 
             // 1. STATE TRANSITION
             const SIGHT_RANGE = 1200; // Approx screen width
-            if (!e.isFriendly && distToPlayer < SIGHT_RANGE && !ship.dead) { // Only ENEMIES auto-switch to combat by distance
+            if (!e.isFriendly && distToPlayer < SIGHT_RANGE && !playerShip.dead) { // Only ships auto-switch to combat by distance
                 e.aiState = 'COMBAT';
             } else if (distToPlayer > SIGHT_RANGE * 1.5 && e.aiState === 'COMBAT') {
                 e.aiState = 'FORMATION';
@@ -1691,7 +1580,7 @@ function loop() {
                     // FRIENDLY: Follow Player in V-Formation
                     const lx = worldOffsetX;
                     const ly = worldOffsetY;
-                    const la = ship.a;
+                    const la = playerShip.a;
 
                     const fwdX = Math.cos(la);
                     const fwdY = -Math.sin(la); // Player uses Cartesian Up (Negative Screen Y)
@@ -1724,7 +1613,7 @@ function loop() {
                     }
                     // Check Stations
                     if (!obstacle) {
-                        for (let other of enemies) {
+                        for (let other of ships) {
                             if (other === e || (other.isFriendly && other.type !== 'station')) continue;
                             let d = Math.hypot(e.x - other.x, e.y - other.y);
                             if (d < other.r + e.r + safetyDist) {
@@ -1799,8 +1688,7 @@ function loop() {
                         e.yv = (e.yv / speed) * CRUISE_SPEED;
                     }
                 } else if (e.role === 'wingman') {
-                    // WINGMAN: Follow Leader in V-Formation
-                    if (e.leaderRef && !enemies.includes(e.leaderRef)) e.leaderRef = null;
+                    if (e.leaderRef && !ships.includes(e.leaderRef)) e.leaderRef = null;
 
                     if (e.leaderRef) {
                         const lx = e.leaderRef.x;
@@ -1808,7 +1696,7 @@ function loop() {
                         const la = e.leaderRef.a;
 
                         const fwdX = Math.cos(la);
-                        const fwdY = Math.sin(la); // Enemies use Screen Down (Positive Screen Y)
+                        const fwdY = Math.sin(la); // ships use Screen Down (Positive Screen Y)
                         const rightX = -fwdY;
                         const rightY = fwdX;
 
@@ -1834,7 +1722,7 @@ function loop() {
 
                         // Physical separation from leader
                         const distToLeader = Math.hypot(e.x - lx, e.y - ly);
-                        const minSafeDist = e.r + e.leaderRef.r + 20;
+                        const minSafeDist = e.r + e.leaderRef.r + 10;
                         if (distToLeader < minSafeDist) {
                             const ang = Math.atan2(e.y - ly, e.x - lx);
                             e.xv += Math.cos(ang) * 1.5;
@@ -1848,25 +1736,20 @@ function loop() {
                         if (Math.abs(angleDiff) < 0.05) e.a = la;
                         else e.a += angleDiff * 0.4;
 
-                        // Dampening to prevent oscillation
                         e.xv *= damping;
                         e.yv *= damping;
 
                     } else {
-                        // Lost Leader -> Become a Leader? Or just float.
-                        // For now, switch to leader behavior (hunt player)
                         e.role = 'leader';
                     }
                 }
             }
             else if (e.aiState === 'COMBAT') {
-                // COMBAT: Break formation, orbit and attack player OR Rival
-
-                let target = (!e.isFriendly && !ship.dead) ? { x: worldOffsetX, y: worldOffsetY, isRival: false, r: 0 } : null;
+                let target = (!e.isFriendly && !playerShip.dead) ? { x: worldOffsetX, y: worldOffsetY, isRival: false, r: 0 } : null;
                 let minDist = target ? distToPlayer : Infinity;
 
                 // Search for rivals
-                for (let other of enemies) {
+                for (let other of ships) {
                     if (other === e) continue;
 
                     let isRival = false;
@@ -1897,7 +1780,6 @@ function loop() {
                 let tx = target.x;
                 let ty = target.y;
                 let d = minDist;
-
 
                 let targetAngle = Math.atan2(ty - e.y, tx - e.x);
                 let angleDiff = targetAngle - e.a;
@@ -1932,7 +1814,7 @@ function loop() {
                 let sepY = 0;
                 let count = 0;
 
-                for (let other of enemies) {
+                for (let other of ships) {
                     if (other === e || other.type !== 'ship') continue;
                     // Simple distance check
                     let distToOther = Math.hypot(e.x - other.x, e.y - other.y);
@@ -1956,7 +1838,6 @@ function loop() {
                 e.xv *= 0.96;
                 e.yv *= 0.96;
 
-                // MAX SPEED CLAMP (User Request)
                 let currentSpeed = Math.hypot(e.xv, e.yv);
                 if (currentSpeed > MAX_SPEED) {
                     let scale = MAX_SPEED / currentSpeed;
@@ -1964,7 +1845,6 @@ function loop() {
                     e.yv *= scale;
                 }
 
-                // Shoot if lined up (slightly wider angle for smoother shooting feel)
                 // Shoot if lined up (slightly wider angle for smoother shooting feel)
                 if (e.reloadTime <= 0 && Math.abs(angleDiff) < 0.4) {
                     fireEntityWeapon(e, enemyBullets, true);
@@ -1975,13 +1855,12 @@ function loop() {
             e.reloadTime--;
         }
 
-        // 4. Collision Check with Player (World Coords) (only logic, not drawing)
-        if (!ship.dead && (!e.z || e.z < 0.5)) { // Z-CHECK: Only collide if near
+        if (!playerShip.dead && (!e.z || e.z < 0.5)) { // Z-CHECK: Only collide if near
             let distToPlayer = Math.hypot(worldOffsetX - e.x, worldOffsetY - e.y);
-            let collisionThreshold = (ship.effectiveR || ship.r) + e.r + 10;
+            let collisionThreshold = (playerShip.effectiveR || playerShip.r) + e.r + 10;
             if (distToPlayer < collisionThreshold) {
                 if (e.isFriendly) {
-                    continue; // USER REQUEST: Cross any station or friend without damage or force
+                    continue;
                 }
 
                 if (e.structureHP > 0) {
@@ -1996,7 +1875,7 @@ function loop() {
                     e.x += Math.cos(ang) * 60; e.y += Math.sin(ang) * 60;
 
                 } else {
-                    enemies.splice(i, 1); i--;
+                    ships.splice(i, 1); i--;
                     scoreEl.innerText = score;
                     AudioEngine.playExplosion('large', e.x, e.y, e.z);
                 }
@@ -2005,21 +1884,13 @@ function loop() {
                     let debrisColor = e.type === 'station' ? `hsl(${e.fleetHue}, 100%, 50%)` : `hsl(${e.fleetHue}, 100%, 40%)`;
                     createExplosion(vpX, vpY, 40, '#ffaa00', 3, 'spark'); createExplosion(vpX, vpY, 20, debrisColor, 4, 'debris');
                     if (e.type === 'station') { onStationDestroyed(e); }
-                    else {
-                        score += 200;
-                        // SHIP DEBRIS (Player Kill)
-                        const debris = createAsteroid(e.x, e.y, 40 + Math.random() * 20);
-                        debris.xv = (Math.random() - 0.5) * 10;
-                        debris.yv = (Math.random() - 0.5) * 10;
-                        debris.blinkNum = 30;
-                        roids.push(debris);
-                    }
-                    enemies.splice(i, 1); scoreEl.innerText = score; AudioEngine.playExplosion('large', e.x, e.y, e.z);
+                    else { onShipDestroyed(e); }
+                    ships.splice(i, 1); scoreEl.innerText = score; AudioEngine.playExplosion('large', e.x, e.y, e.z);
                 }
             }
         }
 
-        enemiesToDraw.push(e); // Add to drawing list
+        shipsToDraw.push(e); // Add to drawing list
 
     }
     // --- End Enemy Update/AI ---
@@ -2029,7 +1900,7 @@ function loop() {
     // Ordenar los asteroides de Cercano a Lejano (Z baja a Z alta)
     roids.sort((a, b) => a.z - b.z);
 
-    // --- Asteroid/Planet DRAWING (Order 1: Behind Enemies) ---
+    // --- Asteroid/Planet DRAWING (Order 1: Behind ships) ---
     for (let i = roids.length - 1; i >= 0; i--) {
         let r = roids[i];
 
@@ -2132,9 +2003,9 @@ function loop() {
         ctx.restore(); // Restore context
 
         // Check collision with player (World Coords)
-        if (r.z < 0.5 && !ship.dead) {
+        if (r.z < 0.5 && !playerShip.dead) {
             let distToPlayer = Math.hypot(r.x - worldOffsetX, r.y - worldOffsetY);
-            if (distToPlayer < (ship.effectiveR || ship.r) + r.r * depthScale) {
+            if (distToPlayer < (playerShip.effectiveR || playerShip.r) + r.r * depthScale) {
 
                 const isNearPlanetCollision = r.isPlanet && r.z < 0.5;
 
@@ -2153,23 +2024,19 @@ function loop() {
                     createExplosion(vpX, vpY, 15, '#0ff', 2, 'spark');
                     createExplosion(vpX, vpY, 8, '#fff', 1, 'debris');
 
-                    // Split asteroid if larger than minimum size
-                    const MIN_ASTEROID_SIZE = 80;
-                    if (r.r > MIN_ASTEROID_SIZE) {
-                        const newSize = r.r * 0.6;
-                        const splitSpeed = 8;
-                        const offset = 100;
+                    const newSize = r.r * 0.6;
+                    if (newSize > ASTEROID_MIN_SIZE) {
 
                         // West asteroid
-                        let westAst = createAsteroid(r.x - offset, r.y, newSize);
-                        westAst.xv = r.xv - splitSpeed;
+                        let westAst = createAsteroid(r.x - ASTEROID_SPLIT_OFFSET, r.y, newSize);
+                        westAst.xv = r.xv - ASTEROID_SPLIT_SPEED;
                         westAst.yv = r.yv;
                         westAst.blinkNum = 30;
                         roids.push(westAst);
 
                         // East asteroid
-                        let eastAst = createAsteroid(r.x + offset, r.y, newSize);
-                        eastAst.xv = r.xv + splitSpeed;
+                        let eastAst = createAsteroid(r.x + ASTEROID_SPLIT_OFFSET, r.y, newSize);
+                        eastAst.xv = r.xv + ASTEROID_SPLIT_SPEED;
                         eastAst.yv = r.yv;
                         eastAst.blinkNum = 30;
                         roids.push(eastAst);
@@ -2186,7 +2053,7 @@ function loop() {
     // --- End Asteroid Drawing ---
 
     // --- Enemy DRAWING (Order 2: In Front of Planets) ---
-    enemiesToDraw.forEach(e => {
+    shipsToDraw.forEach(e => {
         let depthScale = 1; let depthAlpha = 1;
         if (e.z > 0) {
             depthScale = 1 / (1 + e.z);
@@ -2210,7 +2077,7 @@ function loop() {
 
         if (e.type === 'ship') {
 
-            // --- INDIVIDUAL EVOLUTION: Enemies match their OWN score visuals ---
+            // --- INDIVIDUAL EVOLUTION: ships match their OWN score visuals ---
             const tier = Math.floor((e.score || 0) / EVOLUTION_SCORE_STEP);
             const r = e.r;
 
@@ -2418,37 +2285,37 @@ function loop() {
 
     ctx.shadowBlur = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalAlpha = 1;
 
-    if (!ship.dead) {
+    if (!playerShip.dead) {
         ctx.save(); // PUSH 1: Isolate entire player ship rendering block
 
         // Regeneration is now solely for visual/Tesla effect, as structureHP manages hits
-        if (ship.shield < ship.maxShield) ship.shield += 0.05;
+        if (playerShip.shield < playerShip.maxShield) playerShip.shield += 0.05;
 
-        let isTesla = ship.maxShield > BASE_MAX_SHIELD;
+        let isTesla = playerShip.maxShield > SHIP_BASE_MAX_SHIELD;
 
         const tier = getShipTier();
 
         const BASE_SHIP_RADIUS = SHIP_SIZE / 2;
         const MAX_TIER_RADIUS = BASE_SHIP_RADIUS + (7 * 2); // Tier 7 size
-        if (tier >= 8) ship.effectiveR = MAX_TIER_RADIUS;
-        else ship.effectiveR = BASE_SHIP_RADIUS + (tier * 2);
+        if (tier >= 8) playerShip.effectiveR = MAX_TIER_RADIUS;
+        else playerShip.effectiveR = BASE_SHIP_RADIUS + (tier * 2);
 
         const centerX = width / 2; const centerY = height / 2;
-        const r = ship.effectiveR;
+        const r = playerShip.effectiveR;
 
-        if (ship.blinkNum % 2 === 0) { // Invulnerability blink effect
+        if (playerShip.blinkNum % 2 === 0) { // Invulnerability blink effect
 
             let shieldAlpha = 0;
             let strokeWidth = 1;
-            let shieldRadius = ship.effectiveR + 10;
+            let shieldRadius = playerShip.effectiveR + 10;
 
             const EPIC_SHIELD_FACTOR = 1.7;
 
             if (tier >= 8) {
-                shieldRadius = ship.effectiveR * EPIC_SHIELD_FACTOR;
+                shieldRadius = playerShip.effectiveR * EPIC_SHIELD_FACTOR;
             }
 
-            if (ship.structureHP === SHIP_RESISTANCE) {
+            if (playerShip.structureHP === SHIP_RESISTANCE) {
                 shieldAlpha = isTesla ? (0.5 + Math.random() * 0.2) : 0.5;
                 strokeWidth = isTesla ? 1.5 : 1;
             }
@@ -2459,11 +2326,11 @@ function loop() {
 
                 let baseColor, shadowColor;
 
-                if (ship.structureHP <= SHIP_RESISTANCE && tier < 8) {
+                if (playerShip.structureHP <= SHIP_RESISTANCE && tier < 8) {
                     baseColor = '#0ff'; shadowColor = 'rgba(0, 255, 255, 0.7)';
-                } else if (ship.structureHP >= 7) {
+                } else if (playerShip.structureHP >= 7) {
                     baseColor = '#0ff'; shadowColor = 'rgba(0, 255, 255, 0.7)';
-                } else if (ship.structureHP >= 4) {
+                } else if (playerShip.structureHP >= 4) {
                     baseColor = '#ffaa00'; shadowColor = 'rgba(255, 170, 0, 0.7)';
                 } else {
                     baseColor = '#0ff'; shadowColor = 'rgba(0, 255, 255, 0.7)';
@@ -2479,7 +2346,7 @@ function loop() {
 
             ctx.save();
             ctx.translate(centerX, centerY);
-            ctx.rotate(-ship.a);
+            ctx.rotate(-playerShip.a);
 
             ctx.globalAlpha = 1;
 
@@ -2509,7 +2376,7 @@ function loop() {
                 ctx.shadowBlur = 30; ctx.shadowColor = THRUST_COLOR;
                 const EXHAUST_H = r * 0.7 * norm; const EXHAUST_X = -r * 1.8 * norm;
                 ctx.fillStyle = HULL_BORDER; ctx.fillRect(EXHAUST_X, -EXHAUST_H / 2, 5, EXHAUST_H);
-                if (ship.thrusting) {
+                if (playerShip.thrusting) {
                     ctx.fillStyle = `rgba(0, 136, 255, ${0.5 + Math.random() * 0.5})`;
                     ctx.beginPath(); ctx.moveTo(EXHAUST_X + 5, -EXHAUST_H / 2); ctx.lineTo(EXHAUST_X + 5, EXHAUST_H / 2);
                     ctx.lineTo(EXHAUST_X - 25 * norm * (0.8 + Math.random() * 0.4), 0); ctx.closePath(); ctx.fill();
@@ -2542,7 +2409,7 @@ function loop() {
                 cockpitGrad.addColorStop(0, '#aaffff'); cockpitGrad.addColorStop(1, '#00ffff');
                 ctx.fillStyle = cockpitGrad;
                 ctx.beginPath(); ctx.ellipse(r * 0.4, 0, r * 0.2, r * 0.12, 0, 0, Math.PI * 2); ctx.fill();
-                if (ship.thrusting) {
+                if (playerShip.thrusting) {
                     ctx.shadowColor = '#ffaa00'; ctx.strokeStyle = '#ffaa00'; ctx.lineWidth = 2;
                     ctx.beginPath();
                     const rX = -r; const rY = 0;
@@ -2555,7 +2422,7 @@ function loop() {
             }
             ctx.restore();
         }
-        if (ship.blinkNum > 0) ship.blinkNum--;
+        if (playerShip.blinkNum > 0) playerShip.blinkNum--;
         ctx.restore(); // POP 1: Restore state after ship block
     }
 
@@ -2563,15 +2430,15 @@ function loop() {
     for (let i = enemyBullets.length - 1; i >= 0; i--) {
         let eb = enemyBullets[i];
 
-        // APLICAR GRAVEDAD (World Coords)
+        // Gravity (World Coords)
         for (let r of roids) {
-            if (r.isPlanet && r.z < 0.5) { // Solo si el planeta es cercano
+            if (r.isPlanet && r.z < 0.5) { // Near planet
                 let dx = r.x - eb.x; let dy = r.y - eb.y; // World Distance Vector
                 let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
                 let force = (G_CONST * r.mass) / Math.max(distSq, 1000);
                 if (dist < r.r * 8 && dist > 1) {
-                    eb.xv += (dx / dist) * force * BULLET_GRAVITY_FACTOR;
-                    eb.yv += (dy / dist) * force * BULLET_GRAVITY_FACTOR;
+                    eb.xv += (dx / dist) * force * SHIP_BULLET_GRAVITY_FACTOR;
+                    eb.yv += (dy / dist) * force * SHIP_BULLET_GRAVITY_FACTOR;
                 }
             }
         }
@@ -2589,10 +2456,9 @@ function loop() {
         const vpX = eb.x - worldOffsetX + width / 2;
         const vpY = eb.y - worldOffsetY + height / 2;
 
-        // NEW: Bullet Fade Effect
         let alpha = 1.0;
-        if (eb.life < BULLET_FADE_FRAMES) {
-            alpha = eb.life / BULLET_FADE_FRAMES;
+        if (eb.life < SHIP_BULLET_FADE_FRAMES) {
+            alpha = eb.life / SHIP_BULLET_FADE_FRAMES;
         }
         ctx.globalAlpha = alpha;
 
@@ -2644,12 +2510,12 @@ function loop() {
 
         let hit = false;
         // Collision with player (World Coords)
-        if (!ship.dead && !eb.isFriendly && Math.hypot(worldOffsetX - eb.x, worldOffsetY - eb.y) < (ship.effectiveR || ship.r) + 5) {
-            hitShip(1); // Aplicar 1 golpe al jugador
+        if (!playerShip.dead && !eb.isFriendly && Math.hypot(worldOffsetX - eb.x, worldOffsetY - eb.y) < (playerShip.effectiveR || playerShip.r) + 5) {
+            hitShip(1);
 
             // INDIVIDUAL EVOLUTION: Gain score for hitting/killing player
-            if (eb.owner && enemies.includes(eb.owner)) {
-                eb.owner.score += 1000;
+            if (eb.owner && ships.includes(eb.owner)) {
+                eb.owner.score += SHIP_KILLED_REWARD;
             }
 
             enemyBullets.splice(i, 1);
@@ -2658,8 +2524,8 @@ function loop() {
         if (hit) continue;
 
         // NEW: Collision with RIVAL SHIPS (Faction War)
-        for (let k = enemies.length - 1; k >= 0; k--) {
-            let e = enemies[k];
+        for (let k = ships.length - 1; k >= 0; k--) {
+            let e = ships[k];
             if (e.z > 0.5) continue; // Ignore background ships
 
             // Basic collision check
@@ -2676,21 +2542,14 @@ function loop() {
                     let debrisColor = e.type === 'station' ? `hsl(${e.fleetHue}, 100%, 50%)` : `hsl(${e.fleetHue}, 100%, 40%)`;
                     createExplosion(e.x - worldOffsetX + width / 2, e.y - worldOffsetY + height / 2, 40, debrisColor, 4, 'debris');
                     if (e.type === 'station') { onStationDestroyed(e); }
-                    else {
-                        // SHIP DEBRIS
-                        const debris = createAsteroid(e.x, e.y, 40 + Math.random() * 20);
-                        debris.xv = (Math.random() - 0.5) * 10;
-                        debris.yv = (Math.random() - 0.5) * 10;
-                        debris.blinkNum = 30;
-                        roids.push(debris);
-                    }
+                    else { onShipDestroyed(e); }
 
                     // INDIVIDUAL EVOLUTION: Gain score for killing rival
-                    if (eb.owner && enemies.includes(eb.owner)) {
-                        eb.owner.score += (e.type === 'station') ? 1000 : 200;
+                    if (eb.owner && ships.includes(eb.owner)) {
+                        eb.owner.score += (e.type === 'station') ? STATION_KILLED_REWARD : SHIP_KILLED_REWARD;
                     }
 
-                    enemies.splice(k, 1);
+                    ships.splice(k, 1);
                     AudioEngine.playExplosion('large', e.x, e.y, e.z);
                 }
 
@@ -2716,8 +2575,8 @@ function loop() {
                     createExplosion(rVpX, rVpY, 10, '#aa00ff', 1, 'debris');
 
                     // INDIVIDUAL EVOLUTION: Gain score for destroying asteroids
-                    if (eb.owner && enemies.includes(eb.owner)) {
-                        eb.owner.score += 50;
+                    if (eb.owner && ships.includes(eb.owner)) {
+                        eb.owner.score += ASTEROID_DESTROYED_REWARD;
                         // console.log(`Enemy ${eb.owner.id.toFixed(2)} score: ${eb.owner.score}`);
                     }
 
@@ -2741,8 +2600,8 @@ function loop() {
                 let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
                 let force = (G_CONST * r.mass) / Math.max(distSq, 1000);
                 if (dist < r.r * 8 && dist > 1) {
-                    b.xv += (dx / dist) * force * BULLET_GRAVITY_FACTOR;
-                    b.yv += (dy / dist) * force * BULLET_GRAVITY_FACTOR;
+                    b.xv += (dx / dist) * force * SHIP_BULLET_GRAVITY_FACTOR;
+                    b.yv += (dy / dist) * force * SHIP_BULLET_GRAVITY_FACTOR;
                 }
             }
         }
@@ -2762,8 +2621,8 @@ function loop() {
 
         // NEW: Bullet Fade Effect
         let alpha = 1.0;
-        if (b.life < BULLET_FADE_FRAMES) {
-            alpha = b.life / BULLET_FADE_FRAMES;
+        if (b.life < SHIP_BULLET_FADE_FRAMES) {
+            alpha = b.life / SHIP_BULLET_FADE_FRAMES;
         }
         ctx.globalAlpha = alpha;
 
@@ -2854,23 +2713,19 @@ function loop() {
                     createExplosion(rVpX, rVpY, 15, '#ff0055', 1, 'spark');
                     createExplosion(rVpX, rVpY, 5, '#888', 2, 'debris');
 
-                    // Split asteroid if larger than minimum size
-                    const MIN_ASTEROID_SIZE = 80;
-                    if (r.r > MIN_ASTEROID_SIZE) {
-                        const newSize = r.r * 0.6;
-                        const splitSpeed = 8;
-                        const offset = 100;
+                    const newSize = r.r * 0.6;
+                    if (newSize > ASTEROID_MIN_SIZE) {
 
                         // West asteroid
-                        let westAst = createAsteroid(r.x - offset, r.y, newSize);
-                        westAst.xv = r.xv - splitSpeed;
+                        let westAst = createAsteroid(r.x - ASTEROID_SPLIT_OFFSET, r.y, newSize);
+                        westAst.xv = r.xv - ASTEROID_SPLIT_SPEED;
                         westAst.yv = r.yv;
                         westAst.blinkNum = 30;
                         roids.push(westAst);
 
                         // East asteroid
-                        let eastAst = createAsteroid(r.x + offset, r.y, newSize);
-                        eastAst.xv = r.xv + splitSpeed;
+                        let eastAst = createAsteroid(r.x + ASTEROID_SPLIT_OFFSET, r.y, newSize);
+                        eastAst.xv = r.xv + ASTEROID_SPLIT_SPEED;
                         eastAst.yv = r.yv;
                         eastAst.blinkNum = 30;
                         roids.push(eastAst);
@@ -2880,16 +2735,16 @@ function loop() {
                     AudioEngine.playExplosion('small', r.x, r.y, r.z);
                 }
                 if (!r.isPlanet) {
-                    score += 50; scoreEl.innerText = score;
+                    score += ASTEROID_DESTROYED_REWARD; scoreEl.innerText = score;
                 }
                 bullets.splice(i, 1); hit = true; break;
             }
         }
         if (hit) continue;
 
-        // Collision with enemies (World Coords)
-        for (let j = enemies.length - 1; j >= 0; j--) {
-            let e = enemies[j];
+        // Collision with ships (World Coords)
+        for (let j = ships.length - 1; j >= 0; j--) {
+            let e = ships[j];
             // If we are NOT a lone wolf, hitting friends triggers a warning
             if (e.isFriendly && !isLoneWolf) {
                 if (Math.hypot(b.x - e.x, b.y - e.y) < e.r + b.size) {
@@ -2912,7 +2767,7 @@ function loop() {
                             triggerBetrayal();
                         }
 
-                        enemies.splice(j, 1);
+                        ships.splice(j, 1);
                         AudioEngine.playExplosion('large', e.x, e.y, e.z);
                     }
                     break;
@@ -2933,11 +2788,10 @@ function loop() {
                 if (e.structureHP <= 0) {
                     let debrisColor = e.type === 'station' ? `hsl(${e.fleetHue}, 100%, 50%)` : `hsl(${e.fleetHue}, 100%, 40%)`;
                     createExplosion(eVpX, eVpY, 40, '#ffaa00', 3, 'spark'); createExplosion(eVpX, eVpY, 20, debrisColor, 4, 'debris');
-                    if (e.type === 'station') { onStationDestroyed(e); } else { score += 200; }
-                    enemies.splice(j, 1); scoreEl.innerText = score;
+                    if (e.type === 'station') { onStationDestroyed(e); }
+                    else { onShipDestroyed(e); }
+                    ships.splice(j, 1); scoreEl.innerText = score;
                     AudioEngine.playExplosion('large', e.x, e.y, e.z);
-                } else {
-                    // AudioEngine.playExplosion('small'); REMOVED
                 }
                 break;
             } else if (e.blinkNum > 0 && Math.hypot(b.x - e.x, b.y - e.y) < e.r + b.size) {
@@ -2979,16 +2833,16 @@ function loop() {
     ctx.shadowBlur = 0;
 
     // --- Off-Screen Enemy Indicators ---
-    // Show red dots at screen borders for enemies that are approaching but not visible
+    // Show red dots at screen borders for ships that are approaching but not visible
     // Draw in screen space (unscaled) to work correctly in touch mode
     ctx.save();
     ctx.resetTransform(); // Draw in screen space, not affected by viewport scaling
     const INDICATOR_SIZE = 8;
     const BORDER_PADDING = 20;
-    const DETECTION_RANGE = 3000; // How far off-screen to detect enemies
+    const DETECTION_RANGE = 3000; // How far off-screen to detect ships
 
-    enemies.forEach(e => {
-        if (e.isFriendly || e.z > 0.5) return; // Skip friendly ships and far-away enemies
+    ships.forEach(e => {
+        if (e.isFriendly || e.z > 0.5) return; // Skip friendly ships and far-away ships
 
         // Calculate viewport position (in world viewport space)
         const depthScale = 1 / (1 + e.z);
@@ -3163,13 +3017,13 @@ function startGame() {
     velocity = { x: 0, y: 0 };
     worldOffsetX = 0; // NEW: Reset world position on start
     worldOffsetY = 0;
-    // REDUCED TIMER FOR MORE FREQUENT STATIONS
-    stationSpawnTimer = 300;
+    stationSpawnTimer = STATIONS_SPAWN_TIMER;
     stationsDestroyedCount = 0;
     playerReloadTime = 0; // Reset reload timer
     scoreEl.innerText = score;
 
-    ship = newShip();
+    playerShip = newShip();
+    ships.push(playerShip);
     particles = [];
     ambientFogs = [];
     bullets = [];
@@ -3187,7 +3041,7 @@ function startGame() {
 
     // Determine initial input mode based on device
     if (window.matchMedia("(pointer: coarse)").matches) { inputMode = 'touch'; }
-    else { inputMode = 'mouse'; gestureHint.innerText = ""; }
+    else { inputMode = 'mouse'; }
 
     if (!loopStarted) {
         loopStarted = true;

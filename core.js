@@ -5,14 +5,16 @@
 /* =========================================
    CONSTANTS & UTILS
    ========================================= */
-const ASTEROID_BELT_INNER_RADIUS = 3000
+const ASTEROIDS_PER_BELT = 1000;
+const ASTEROID_BELT_INNER_RADIUS = 4000
 const ASTEROID_BELT_OUTER_RADIUS = 25000
-const BASE_MAX_SHIELD = 100;
+const ASTEROID_DESTROYED_REWARD = 100;
+const ASTEROID_MAX_SIZE = 160;
+const ASTEROID_MIN_SIZE = 80;
+const ASTEROID_SPLIT_OFFSET = 50;
+const ASTEROID_SPLIT_SPEED = 4;
 const BOUNDARY_DAMPENING = 0.5;
 const BOUNDARY_TOLERANCE = 100;
-const BULLET_FADE_FRAMES = 5;
-const BULLET_GRAVITY_FACTOR = 90;
-const BULLET_LIFETIME = 100;
 const EVOLUTION_SCORE_STEP = 1000;
 const FPS = 60;
 const FRICTION = 0.99;
@@ -21,21 +23,28 @@ const G_CONST = 0.5;
 const INITIAL_LIVES = 3;
 const MAX_PLANETS = 10;
 const MAX_SPEED = 30;
-const MAX_Z_DEPTH = 0.5;
+const MAX_Z_DEPTH = 1.0;
 const MIN_DURATION_TAP_TO_MOVE = 200;
-const MAX_ASTEROID_SIZE = 160;
-const MIN_ASTEROID_SIZE = 70;
-const NUM_ASTEROIDS_PER_BELT = 1000;
 const NUM_STATIONS_PER_PLANET = 2;
-const PLANET_MAX_SIZE = 1000;
-const PLANET_THRESHOLD = 400;
+const PLANET_MAX_SIZE = 1500;
+const PLANET_THRESHOLD = 500;
 const PLAYER_RELOAD_TIME_MAX = 8;
-const PRIMARY_BULLET_SIZE = 5;
-const SECONDARY_BULLET_SIZE = 2;
+const SHIPS_MAX_NUMBER = 30;
+const SHIP_BASE_MAX_SHIELD = 100;
+const SHIP_BULLET1_LIFETIME = 80;
+const SHIP_BULLET1_SIZE = 5;
+const SHIP_BULLET2_LIFETIME = 40;
+const SHIP_BULLET2_SIZE = 2;
+const SHIP_BULLET_FADE_FRAMES = 10;
+const SHIP_BULLET_GRAVITY_FACTOR = 90;
+const SHIP_FRIENDS_EACH_SPAWN = 6;
+const SHIP_KILLED_REWARD = 200;
 const SHIP_RESISTANCE = 2;
 const SHIP_SIZE = 30;
 const SHIP_THRUST = 0.9;
-const SIDE_BULLET_LIFETIME = 60;
+const SHIPS_SPAWN_TIME = 600;
+const STATIONS_SPAWN_TIMER = 300;
+const STATION_KILLED_REWARD = 500;
 const STATION_RESISTANCE = 6;
 const TOUCH_ROTATION_SENSITIVITY = 0.008;
 const WORLD_BOUNDS = 25000;
@@ -50,12 +59,12 @@ const syllables = ["KRON", "XER", "ZAN", "TOR", "AER", "ION", "ULA", "PROX", "VE
 let width, height;
 let score = 0;
 let lives = INITIAL_LIVES;
-let ship;
+let playerShip;
 let worldOffsetX = 0;
 let worldOffsetY = 0;
 let velocity = { x: 0, y: 0 };
 let roids = [];
-let enemies = [];
+let ships = [];
 let bullets = [];
 let enemyBullets = [];
 let particles = [];
@@ -66,9 +75,9 @@ let playerReloadTime = 0;
 let stationSpawnTimer = 0;
 let stationsDestroyedCount = 0;
 let level = 0;
-let homePlanetId = null; // NEW: The player's home planet
-let isLoneWolf = false; // NEW: Player betrayal status
-let screenMessages = []; // NEW: Array for temporary on-screen notifications
+let homePlanetId = null;
+let isLoneWolf = false;
+let screenMessages = [];
 let gameRunning = false;
 let loopStarted = false;
 let inputMode = 'mouse';
@@ -76,7 +85,7 @@ let keys = { ArrowUp: false, ArrowDown: false, Space: false, ArrowLeft: false, A
 let mouse = { x: 0, y: 0 };
 let currentZoomIndex = 2;
 let RADAR_RANGE = ZOOM_LEVELS[currentZoomIndex];
-let viewScale = 1.0; // Dynamic scale for smooth transitions
+let viewScale = 1.0;
 
 /* =========================================
   AUDIO ENGINE (MENU/GAME OVER ONLY)
@@ -191,7 +200,6 @@ const AudioEngine = {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
 
-        // Tiered Sounds
         if (tier >= 8) { // Ultimate
             osc.type = 'square';
             osc.frequency.setValueAtTime(150, this.ctx.currentTime);
@@ -331,8 +339,6 @@ const AudioEngine = {
     }
 };
 
-/* Moved to top */
-
 function generatePlanetName() {
     const s1 = syllables[Math.floor(Math.random() * syllables.length)];
     const s2 = syllables[Math.floor(Math.random() * syllables.length)];
@@ -352,7 +358,7 @@ function mulberry32(a) {
 function getShipTier() { return Math.max(0, Math.floor(score / EVOLUTION_SCORE_STEP)); }
 function getShapeName(tier) {
     if (tier >= 9) return "THE CELESTIAL";
-    if (tier >= 8) return "THE SPHERE";
+    if (tier === 8) return "THE SPHERE";
     const shapes = ["TRIANGLE", "SQUARE", "PENTAGON", "HEXAGON", "HEPTAGON", "OCTAGON", "NONAGON", "DECAGON"];
     return shapes[Math.min(tier, shapes.length - 1)];
 }
@@ -382,10 +388,15 @@ function newShip() {
     const currentTier = getShipTier();
     const startingHP = SHIP_RESISTANCE;
     return {
+        type: 'ship',
+        role: null,
+        squadId: null,
+        isFriendly: true,
+        leaderRef: null,
         a: 90 / 180 * Math.PI,
         r: SHIP_SIZE / 2,
-        maxShield: BASE_MAX_SHIELD,
-        shield: BASE_MAX_SHIELD,
+        maxShield: SHIP_BASE_MAX_SHIELD,
+        shield: SHIP_BASE_MAX_SHIELD,
         blinkNum: 30,
         blinkTime: 6,
         dead: false,
@@ -499,49 +510,6 @@ function initializePlanetAttributes(roid, forcedHue = null) {
     } else {
         roid.rings = null;
     }
-}
-
-function createBullet(angleOffset, perpOffset, rOffset = 0, isPrimary = true, tier = 0) {
-    const angle = ship.a + angleOffset;
-    const offsetX = (Math.cos(ship.a + Math.PI / 2) * perpOffset);
-    const offsetY = (Math.sin(ship.a + Math.PI / 2) * perpOffset);
-    const radius = (ship.effectiveR || ship.r) + rOffset;
-    const startWorldX = worldOffsetX + radius * Math.cos(ship.a) - offsetX;
-    const startWorldY = worldOffsetY - radius * Math.sin(ship.a) + offsetY;
-    const lifetime = isPrimary ? BULLET_LIFETIME : SIDE_BULLET_LIFETIME;
-
-    // Scale size by tier: tiers 1-8 get gradual increase, tier 9+ gets extra boost
-    let tierSizeBoost = 1 + (tier * 0.15);
-    if (tier >= 9) tierSizeBoost = 2.5; // Tier 9 and 10 are extra powerful
-
-    const size = isPrimary ? (PRIMARY_BULLET_SIZE * tierSizeBoost) : (SECONDARY_BULLET_SIZE * tierSizeBoost);
-    return {
-        x: startWorldX,
-        y: startWorldY,
-        xv: (1200 * Math.cos(angle) / FPS) + velocity.x,
-        yv: (-1200 * Math.sin(angle) / FPS) + velocity.y,
-        dist: 0,
-        life: lifetime,
-        size: size,
-        tier: tier
-    };
-}
-
-function createOmniBullet(absoluteAngle, isPrimary = false) {
-    const radius = (ship.effectiveR || ship.r);
-    const startWorldX = worldOffsetX + radius * Math.cos(absoluteAngle);
-    const startWorldY = worldOffsetY - radius * Math.sin(absoluteAngle);
-    const lifetime = isPrimary ? BULLET_LIFETIME : SIDE_BULLET_LIFETIME;
-    const size = isPrimary ? PRIMARY_BULLET_SIZE : SECONDARY_BULLET_SIZE;
-    return {
-        x: startWorldX,
-        y: startWorldY,
-        xv: (700 * Math.cos(absoluteAngle) / FPS) + velocity.x,
-        yv: (-700 * Math.sin(absoluteAngle) / FPS) + velocity.y,
-        dist: 0,
-        life: lifetime,
-        size: size
-    };
 }
 
 function createGalaxy() {
