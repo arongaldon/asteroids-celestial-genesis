@@ -269,7 +269,7 @@ function spawnStation(hostPlanet = null) {
         orbitDistance: orbitDistance,
         orbitAngle: orbitAngle,
         orbitSpeed: (Math.random() > 0.5 ? 1 : -1) * 0.002, // Slow orbital rotation
-        fleetHue: (homePlanetId !== null && hostPlanet.id === homePlanetId) ? FRIENDLY_BLUE_HUE : Math.floor(Math.random() * 360), // Unique color for the fleet
+        fleetHue: (homePlanetId !== null && hostPlanet.id === homePlanetId) ? SHIP_FRIENDLY_BLUE_HUE : Math.floor(Math.random() * 360), // Unique color for the fleet
         blinkNum: 60,
         z: 0, // Always at default Z-depth for radar visibility
         hostPlanetId: hostPlanet.id, // Store ID instead of reference
@@ -704,9 +704,9 @@ function createLevel() {
     firstPlanet.zSpeed = 0;
 
     if (firstPlanet.textureData) {
-        firstPlanet.textureData.waterColor = `hsl(${FRIENDLY_BLUE_HUE}, 60%, 30%)`;
-        firstPlanet.textureData.atmosphereColor = `hsl(${FRIENDLY_BLUE_HUE}, 80%, 60%)`;
-        firstPlanet.textureData.innerGradColor = `hsl(${FRIENDLY_BLUE_HUE}, 10%, 2%)`;
+        firstPlanet.textureData.waterColor = `hsl(${SHIP_FRIENDLY_BLUE_HUE}, 60%, 30%)`;
+        firstPlanet.textureData.atmosphereColor = `hsl(${SHIP_FRIENDLY_BLUE_HUE}, 80%, 60%)`;
+        firstPlanet.textureData.innerGradColor = `hsl(${SHIP_FRIENDLY_BLUE_HUE}, 10%, 2%)`;
     }
 
     planetSpawned = true;
@@ -769,12 +769,6 @@ function killShip() {
             animateLedText(gameOverText, gameOverEl);
         }
 
-        const startBtn = document.getElementById('start-btn');
-        if (startBtn) {
-            startBtn.innerText = 'RESTART';
-            startBtn.onclick = () => startGame();
-        }
-
         AudioEngine.setTrack('menu');
         AudioEngine.startMusic();
 
@@ -784,7 +778,10 @@ function killShip() {
         // We need a very short delay to make sure the browser applies the `game-over-bg` and `fade-out-removed` before adding `fade-out` back.
         setTimeout(() => {
             startScreen.classList.add('fade-out');
-        }, 100);
+            startBtn.style.display = 'block';
+            startBtn.innerText = 'RESTART';
+            startBtn.onclick = () => startGame();
+        }, 2000);
     }
 }
 
@@ -2763,7 +2760,7 @@ function loop() {
                         if (ship.type === 'station') {
                             onStationDestroyed(ship, playerShip);
                         } else {
-                            onShipDestroyed(ship, playerShipBullet);
+                            onShipDestroyed(ship, playerShip);
                         }
 
                         ships.splice(j, 1);
@@ -3005,6 +3002,9 @@ function startGame() {
     // Stop menu music
     AudioEngine.stopMusic();
     AudioEngine.setTrack('game');
+
+    // Hide start/restart button in order to gradually show it again in the game over screen.
+    startBtn.style.display = 'none';
 
     startScreen.style.display = 'none'; level = 0; score = 0; homePlanetId = null; isLoneWolf = false; screenMessages = [];
 
