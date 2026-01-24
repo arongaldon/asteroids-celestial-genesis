@@ -5,12 +5,12 @@
 /* =========================================
    CONSTANTS & UTILS
    ========================================= */
-const ASTEROIDS_PER_BELT = 2000;
-const ASTEROID_BELT_INNER_RADIUS = 2500
-const ASTEROID_BELT_OUTER_RADIUS = 25000
+const ASTEROIDS_PER_BELT = 1000;
+const ASTEROID_BELT_INNER_RADIUS = 2000
+const ASTEROID_BELT_OUTER_RADIUS = 20000
 const ASTEROID_DESTROYED_REWARD = 100;
-const ASTEROID_MAX_SIZE = 160;
-const ASTEROID_MIN_SIZE = 80;
+const ASTEROID_MAX_SIZE = 150;
+const ASTEROID_MIN_SIZE = 70;
 const ASTEROID_SPLIT_OFFSET = 90;
 const ASTEROID_SPLIT_SPEED = 3;
 const BOUNDARY_DAMPENING = 0.5;
@@ -18,29 +18,31 @@ const BOUNDARY_TOLERANCE = 100;
 const EVOLUTION_SCORE_STEP = 1000;
 const FPS = 60;
 const FRICTION = 0.99;
-const G_CONST = 0.5;
-const INITIAL_LIVES = 3;
-const MAX_PLANETS = 12;
-const MAX_SPEED = 30;
-const MAX_Z_DEPTH = 0.9;
+const G_CONST = 0.9; // Gravity Constant
+const MAX_Z_DEPTH = 2.0;
 const MIN_DURATION_TAP_TO_MOVE = 200;
 const NUM_STATIONS_PER_PLANET = 1;
-const PLANET_MAX_SIZE = 1500;
-const PLANET_THRESHOLD = 500;
+const PLANETS_LIMIT = 10;
+const PLANET_MAX_SIZE = 900;
+const PLANET_THRESHOLD = 450;
+const PLAYER_INITIAL_LIVES = 3;
 const PLAYER_RELOAD_TIME_MAX = 8;
 const SHIPS_MAX_NUMBER = 24;
+const SHIPS_SEPARATION_DISTANCE = 120;
 const SHIPS_SPAWN_TIME = 1000;
 const SHIP_BASE_MAX_SHIELD = 100;
-const SHIP_BULLET1_LIFETIME = 70;
+const SHIP_BULLET1_LIFETIME = 40;
 const SHIP_BULLET1_SIZE = 5;
-const SHIP_BULLET2_LIFETIME = 35;
-const SHIP_BULLET2_SIZE = 2;
-const SHIP_BULLET_FADE_FRAMES = 10;
+const SHIP_BULLET2_LIFETIME = 20;
+const SHIP_BULLET2_SIZE = 3;
+const SHIP_BULLET_FADE_FRAMES = 5;
 const SHIP_BULLET_GRAVITY_FACTOR = 90;
 const SHIP_FRIENDLY_BLUE_HUE = 210;
 const SHIP_FRIENDS_EACH_SPAWN = 6;
 const SHIP_KILLED_REWARD = 200;
+const SHIP_MAX_SPEED = 30;
 const SHIP_RESISTANCE = 2;
+const SHIP_SIGHT_RANGE = 1200; // Approx screen width: 1200
 const SHIP_SIZE = 30;
 const SHIP_THRUST = 0.9;
 const STATIONS_SPAWN_TIMER = 300;
@@ -58,7 +60,6 @@ const syllables = ["KRON", "XER", "ZAN", "TOR", "AER", "ION", "ULA", "PROX", "VE
   ========================================= */
 let width, height;
 let score = 0;
-let lives = INITIAL_LIVES;
 let playerShip;
 let worldOffsetX = 0;
 let worldOffsetY = 0;
@@ -363,9 +364,9 @@ function getShapeName(tier) {
     return shapes[Math.min(tier, shapes.length - 1)];
 }
 
-function animateLedText(text, element) {
-    if (!element) return;
-    element.innerHTML = '';
+// Show and animate a text in the info LED.
+function showInfoLEDText(text) {
+    infoLED.innerHTML = '';
     const characters = text.split('');
     let i = 0;
     let line = '';
@@ -373,7 +374,7 @@ function animateLedText(text, element) {
         if (i < characters.length) {
             const char = characters[i];
             line += char;
-            element.textContent = line;
+            infoLED.textContent = line;
             i++;
             setTimeout(show, 50);
         }
@@ -384,26 +385,28 @@ function animateLedText(text, element) {
 /* =========================================
    ENTITY FACTORIES
    ========================================= */
-function newShip() {
+function newPlayerShip() {
     const currentTier = getShipTier();
     const startingHP = SHIP_RESISTANCE;
     return {
-        type: 'ship',
-        role: null,
-        squadId: null,
-        isFriendly: true,
-        leaderRef: null,
         a: 90 / 180 * Math.PI,
-        r: SHIP_SIZE / 2,
-        maxShield: SHIP_BASE_MAX_SHIELD,
-        shield: SHIP_BASE_MAX_SHIELD,
         blinkNum: 30,
         blinkTime: 6,
         dead: false,
-        thrusting: false,
+        effectiveR: SHIP_SIZE / 2,
+        isFriendly: true,
+        leaderRef: null,
+        lives: PLAYER_INITIAL_LIVES,
+        loneWolf: false,
         mass: 20,
+        maxShield: SHIP_BASE_MAX_SHIELD,
+        r: SHIP_SIZE / 2,
+        role: null,
+        shield: SHIP_BASE_MAX_SHIELD,
+        squadId: null,
         structureHP: startingHP,
-        effectiveR: SHIP_SIZE / 2
+        thrusting: false,
+        type: 'ship'
     };
 }
 

@@ -28,7 +28,7 @@ function onStationDestroyed(station, killer = null) {
         score += STATION_KILLED_REWARD;
         stationsDestroyedCount++;
 
-        lives++;
+        playerShip.lives++;
         drawLives();
         addScreenMessage("EXTRA LIFE!");
 
@@ -37,17 +37,17 @@ function onStationDestroyed(station, killer = null) {
     }
 }
 
-const audioPrompt = document.getElementById('audio-prompt');
-const boundaryAlertEl = document.getElementById('boundary-alert');
 const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+const canvasRadar = document.getElementById('radar-canvas');
 const fadeOverlay = document.getElementById('fade-overlay');
+const infoLED = document.getElementById('info-led');
 const livesDisplay = document.getElementById('lives-display');
-const radarCanvas = document.getElementById('radar-canvas');
-const radarCtx = radarCanvas.getContext('2d');
-const scoreEl = document.getElementById('scoreEl');
+const scoreDisplay = document.getElementById('scoreEl');
 const startBtn = document.getElementById('start-btn');
 const startScreen = document.getElementById('start-screen');
+
+const canvasContext = canvas.getContext('2d');
+const canvasRadarContext = canvasRadar.getContext('2d');
 
 function resize() {
     width = Math.max(window.innerWidth, 100);
@@ -62,7 +62,6 @@ window.addEventListener('resize', resize);
 const audioStarter = () => {
     AudioEngine.init();
     AudioEngine.startMusic();
-    audioPrompt.style.display = 'none';
     startScreen.removeEventListener('click', audioStarter);
 }
 
@@ -74,13 +73,8 @@ window.onload = function () {
     // Add listener to start audio on the first interaction
     startScreen.addEventListener('click', audioStarter);
 
-    const instructionsText = `Asteroids Reimagined: The Classic, Upgraded by Aron Galdon`
-    const ledElement = document.getElementById('led-instructions');
-    animateLedText(instructionsText, ledElement);
+    showInfoLEDText("The Classic, reimagined by Aron Galdon. Have a safe trip!")
 }
-
-/* animateLedText moved to core.js */
-
 
 // Function to handle zoom change (used by Z key and Mouse Wheel)
 function changeRadarZoom(direction) {
@@ -144,10 +138,6 @@ document.addEventListener('wheel', (e) => {
     const direction = e.deltaY > 0 ? 1 : -1;
     changeRadarZoom(direction);
 }, { passive: false });
-
-
-// Button setup removed
-// setupBtn('btn-thrust', 'ArrowUp'); setupBtn('btn-brake', 'ArrowDown');
 
 let touchStartX = 0;
 let touchStartY = 0;
@@ -307,7 +297,7 @@ function spawnShipsSquad(station) {
     let leader = null;
 
     formationData.forEach(slot => {
-        if (isFriendlyStation && playerShip.squadId === null) {
+        if (isFriendlyStation && playerShip.dead === false && playerShip.squadId === null) {
             e = playerShip;
             e.squadId = squadId;
             console.log(`Player ship becomes the leader of the squad ${squadId}.`);
@@ -356,8 +346,10 @@ function addScreenMessage(text, color = "white") {
 }
 
 function triggerBetrayal() {
-    if (isLoneWolf) return;
-    isLoneWolf = true;
+    if (playerShip.loneWolf) return;
+    playerShip.leaderRef = null;
+    playerShip.loneWolf = true;
+    playerShip.squadId = null;
     addScreenMessage("⚠ BETRAYAL: YOU ARE NOW A LONE WOLF!", "#ff0000");
     addScreenMessage("NO MORE ALLIES WILL SUPPORT YOU.", "#ff4444");
 
@@ -573,9 +565,9 @@ function enemyShoot(e, tx, ty) {
 }
 
 function drawRadar() {
-    const rW = radarCanvas.width; const rH = radarCanvas.height;
+    const rW = canvasRadar.width; const rH = canvasRadar.height;
     const cX = rW / 2; const cY = rH / 2;
-    radarCtx.clearRect(0, 0, rW, rH);
+    canvasRadarContext.clearRect(0, 0, rW, rH);
 
     const radarRadius = rW / 2;
     const scale = radarRadius / RADAR_RANGE;
@@ -599,26 +591,26 @@ function drawRadar() {
         let rx = cX + radarDist * Math.cos(angle);
         let ry = cY + radarDist * Math.sin(angle);
 
-        radarCtx.fillStyle = color;
-        radarCtx.strokeStyle = color;
+        canvasRadarContext.fillStyle = color;
+        canvasRadarContext.strokeStyle = color;
 
         if (type === 'station') {
-            radarCtx.font = "bold 12px Courier New";
-            radarCtx.textAlign = 'center';
-            radarCtx.textBaseline = 'middle';
-            radarCtx.fillText('O', rx, ry);
+            canvasRadarContext.font = "bold 12px Courier New";
+            canvasRadarContext.textAlign = 'center';
+            canvasRadarContext.textBaseline = 'middle';
+            canvasRadarContext.fillText('O', rx, ry);
         } else if (type === 'ship') {
-            radarCtx.beginPath();
-            radarCtx.arc(rx, ry, 2, 0, Math.PI * 2);
-            radarCtx.fill();
+            canvasRadarContext.beginPath();
+            canvasRadarContext.arc(rx, ry, 2, 0, Math.PI * 2);
+            canvasRadarContext.fill();
         } else if (type === 'planet') {
-            radarCtx.beginPath();
-            radarCtx.arc(rx, ry, Math.max(4, size), 0, Math.PI * 2);
-            radarCtx.fill();
+            canvasRadarContext.beginPath();
+            canvasRadarContext.arc(rx, ry, Math.max(4, size), 0, Math.PI * 2);
+            canvasRadarContext.fill();
         } else {
-            radarCtx.beginPath();
-            radarCtx.arc(rx, ry, 2, 0, Math.PI * 2);
-            radarCtx.fill();
+            canvasRadarContext.beginPath();
+            canvasRadarContext.arc(rx, ry, 2, 0, Math.PI * 2);
+            canvasRadarContext.fill();
         }
     };
 
@@ -647,11 +639,11 @@ function drawRadar() {
         }
     });
 
-    radarCtx.strokeStyle = 'rgba(0, 255, 255, 0.2)'; radarCtx.lineWidth = 1;
-    radarCtx.beginPath(); radarCtx.moveTo(cX, 0); radarCtx.lineTo(cX, rH); radarCtx.stroke();
-    radarCtx.beginPath(); radarCtx.moveTo(0, cY); radarCtx.lineTo(rW, cY); radarCtx.stroke();
-    radarCtx.beginPath(); radarCtx.arc(cX, cY, rW / 2 - 1, 0, Math.PI * 2); radarCtx.stroke();
-    radarCtx.fillStyle = '#0ff'; radarCtx.beginPath(); radarCtx.arc(cX, cY, 3, 0, Math.PI * 2); radarCtx.fill();
+    canvasRadarContext.strokeStyle = 'rgba(0, 255, 255, 0.2)'; canvasRadarContext.lineWidth = 1;
+    canvasRadarContext.beginPath(); canvasRadarContext.moveTo(cX, 0); canvasRadarContext.lineTo(cX, rH); canvasRadarContext.stroke();
+    canvasRadarContext.beginPath(); canvasRadarContext.moveTo(0, cY); canvasRadarContext.lineTo(rW, cY); canvasRadarContext.stroke();
+    canvasRadarContext.beginPath(); canvasRadarContext.arc(cX, cY, rW / 2 - 1, 0, Math.PI * 2); canvasRadarContext.stroke();
+    canvasRadarContext.fillStyle = '#0ff'; canvasRadarContext.beginPath(); canvasRadarContext.arc(cX, cY, 3, 0, Math.PI * 2); canvasRadarContext.fill();
 }
 
 function drawHeart(ctx, x, y, size) {
@@ -667,7 +659,7 @@ function drawHeart(ctx, x, y, size) {
 }
 
 function drawLives() {
-    livesDisplay.innerText = `LIVES: ${lives}`;
+    livesDisplay.innerText = `LIVES: ${playerShip.lives}`;
     livesDisplay.style.color = '#0ff';
     livesDisplay.style.marginTop = '5px';
 }
@@ -731,7 +723,7 @@ function hitShip(damageAmount, sourceIsNearPlanet = false) {
 
     if (playerShip.structureHP <= 0) {
         playerShip.structureHP = 0;
-        killShip();
+        killPlayerShip();
     }
     else {
         playerShip.blinkNum = 15;
@@ -739,49 +731,43 @@ function hitShip(damageAmount, sourceIsNearPlanet = false) {
     }
 }
 
-function killShip() {
+function killPlayerShip() {
     const vpX = width / 2; const vpY = height / 2;
     createExplosion(vpX, vpY, 60, '#0ff', 3);
     AudioEngine.playExplosion('large', worldOffsetX, worldOffsetY);
-    playerShip.dead = true;
 
-    lives--;
-    drawLives();
+    playerShip.dead = true;
+    playerShip.leaderRef = null;
+    playerShip.lives--;
+    playerShip.squadId = null;
+
+    velocity = { x: 0, y: 0 };
 
     score -= 1000;
-    scoreEl.innerText = score;
+    scoreDisplay.innerText = score;
 
-    if (lives > 0) setTimeout(() => {
-        playerShip = newShip();
-        velocity = { x: 0, y: 0 };
+    if (playerShip.lives > 0) setTimeout(() => {
+        playerShip.dead = false;
+        playerShip.structureHP = SHIP_RESISTANCE;
         drawLives();
     }, 1500);
     else {
-        startScreen.style.display = 'flex';
-        startScreen.classList.add('game-over-bg');
-
-        // Game Over Text
-        const instructions = document.querySelector('#start-screen .instructions');
-        if (instructions) {
-            instructions.innerHTML = '<div id="game-over-led"></div>';
-            const gameOverEl = document.getElementById('game-over-led');
-            const gameOverText = "Communication lost. Rest in eternity.";
-            animateLedText(gameOverText, gameOverEl);
-        }
-
-        AudioEngine.setTrack('menu');
-        AudioEngine.startMusic();
-
-        // Reset opacity before fading out
-        startScreen.classList.remove('fade-out');
-
-        // We need a very short delay to make sure the browser applies the `game-over-bg` and `fade-out-removed` before adding `fade-out` back.
         setTimeout(() => {
-            startScreen.classList.add('fade-out');
-            startBtn.style.display = 'block';
-            startBtn.innerText = 'RESTART';
-            startBtn.onclick = () => startGame();
-        }, 2000);
+            startScreen.style.display = 'flex';
+            showInfoLEDText("Communication lost. Rest in eternity.");
+            AudioEngine.setTrack('menu');
+            AudioEngine.startMusic();
+
+            // Reset opacity before fading out
+            startScreen.classList.remove('fade-out');
+
+            setTimeout(() => {
+                startScreen.classList.add('fade-out');
+                startBtn.style.display = 'block';
+                startBtn.innerText = 'RESTART';
+                startBtn.onclick = () => startGame();
+            }, 3000);
+        }, 3000);
     }
 }
 
@@ -936,9 +922,13 @@ function updatePhysics() {
                 r2.yv -= forceY / r2.mass;
             }
 
+            // If the distance is less than the sum of the radius, a collision has occurred.
             if (dist < r1.r + r2.r) {
+                // Midpoint of the collision
                 const midX = (r1.x + r2.x) / 2;
                 const midY = (r1.y + r2.y) / 2;
+
+                // Midpoint in Viewport Coords
                 const midVpX = midX - worldOffsetX + width / 2;
                 const midVpY = midY - worldOffsetY + height / 2;
 
@@ -950,7 +940,7 @@ function updatePhysics() {
                         createExplosion(midVpX, midVpY, 40, '#ff0000', 8, 'debris');
                         AudioEngine.playPlanetExplosion(midX, midY, r1.z); // Strong sound if visible
 
-                        createAsteroidBelt(midX, midY, 0, ASTEROID_BELT_OUTER_RADIUS / 10, ASTEROIDS_PER_BELT / 10);
+                        createAsteroidBelt(midVpX, midVpY, 0, ASTEROID_BELT_OUTER_RADIUS - ASTEROID_BELT_INNER_RADIUS, ASTEROIDS_PER_BELT / 2);
                         createShockwave(midX, midY);
 
                         // Destroy both planets' stations
@@ -1030,7 +1020,7 @@ function updatePhysics() {
 
                         if (newR > PLANET_THRESHOLD && !r1.isPlanet) {
                             const currentPlanets = roids.filter(r => r.isPlanet).length;
-                            if (currentPlanets < MAX_PLANETS) {
+                            if (currentPlanets <= PLANETS_LIMIT) {
                                 r1.r = newR;
                                 initializePlanetAttributes(r1);
                                 r1.targetR = newR;
@@ -1182,20 +1172,19 @@ function loop() {
     enemyShipBullets = enemyShipBullets.filter(isSafe);
 
     // Clear canvas
-    ctx.fillStyle = '#010103'; ctx.fillRect(0, 0, width, height);
-    ctx.save();
+    canvasContext.fillStyle = '#010103'; canvasContext.fillRect(0, 0, width, height);
+    canvasContext.save();
 
-    // Smooth transition for viewport scaling
-    const targetScale = (inputMode === 'touch') ? 0.65 : 1.0;
-    viewScale += (targetScale - viewScale) * 0.1; // Simple lerp for smoothness
+    // In touch mode, zoom out to see more of the world
+    const targetScale = (inputMode === 'touch') ? 0.5 : 1.0;
+    viewScale += (targetScale - viewScale) * 0.1;
 
     if (viewScale !== 1.0) {
         // Scale and translate to keep (width/2, height/2) at the center
-        ctx.translate(width / 2 * (1 - viewScale), height / 2 * (1 - viewScale));
-        ctx.scale(viewScale, viewScale);
+        canvasContext.translate(width / 2 * (1 - viewScale), height / 2 * (1 - viewScale));
+        canvasContext.scale(viewScale, viewScale);
     }
 
-    // --- Ship Movement and World Boundary Check ---
     if (!playerShip.dead) {
         if (inputMode === 'mouse') { // Mouse/Pointer control: rotate towards cursor
             const dx = mouse.x - width / 2; const dy = -(mouse.y - height / 2);
@@ -1243,7 +1232,7 @@ function loop() {
 
         // Limit max speed
         const currentSpeed = Math.sqrt(velocity.x ** 2 + velocity.y ** 2);
-        if (currentSpeed > MAX_SPEED) { const ratio = MAX_SPEED / currentSpeed; velocity.x *= ratio; velocity.y *= ratio; }
+        if (currentSpeed > SHIP_MAX_SPEED) { const ratio = SHIP_MAX_SPEED / currentSpeed; velocity.x *= ratio; velocity.y *= ratio; }
 
         // 3. Update Player's World Position (worldOffsetX/Y)
         let nextWorldX = worldOffsetX + velocity.x;
@@ -1296,14 +1285,7 @@ function loop() {
         if (worldOffsetY <= -WORLD_BOUNDS + BOUNDARY_TOLERANCE) {
             shadow.push(`0 ${SHADOW_SIZE}px 0 0 ${RED_GLOW} inset`);
         }
-
-        if (shadow.length > 0) {
-            boundaryAlertEl.style.boxShadow = shadow.join(', ');
-        } else {
-            boundaryAlertEl.style.boxShadow = 'none';
-        }
     }
-    // --- End Ship Movement and World Boundary Check ---
 
     // --- Shockwave Update (All in World Coords) ---
     shockwaves.forEach((sw, index) => {
@@ -1314,8 +1296,8 @@ function loop() {
         const vpX = sw.x - worldOffsetX + width / 2;
         const vpY = sw.y - worldOffsetY + height / 2;
 
-        ctx.beginPath(); ctx.arc(vpX, vpY, sw.r, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(255, 200, 50, ${sw.alpha})`; ctx.lineWidth = 5; ctx.stroke();
+        canvasContext.beginPath(); canvasContext.arc(vpX, vpY, sw.r, 0, Math.PI * 2);
+        canvasContext.strokeStyle = `rgba(255, 200, 50, ${sw.alpha})`; canvasContext.lineWidth = 5; canvasContext.stroke();
 
         // Apply force to asteroids, ships, and player (Force is World Units)
         const applyShockwaveForce = (obj) => {
@@ -1342,7 +1324,7 @@ function loop() {
     });
 
     // --- Ambient Fog Drawing ---
-    ctx.globalCompositeOperation = 'screen';
+    canvasContext.globalCompositeOperation = 'screen';
     for (let i = ambientFogs.length - 1; i >= 0; i--) {
         let f = ambientFogs[i];
 
@@ -1359,12 +1341,12 @@ function loop() {
             continue;
         }
 
-        let g = ctx.createRadialGradient(f.x, f.y, f.r * 0.1, f.x, f.y, f.r);
+        let g = canvasContext.createRadialGradient(f.x, f.y, f.r * 0.1, f.x, f.y, f.r);
         g.addColorStop(0, `hsla(${f.hue}, 80%, 40%, ${f.alpha})`);
         g.addColorStop(1, 'transparent');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2); ctx.fill();
+        canvasContext.fillStyle = g; canvasContext.beginPath(); canvasContext.arc(f.x, f.y, f.r, 0, Math.PI * 2); canvasContext.fill();
     }
-    ctx.globalCompositeOperation = 'source-over'; // Reset blend mode
+    canvasContext.globalCompositeOperation = 'source-over'; // Reset blend mode
 
     // --- Background Parallax Drawing ---
     const moveLayer = (list, factor) => list.forEach(item => {
@@ -1372,32 +1354,32 @@ function loop() {
         item.x -= velocity.x * factor; item.y -= velocity.y * factor;
     });
 
-    ctx.globalCompositeOperation = 'screen';
+    canvasContext.globalCompositeOperation = 'screen';
     moveLayer(backgroundLayers.nebulas, 0.05);
     backgroundLayers.nebulas.forEach(n => {
-        let g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
+        let g = canvasContext.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
         g.addColorStop(0, `hsla(${n.hue}, 80%, 40%, ${n.alpha})`); g.addColorStop(1, 'transparent');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2); ctx.fill();
+        canvasContext.fillStyle = g; canvasContext.beginPath(); canvasContext.arc(n.x, n.y, n.r, 0, Math.PI * 2); canvasContext.fill();
     });
-    ctx.globalCompositeOperation = 'source-over';
+    canvasContext.globalCompositeOperation = 'source-over';
     // Draw distant galaxies
     backgroundLayers.galaxies.forEach(g => {
         g.x -= velocity.x * 0.1; g.y -= velocity.y * 0.1;
         g.angle += 0.001;
-        ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(g.angle);
-        ctx.shadowBlur = 30; ctx.shadowColor = `rgb(${g.color.r},${g.color.g},${g.color.b})`;
-        ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
-        g.stars.forEach(s => { ctx.fillStyle = `rgba(${g.color.r},${g.color.g},${g.color.b}, ${s.alpha})`; ctx.beginPath(); ctx.arc(s.r * Math.cos(s.theta), s.r * Math.sin(s.theta), s.size, 0, Math.PI * 2); ctx.fill(); });
-        ctx.restore(); ctx.shadowBlur = 0;
+        canvasContext.save(); canvasContext.translate(g.x, g.y); canvasContext.rotate(g.angle);
+        canvasContext.shadowBlur = 30; canvasContext.shadowColor = `rgb(${g.color.r},${g.color.g},${g.color.b})`;
+        canvasContext.fillStyle = 'white'; canvasContext.beginPath(); canvasContext.arc(0, 0, 8, 0, Math.PI * 2); canvasContext.fill();
+        g.stars.forEach(s => { canvasContext.fillStyle = `rgba(${g.color.r},${g.color.g},${g.color.b}, ${s.alpha})`; canvasContext.beginPath(); canvasContext.arc(s.r * Math.cos(s.theta), s.r * Math.sin(s.theta), s.size, 0, Math.PI * 2); canvasContext.fill(); });
+        canvasContext.restore(); canvasContext.shadowBlur = 0;
     });
     // Draw starfield parallax layers
     moveLayer(backgroundLayers.starsFar, 0.1); moveLayer(backgroundLayers.starsMid, 0.4); moveLayer(backgroundLayers.starsNear, 0.8);
-    const drawStars = (list, c) => { ctx.fillStyle = c; list.forEach(s => ctx.fillRect(s.x, s.y, s.size, s.size)); };
+    const drawStars = (list, c) => { canvasContext.fillStyle = c; list.forEach(s => canvasContext.fillRect(s.x, s.y, s.size, s.size)); };
     drawStars(backgroundLayers.starsFar, '#555'); drawStars(backgroundLayers.starsMid, '#888'); drawStars(backgroundLayers.starsNear, '#fff');
 
     updatePhysics(); // Run asteroid merging and gravity simulation (uses World Coords)
 
-    ctx.shadowBlur = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    canvasContext.shadowBlur = 10; canvasContext.lineCap = 'round'; canvasContext.lineJoin = 'round';
 
     // --- Enemy Update and MOVEMENT/AI (Separated from Drawing for Z-order) ---
     let shipsToDraw = [];
@@ -1531,13 +1513,11 @@ function loop() {
 
         let threat = null; let minThreatDist = Infinity;
         if (!playerShip.dead) {
-            // Player is ALWAYS a threat regardless of distance
             threat = { x: worldOffsetX, y: worldOffsetY };
             minThreatDist = Math.hypot(ship.x - worldOffsetX, ship.y - worldOffsetY);
         }
 
         // Check for closer asteroid threats (avoidance), but prioritize player if somewhat close?
-        // NO, player is global target, BUT avoid asteroids if IMMINENT collision.
         for (let r of roids) {
             if (r.z > 0.5) continue;
             let d = Math.hypot(ship.x - r.x, r.y - r.y);
@@ -1563,10 +1543,9 @@ function loop() {
             const distToPlayer = Math.hypot(worldOffsetX - ship.x, worldOffsetY - ship.y);
 
             // 1. STATE TRANSITION
-            const SIGHT_RANGE = 1200; // Approx screen width
-            if (!ship.isFriendly && distToPlayer < SIGHT_RANGE && !playerShip.dead) { // Only ships auto-switch to combat by distance
+            if (!ship.isFriendly && distToPlayer < SHIP_SIGHT_RANGE && !playerShip.dead) { // Only ships auto-switch to combat by distance
                 ship.aiState = 'COMBAT';
-            } else if (distToPlayer > SIGHT_RANGE * 1.5 && ship.aiState === 'COMBAT') {
+            } else if (distToPlayer > SHIP_SIGHT_RANGE * 1.5 && ship.aiState === 'COMBAT') {
                 ship.aiState = 'FORMATION';
             }
 
@@ -1574,7 +1553,7 @@ function loop() {
             if (ship.aiState === 'FORMATION') {
                 proactiveCombatScanner(ship);
 
-                if (ship.isFriendly) {
+                if (ship.isFriendly && !playerShip.dead) {
                     // FRIENDLY: Follow Player in V-Formation
                     const lx = worldOffsetX;
                     const ly = worldOffsetY;
@@ -1807,7 +1786,6 @@ function loop() {
                 ship.yv += Math.sin(orbAngle) * 0.08;
 
                 // 3. Separation Logic (Avoid bunching up)
-                const SEPARATION_DIST = 120;
                 let sepX = 0;
                 let sepY = 0;
                 let count = 0;
@@ -1816,11 +1794,11 @@ function loop() {
                     if (other === ship || other.type !== 'ship') continue;
                     // Simple distance check
                     let distToOther = Math.hypot(ship.x - other.x, ship.y - other.y);
-                    if (distToOther < SEPARATION_DIST) {
+                    if (distToOther < SHIPS_SEPARATION_DISTANCE) {
                         // Push away relative to other
                         let ang = Math.atan2(ship.y - other.y, ship.x - other.x);
                         // Force stronger the closer they are
-                        let force = (SEPARATION_DIST - distToOther) * 0.01;
+                        let force = (SHIPS_SEPARATION_DISTANCE - distToOther) * 0.01;
                         sepX += Math.cos(ang) * force;
                         sepY += Math.sin(ang) * force;
                         count++;
@@ -1837,8 +1815,8 @@ function loop() {
                 ship.yv *= 0.96;
 
                 let currentSpeed = Math.hypot(ship.xv, ship.yv);
-                if (currentSpeed > MAX_SPEED) {
-                    let scale = MAX_SPEED / currentSpeed;
+                if (currentSpeed > SHIP_MAX_SPEED) {
+                    let scale = SHIP_MAX_SPEED / currentSpeed;
                     ship.xv *= scale;
                     ship.yv *= scale;
                 }
@@ -1872,7 +1850,7 @@ function loop() {
                     ship.x += Math.cos(ang) * 60; ship.y += Math.sin(ang) * 60;
                 } else {
                     ships.splice(i, 1); i--;
-                    scoreEl.innerText = score;
+                    scoreDisplay.innerText = score;
                     AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
                 }
 
@@ -1881,7 +1859,7 @@ function loop() {
                     createExplosion(vpX, vpY, 40, '#ffaa00', 3, 'spark'); createExplosion(vpX, vpY, 20, debrisColor, 4, 'debris');
                     if (ship.type === 'station') { onStationDestroyed(ship); }
                     else { onShipDestroyed(ship); }
-                    ships.splice(i, 1); scoreEl.innerText = score; AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
+                    ships.splice(i, 1); scoreDisplay.innerText = score; AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
                 }
             }
         }
@@ -1891,7 +1869,7 @@ function loop() {
     }
     // --- End Enemy Update/AI ---
 
-    ctx.shadowColor = '#ffffff'; ctx.strokeStyle = 'white'; ctx.lineWidth = 1.5;
+    canvasContext.shadowColor = '#ffffff'; canvasContext.strokeStyle = 'white'; canvasContext.lineWidth = 1.5;
 
     // Ordenar los asteroides de Cercano a Lejano (Z baja a Z alta)
     roids.sort((a, b) => a.z - b.z);
@@ -1941,62 +1919,62 @@ function loop() {
         }
 
         // Apply transformations for depth
-        ctx.save();
-        ctx.translate(vpX, vpY); // Translate to Viewport Position
-        ctx.scale(depthScale, depthScale);
+        canvasContext.save();
+        canvasContext.translate(vpX, vpY); // Translate to Viewport Position
+        canvasContext.scale(depthScale, depthScale);
 
         // Apply calculated depth alpha
-        ctx.globalAlpha = depthAlpha;
+        canvasContext.globalAlpha = depthAlpha;
 
         // Draw asteroid blinking if newly created
-        if (r.blinkNum % 2 !== 0) { ctx.globalAlpha *= 0.3; }
+        if (r.blinkNum % 2 !== 0) { canvasContext.globalAlpha *= 0.3; }
 
 
         if (r.isPlanet) {
 
             // === DRAW PLANET RINGS (BACK HALF) ===
             if (r.rings) {
-                drawRings(ctx, r.rings, r.r, depthScale);
+                drawRings(canvasContext, r.rings, r.r, depthScale);
             }
 
             // Draw planet texture and name
-            ctx.shadowBlur = 30; ctx.shadowColor = r.textureData.atmosphereColor;
-            drawPlanetTexture(ctx, 0, 0, r.r, r.textureData); // Draw relative to translated origin
+            canvasContext.shadowBlur = 30; canvasContext.shadowColor = r.textureData.atmosphereColor;
+            drawPlanetTexture(canvasContext, 0, 0, r.r, r.textureData); // Draw relative to translated origin
 
             // === DRAW PLANET RINGS (FRONT HALF) ===
             if (r.rings) {
-                ctx.save();
-                ctx.rotate(r.rings.tilt);
+                canvasContext.save();
+                canvasContext.rotate(r.rings.tilt);
                 r.rings.bands.forEach(band => {
                     const bandRadius = r.r * band.rRatio;
                     const bandWidth = r.r * band.wRatio;
                     const outerRadius = bandRadius * depthScale;
 
-                    ctx.lineWidth = bandWidth * depthScale;
-                    ctx.strokeStyle = band.color;
-                    ctx.globalAlpha = band.alpha * depthAlpha;
-                    ctx.shadowBlur = 0;
+                    canvasContext.lineWidth = bandWidth * depthScale;
+                    canvasContext.strokeStyle = band.color;
+                    canvasContext.globalAlpha = band.alpha * depthAlpha;
+                    canvasContext.shadowBlur = 0;
 
-                    ctx.beginPath();
-                    ctx.ellipse(0, 0, outerRadius, outerRadius * 0.15, 0, Math.PI, Math.PI * 2, false);
-                    ctx.stroke();
+                    canvasContext.beginPath();
+                    canvasContext.ellipse(0, 0, outerRadius, outerRadius * 0.15, 0, Math.PI, Math.PI * 2, false);
+                    canvasContext.stroke();
                 });
-                ctx.restore();
+                canvasContext.restore();
             }
 
             // Draw Name
-            ctx.globalAlpha = depthAlpha;
-            ctx.fillStyle = 'white';
-            ctx.font = `${14 / depthScale}px Courier New`;
-            ctx.textAlign = 'center';
-            ctx.fillText(r.name, 0, r.r + (30 / depthScale));
+            canvasContext.globalAlpha = depthAlpha;
+            canvasContext.fillStyle = 'white';
+            canvasContext.font = `${14 / depthScale}px Courier New`;
+            canvasContext.textAlign = 'center';
+            canvasContext.fillText(r.name, 0, r.r + (30 / depthScale));
 
         } else {
             // Draw standard asteroid shape
-            ctx.shadowBlur = 10; ctx.shadowColor = 'white'; ctx.strokeStyle = 'white';
-            ctx.beginPath(); for (let j = 0; j < r.vert; j++) ctx.lineTo(r.r * r.offs[j] * Math.cos(r.a + j * Math.PI * 2 / r.vert), r.r * r.offs[j] * Math.sin(r.a + j * Math.PI * 2 / r.vert)); ctx.closePath(); ctx.stroke();
+            canvasContext.shadowBlur = 10; canvasContext.shadowColor = 'white'; canvasContext.strokeStyle = 'white';
+            canvasContext.beginPath(); for (let j = 0; j < r.vert; j++) canvasContext.lineTo(r.r * r.offs[j] * Math.cos(r.a + j * Math.PI * 2 / r.vert), r.r * r.offs[j] * Math.sin(r.a + j * Math.PI * 2 / r.vert)); canvasContext.closePath(); canvasContext.stroke();
         }
-        ctx.restore(); // Restore context
+        canvasContext.restore(); // Restore context
 
         // Check collision with player (World Coords)
         if (r.z < 0.5 && !playerShip.dead) {
@@ -2060,16 +2038,16 @@ function loop() {
         const vpY = (shipToDraw.y - worldOffsetY) * depthScale + height / 2;
 
         // Drawing enemy
-        ctx.shadowBlur = 15;
+        canvasContext.shadowBlur = 15;
 
         // If blinking, reduce opacity (for invulnerability feedback)
-        if (shipToDraw.blinkNum % 2 !== 0) { ctx.globalAlpha = 0.5; }
-        else { ctx.globalAlpha = depthAlpha; } // Apply depth alpha
+        if (shipToDraw.blinkNum % 2 !== 0) { canvasContext.globalAlpha = 0.5; }
+        else { canvasContext.globalAlpha = depthAlpha; } // Apply depth alpha
 
-        ctx.save();
-        ctx.translate(vpX, vpY); // Translate to Viewport Position
-        ctx.scale(depthScale, depthScale); // Apply depth scaling
-        ctx.rotate(shipToDraw.a);
+        canvasContext.save();
+        canvasContext.translate(vpX, vpY); // Translate to Viewport Position
+        canvasContext.scale(depthScale, depthScale); // Apply depth scaling
+        canvasContext.rotate(shipToDraw.a);
 
         if (shipToDraw.type === 'ship') {
 
@@ -2098,90 +2076,90 @@ function loop() {
                 // Normalization scale to match hit radius
                 const norm = 0.6;
 
-                ctx.shadowBlur = 20; ctx.shadowColor = THRUST_COLOR;
-                ctx.beginPath();
-                ctx.moveTo(r * 1.6 * norm, 0);
-                ctx.lineTo(r * 0.5 * norm, r * 1.5 * norm); ctx.lineTo(-r * 1.2 * norm, r * 0.8 * norm);
-                ctx.lineTo(-r * 1.8 * norm, r * 0.4 * norm); ctx.lineTo(-r * 1.8 * norm, -r * 0.4 * norm);
-                ctx.lineTo(-r * 1.2 * norm, -r * 0.8 * norm); ctx.lineTo(r * 0.5 * norm, -r * 1.5 * norm);
-                ctx.closePath();
-                ctx.fillStyle = HULL_COLOR_D; ctx.fill();
-                ctx.lineWidth = 2; ctx.strokeStyle = HULL_BORDER_D; ctx.stroke();
+                canvasContext.shadowBlur = 20; canvasContext.shadowColor = THRUST_COLOR;
+                canvasContext.beginPath();
+                canvasContext.moveTo(r * 1.6 * norm, 0);
+                canvasContext.lineTo(r * 0.5 * norm, r * 1.5 * norm); canvasContext.lineTo(-r * 1.2 * norm, r * 0.8 * norm);
+                canvasContext.lineTo(-r * 1.8 * norm, r * 0.4 * norm); canvasContext.lineTo(-r * 1.8 * norm, -r * 0.4 * norm);
+                canvasContext.lineTo(-r * 1.2 * norm, -r * 0.8 * norm); canvasContext.lineTo(r * 0.5 * norm, -r * 1.5 * norm);
+                canvasContext.closePath();
+                canvasContext.fillStyle = HULL_COLOR_D; canvasContext.fill();
+                canvasContext.lineWidth = 2; canvasContext.strokeStyle = HULL_BORDER_D; canvasContext.stroke();
 
                 // Details
-                ctx.shadowBlur = 0; ctx.fillStyle = DETAIL_GRAY_D;
-                ctx.beginPath(); ctx.moveTo(r * 1.6 * norm, 0); ctx.lineTo(r * 1.4 * norm, r * 0.1 * norm); ctx.lineTo(r * 1.4 * norm, -r * 0.1 * norm); ctx.closePath(); ctx.fill();
-                ctx.fillStyle = DETAIL_GRAY_D;
-                ctx.fillRect(r * 0.2 * norm, r * 0.5 * norm, r * 0.3 * norm, r * 0.2 * norm); ctx.fillRect(r * 0.2 * norm, -r * 0.7 * norm, r * 0.3 * norm, r * 0.2 * norm);
+                canvasContext.shadowBlur = 0; canvasContext.fillStyle = DETAIL_GRAY_D;
+                canvasContext.beginPath(); canvasContext.moveTo(r * 1.6 * norm, 0); canvasContext.lineTo(r * 1.4 * norm, r * 0.1 * norm); canvasContext.lineTo(r * 1.4 * norm, -r * 0.1 * norm); canvasContext.closePath(); canvasContext.fill();
+                canvasContext.fillStyle = DETAIL_GRAY_D;
+                canvasContext.fillRect(r * 0.2 * norm, r * 0.5 * norm, r * 0.3 * norm, r * 0.2 * norm); canvasContext.fillRect(r * 0.2 * norm, -r * 0.7 * norm, r * 0.3 * norm, r * 0.2 * norm);
 
                 // Accent Engine/Core
-                ctx.fillStyle = ACCENT_COLOR; ctx.beginPath(); ctx.arc(-r * 0.5 * norm, 0, r * 0.2 * norm, 0, Math.PI * 2); ctx.fill();
+                canvasContext.fillStyle = ACCENT_COLOR; canvasContext.beginPath(); canvasContext.arc(-r * 0.5 * norm, 0, r * 0.2 * norm, 0, Math.PI * 2); canvasContext.fill();
 
                 // Thrust
-                ctx.shadowBlur = 30; ctx.shadowColor = THRUST_COLOR;
+                canvasContext.shadowBlur = 30; canvasContext.shadowColor = THRUST_COLOR;
                 const EXHAUST_H = r * 0.7 * norm; const EXHAUST_X = -r * 1.8 * norm;
-                ctx.fillStyle = HULL_BORDER_D; ctx.fillRect(EXHAUST_X, -EXHAUST_H / 2, 5, EXHAUST_H);
+                canvasContext.fillStyle = HULL_BORDER_D; canvasContext.fillRect(EXHAUST_X, -EXHAUST_H / 2, 5, EXHAUST_H);
 
                 // Always thrusting slightly for visual effect
-                ctx.fillStyle = `hsla(${shipToDraw.fleetHue}, 100%, 60%, ${0.5 + Math.random() * 0.5})`;
-                ctx.beginPath(); ctx.moveTo(EXHAUST_X + 5, -EXHAUST_H / 2); ctx.lineTo(EXHAUST_X + 5, EXHAUST_H / 2);
-                ctx.lineTo(EXHAUST_X - 25 * norm * (0.8 + Math.random() * 0.4), 0); ctx.closePath(); ctx.fill();
-                ctx.shadowBlur = 0;
+                canvasContext.fillStyle = `hsla(${shipToDraw.fleetHue}, 100%, 60%, ${0.5 + Math.random() * 0.5})`;
+                canvasContext.beginPath(); canvasContext.moveTo(EXHAUST_X + 5, -EXHAUST_H / 2); canvasContext.lineTo(EXHAUST_X + 5, EXHAUST_H / 2);
+                canvasContext.lineTo(EXHAUST_X - 25 * norm * (0.8 + Math.random() * 0.4), 0); canvasContext.closePath(); canvasContext.fill();
+                canvasContext.shadowBlur = 0;
 
             } else {
                 // STANDARD EVOLVING SHIP (Tiers 0-7)
                 // Shape evolves with individual score (Triangle -> Square -> ...)
                 let sides = 3 + tier;
-                ctx.beginPath();
+                canvasContext.beginPath();
                 for (let i = 0; i <= sides; i++) {
                     let ang = i * (2 * Math.PI / sides);
                     let rad = r * (1 + tier * 0.1);
-                    if (i === 0) ctx.moveTo(rad * Math.cos(ang), -rad * Math.sin(ang));
-                    else ctx.lineTo(rad * Math.cos(ang), -rad * Math.sin(ang));
+                    if (i === 0) canvasContext.moveTo(rad * Math.cos(ang), -rad * Math.sin(ang));
+                    else canvasContext.lineTo(rad * Math.cos(ang), -rad * Math.sin(ang));
                 }
-                ctx.closePath();
+                canvasContext.closePath();
 
-                let chassisGrad = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
+                let chassisGrad = canvasContext.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
                 chassisGrad.addColorStop(0, DETAIL_COLOR);
                 chassisGrad.addColorStop(1, HULL_COLOR);
 
-                ctx.fillStyle = chassisGrad; ctx.fill();
-                ctx.lineWidth = 2; ctx.strokeStyle = HULL_BORDER; ctx.stroke();
+                canvasContext.fillStyle = chassisGrad; canvasContext.fill();
+                canvasContext.lineWidth = 2; canvasContext.strokeStyle = HULL_BORDER; canvasContext.stroke();
 
                 // Side Detail
-                ctx.fillStyle = `hsl(${shipToDraw.fleetHue}, 60%, 20%)`; // Darker detail
-                ctx.fillRect(-r * 0.5, -r * 0.2, r * 0.3, r * 0.4);
+                canvasContext.fillStyle = `hsl(${shipToDraw.fleetHue}, 60%, 20%)`; // Darker detail
+                canvasContext.fillRect(-r * 0.5, -r * 0.2, r * 0.3, r * 0.4);
 
                 // Wing/Stripe
-                ctx.strokeStyle = DETAIL_COLOR; ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                ctx.moveTo(-r * 0.6, -r * 0.3); ctx.bezierCurveTo(-r * 0.2, 0, 0, r * 0.2, r * 0.4, r * 0.3); ctx.stroke();
+                canvasContext.strokeStyle = DETAIL_COLOR; canvasContext.lineWidth = 1.5;
+                canvasContext.beginPath();
+                canvasContext.moveTo(-r * 0.6, -r * 0.3); canvasContext.bezierCurveTo(-r * 0.2, 0, 0, r * 0.2, r * 0.4, r * 0.3); canvasContext.stroke();
 
                 // Engine Node
-                ctx.beginPath();
-                ctx.arc(-r * 0.2, r * 0.3, r * 0.1, 0, Math.PI * 2);
-                ctx.fillStyle = `hsl(${shipToDraw.fleetHue}, 40%, 20%)`; ctx.fill(); ctx.strokeStyle = HULL_BORDER; ctx.stroke();
+                canvasContext.beginPath();
+                canvasContext.arc(-r * 0.2, r * 0.3, r * 0.1, 0, Math.PI * 2);
+                canvasContext.fillStyle = `hsl(${shipToDraw.fleetHue}, 40%, 20%)`; canvasContext.fill(); canvasContext.strokeStyle = HULL_BORDER; canvasContext.stroke();
 
                 // Cockpit
-                let cockpitGrad = ctx.createRadialGradient(r * 0.4, 0, 2, r * 0.4, 0, r * 0.25);
+                let cockpitGrad = canvasContext.createRadialGradient(r * 0.4, 0, 2, r * 0.4, 0, r * 0.25);
                 cockpitGrad.addColorStop(0, COCKPIT_GRAD_1); cockpitGrad.addColorStop(1, COCKPIT_GRAD_2);
-                ctx.fillStyle = cockpitGrad;
-                ctx.beginPath(); ctx.ellipse(r * 0.4, 0, r * 0.2, r * 0.12, 0, 0, Math.PI * 2); ctx.fill();
+                canvasContext.fillStyle = cockpitGrad;
+                canvasContext.beginPath(); canvasContext.ellipse(r * 0.4, 0, r * 0.2, r * 0.12, 0, 0, Math.PI * 2); canvasContext.fill();
 
                 // Thrust
-                ctx.shadowColor = THRUST_COLOR; ctx.strokeStyle = THRUST_COLOR; ctx.lineWidth = 2;
-                ctx.beginPath();
+                canvasContext.shadowColor = THRUST_COLOR; canvasContext.strokeStyle = THRUST_COLOR; canvasContext.lineWidth = 2;
+                canvasContext.beginPath();
                 const rX = -r; const rY = 0;
-                ctx.moveTo(rX, rY);
+                canvasContext.moveTo(rX, rY);
                 // Engine flicker
-                ctx.lineTo(rX - 20 * Math.cos((Math.random() - 0.5) * 0.5), rY + 20 * Math.sin((Math.random() - 0.5) * 0.5));
-                ctx.stroke();
-                ctx.fillStyle = THRUST_COLOR;
-                ctx.beginPath(); ctx.arc(rX - 5, 0, 5, 0, Math.PI * 2); ctx.fill();
+                canvasContext.lineTo(rX - 20 * Math.cos((Math.random() - 0.5) * 0.5), rY + 20 * Math.sin((Math.random() - 0.5) * 0.5));
+                canvasContext.stroke();
+                canvasContext.fillStyle = THRUST_COLOR;
+                canvasContext.beginPath(); canvasContext.arc(rX - 5, 0, 5, 0, Math.PI * 2); canvasContext.fill();
             }
             // DRAW HEART FOR FRIENDS
             if (shipToDraw.isFriendly) {
-                drawHeart(ctx, 0, -5, 8);
+                drawHeart(canvasContext, 0, -5, 8);
             }
         }
         else {
@@ -2189,49 +2167,49 @@ function loop() {
             const bodyColor = `hsl(${shipToDraw.fleetHue}, 80%, 50%)`;
             const coreColor = `hsl(${(shipToDraw.fleetHue + 120) % 360}, 100%, 60%)`;
 
-            ctx.shadowColor = haloColor;
-            ctx.lineWidth = 3;
+            canvasContext.shadowColor = haloColor;
+            canvasContext.lineWidth = 3;
 
             // Outer Ring (Halo)
-            ctx.strokeStyle = haloColor;
-            ctx.beginPath();
-            ctx.arc(0, 0, shipToDraw.r * 1.1, 0, Math.PI * 2);
-            ctx.stroke();
+            canvasContext.strokeStyle = haloColor;
+            canvasContext.beginPath();
+            canvasContext.arc(0, 0, shipToDraw.r * 1.1, 0, Math.PI * 2);
+            canvasContext.stroke();
 
             // Inner Ring (Torus Body)
-            ctx.lineWidth = 5;
-            ctx.strokeStyle = bodyColor;
-            ctx.beginPath();
-            ctx.arc(0, 0, shipToDraw.r * 0.8, 0, Math.PI * 2);
-            ctx.stroke();
+            canvasContext.lineWidth = 5;
+            canvasContext.strokeStyle = bodyColor;
+            canvasContext.beginPath();
+            canvasContext.arc(0, 0, shipToDraw.r * 0.8, 0, Math.PI * 2);
+            canvasContext.stroke();
 
             // Center Core/Hub
-            ctx.fillStyle = coreColor;
-            ctx.beginPath();
-            ctx.arc(0, 0, shipToDraw.r * 0.3, 0, Math.PI * 2);
-            ctx.fill();
+            canvasContext.fillStyle = coreColor;
+            canvasContext.beginPath();
+            canvasContext.arc(0, 0, shipToDraw.r * 0.3, 0, Math.PI * 2);
+            canvasContext.fill();
 
             // DRAW HEART FOR FRIENDLY STATIONS
             if (shipToDraw.isFriendly) {
-                drawHeart(ctx, 0, -shipToDraw.r * 0.1, shipToDraw.r * 0.2);
+                drawHeart(canvasContext, 0, -shipToDraw.r * 0.1, shipToDraw.r * 0.2);
             }
 
             // Connecting Spokes
-            ctx.lineWidth = 1;
-            ctx.strokeStyle = '#00ffff';
+            canvasContext.lineWidth = 1;
+            canvasContext.strokeStyle = '#00ffff';
             for (let k = 0; k < 4; k++) {
                 const angle = k * (Math.PI / 2) + shipToDraw.a;
                 const rInner = shipToDraw.r * 0.35;
                 const rOuter = shipToDraw.r * 0.75;
-                ctx.beginPath();
-                ctx.moveTo(rInner * Math.cos(angle), rInner * Math.sin(angle));
-                ctx.lineTo(rOuter * Math.cos(angle), rOuter * Math.sin(angle));
-                ctx.stroke();
+                canvasContext.beginPath();
+                canvasContext.moveTo(rInner * Math.cos(angle), rInner * Math.sin(angle));
+                canvasContext.lineTo(rOuter * Math.cos(angle), rOuter * Math.sin(angle));
+                canvasContext.stroke();
             }
         }
 
-        ctx.restore();
-        ctx.globalAlpha = 1;
+        canvasContext.restore();
+        canvasContext.globalAlpha = 1;
 
         let currentHP = shipToDraw.structureHP;
         let maxHP = shipToDraw.type === 'station' ? STATION_RESISTANCE : SHIP_RESISTANCE;
@@ -2262,27 +2240,27 @@ function loop() {
             }
         }
 
-        ctx.lineWidth = 2;
+        canvasContext.lineWidth = 2;
         if (shieldOpacity > 0) {
             if (shipToDraw.shieldHitTimer > 0) {
-                ctx.shadowColor = '#fff';
-                ctx.strokeStyle = `rgba(255,255,255,${shieldOpacity})`;
+                canvasContext.shadowColor = '#fff';
+                canvasContext.strokeStyle = `rgba(255,255,255,${shieldOpacity})`;
                 shipToDraw.shieldHitTimer--;
             }
             else {
-                ctx.shadowColor = `rgb(${r},${g},${b})`;
-                ctx.strokeStyle = `rgba(${r},${g},${b},${shieldOpacity})`;
+                canvasContext.shadowColor = `rgb(${r},${g},${b})`;
+                canvasContext.strokeStyle = `rgba(${r},${g},${b},${shieldOpacity})`;
             }
-            ctx.beginPath(); ctx.arc(vpX, vpY, shipToDraw.r + 10, 0, Math.PI * 2); ctx.stroke();
+            canvasContext.beginPath(); canvasContext.arc(vpX, vpY, shipToDraw.r + 10, 0, Math.PI * 2); canvasContext.stroke();
         }
     }
 
     );
 
-    ctx.shadowBlur = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalAlpha = 1;
+    canvasContext.shadowBlur = 10; canvasContext.lineCap = 'round'; canvasContext.lineJoin = 'round'; canvasContext.globalAlpha = 1;
 
     if (!playerShip.dead) {
-        ctx.save(); // PUSH 1: Isolate entire player ship rendering block
+        canvasContext.save(); // PUSH 1: Isolate entire player ship rendering block
 
         // Regeneration is now solely for visual/Tesla effect, as structureHP manages hits
         if (playerShip.shield < playerShip.maxShield) playerShip.shield += 0.05;
@@ -2318,7 +2296,7 @@ function loop() {
 
             if (shieldAlpha > 0) {
 
-                ctx.lineWidth = strokeWidth;
+                canvasContext.lineWidth = strokeWidth;
 
                 let baseColor, shadowColor;
 
@@ -2332,19 +2310,19 @@ function loop() {
                     baseColor = '#0ff'; shadowColor = 'rgba(0, 255, 255, 0.7)';
                 }
 
-                ctx.shadowColor = shadowColor;
-                ctx.strokeStyle = `rgba(0, 255, 255, ${shieldAlpha})`;
+                canvasContext.shadowColor = shadowColor;
+                canvasContext.strokeStyle = `rgba(0, 255, 255, ${shieldAlpha})`;
 
-                ctx.beginPath();
-                ctx.arc(centerX, centerY, shieldRadius, 0, Math.PI * 2);
-                ctx.stroke();
+                canvasContext.beginPath();
+                canvasContext.arc(centerX, centerY, shieldRadius, 0, Math.PI * 2);
+                canvasContext.stroke();
             }
 
-            ctx.save();
-            ctx.translate(centerX, centerY);
-            ctx.rotate(-playerShip.a);
+            canvasContext.save();
+            canvasContext.translate(centerX, centerY);
+            canvasContext.rotate(-playerShip.a);
 
-            ctx.globalAlpha = 1;
+            canvasContext.globalAlpha = 1;
 
             // --- Drawing logic for Ship Tiers (unchanged) ---
             if (tier >= 8) {
@@ -2355,74 +2333,74 @@ function loop() {
                 // Normalization scale to match Tier 7 visual radius (approx 1/1.7)
                 const norm = 0.6;
 
-                ctx.shadowBlur = 20; ctx.shadowColor = THRUST_COLOR;
-                ctx.beginPath();
-                ctx.moveTo(r * 1.6 * norm, 0);
-                ctx.lineTo(r * 0.5 * norm, r * 1.5 * norm); ctx.lineTo(-r * 1.2 * norm, r * 0.8 * norm);
-                ctx.lineTo(-r * 1.8 * norm, r * 0.4 * norm); ctx.lineTo(-r * 1.8 * norm, -r * 0.4 * norm);
-                ctx.lineTo(-r * 1.2 * norm, -r * 0.8 * norm); ctx.lineTo(r * 0.5 * norm, -r * 1.5 * norm);
-                ctx.closePath();
-                ctx.fillStyle = HULL_COLOR; ctx.fill();
-                ctx.lineWidth = 2; ctx.strokeStyle = HULL_BORDER; ctx.stroke();
-                ctx.shadowBlur = 0; ctx.fillStyle = DETAIL_GRAY;
-                ctx.beginPath(); ctx.moveTo(r * 1.6 * norm, 0); ctx.lineTo(r * 1.4 * norm, r * 0.1 * norm); ctx.lineTo(r * 1.4 * norm, -r * 0.1 * norm); ctx.closePath(); ctx.fill();
-                ctx.fillStyle = DETAIL_GRAY;
-                ctx.fillRect(r * 0.2 * norm, r * 0.5 * norm, r * 0.3 * norm, r * 0.2 * norm); ctx.fillRect(r * 0.2 * norm, -r * 0.7 * norm, r * 0.3 * norm, r * 0.2 * norm);
-                ctx.fillStyle = ACCENT_RED; ctx.beginPath(); ctx.arc(-r * 0.5 * norm, 0, r * 0.2 * norm, 0, Math.PI * 2); ctx.fill();
-                ctx.shadowBlur = 30; ctx.shadowColor = THRUST_COLOR;
+                canvasContext.shadowBlur = 20; canvasContext.shadowColor = THRUST_COLOR;
+                canvasContext.beginPath();
+                canvasContext.moveTo(r * 1.6 * norm, 0);
+                canvasContext.lineTo(r * 0.5 * norm, r * 1.5 * norm); canvasContext.lineTo(-r * 1.2 * norm, r * 0.8 * norm);
+                canvasContext.lineTo(-r * 1.8 * norm, r * 0.4 * norm); canvasContext.lineTo(-r * 1.8 * norm, -r * 0.4 * norm);
+                canvasContext.lineTo(-r * 1.2 * norm, -r * 0.8 * norm); canvasContext.lineTo(r * 0.5 * norm, -r * 1.5 * norm);
+                canvasContext.closePath();
+                canvasContext.fillStyle = HULL_COLOR; canvasContext.fill();
+                canvasContext.lineWidth = 2; canvasContext.strokeStyle = HULL_BORDER; canvasContext.stroke();
+                canvasContext.shadowBlur = 0; canvasContext.fillStyle = DETAIL_GRAY;
+                canvasContext.beginPath(); canvasContext.moveTo(r * 1.6 * norm, 0); canvasContext.lineTo(r * 1.4 * norm, r * 0.1 * norm); canvasContext.lineTo(r * 1.4 * norm, -r * 0.1 * norm); canvasContext.closePath(); canvasContext.fill();
+                canvasContext.fillStyle = DETAIL_GRAY;
+                canvasContext.fillRect(r * 0.2 * norm, r * 0.5 * norm, r * 0.3 * norm, r * 0.2 * norm); canvasContext.fillRect(r * 0.2 * norm, -r * 0.7 * norm, r * 0.3 * norm, r * 0.2 * norm);
+                canvasContext.fillStyle = ACCENT_RED; canvasContext.beginPath(); canvasContext.arc(-r * 0.5 * norm, 0, r * 0.2 * norm, 0, Math.PI * 2); canvasContext.fill();
+                canvasContext.shadowBlur = 30; canvasContext.shadowColor = THRUST_COLOR;
                 const EXHAUST_H = r * 0.7 * norm; const EXHAUST_X = -r * 1.8 * norm;
-                ctx.fillStyle = HULL_BORDER; ctx.fillRect(EXHAUST_X, -EXHAUST_H / 2, 5, EXHAUST_H);
+                canvasContext.fillStyle = HULL_BORDER; canvasContext.fillRect(EXHAUST_X, -EXHAUST_H / 2, 5, EXHAUST_H);
                 if (playerShip.thrusting) {
-                    ctx.fillStyle = `rgba(0, 136, 255, ${0.5 + Math.random() * 0.5})`;
-                    ctx.beginPath(); ctx.moveTo(EXHAUST_X + 5, -EXHAUST_H / 2); ctx.lineTo(EXHAUST_X + 5, EXHAUST_H / 2);
-                    ctx.lineTo(EXHAUST_X - 25 * norm * (0.8 + Math.random() * 0.4), 0); ctx.closePath(); ctx.fill();
+                    canvasContext.fillStyle = `rgba(0, 136, 255, ${0.5 + Math.random() * 0.5})`;
+                    canvasContext.beginPath(); canvasContext.moveTo(EXHAUST_X + 5, -EXHAUST_H / 2); canvasContext.lineTo(EXHAUST_X + 5, EXHAUST_H / 2);
+                    canvasContext.lineTo(EXHAUST_X - 25 * norm * (0.8 + Math.random() * 0.4), 0); canvasContext.closePath(); canvasContext.fill();
                 }
-                ctx.shadowBlur = 0;
+                canvasContext.shadowBlur = 0;
             } else {
                 let sides = 3 + tier;
-                ctx.beginPath();
+                canvasContext.beginPath();
                 for (let i = 0; i <= sides; i++) {
                     let ang = i * (2 * Math.PI / sides);
                     let rad = r;
-                    if (i === 0) ctx.moveTo(rad * Math.cos(ang), -rad * Math.sin(ang));
-                    else ctx.lineTo(rad * Math.cos(ang), -rad * Math.sin(ang));
+                    if (i === 0) canvasContext.moveTo(rad * Math.cos(ang), -rad * Math.sin(ang));
+                    else canvasContext.lineTo(rad * Math.cos(ang), -rad * Math.sin(ang));
                 }
-                ctx.closePath();
-                let chassisGrad = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
+                canvasContext.closePath();
+                let chassisGrad = canvasContext.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
                 chassisGrad.addColorStop(0, '#0055aa');
                 chassisGrad.addColorStop(1, '#002244');
-                ctx.fillStyle = chassisGrad; ctx.fill();
-                ctx.lineWidth = 2; ctx.strokeStyle = '#0088ff'; ctx.stroke();
-                ctx.fillStyle = '#003366';
-                ctx.fillRect(-r * 0.5, -r * 0.2, r * 0.3, r * 0.4);
-                ctx.strokeStyle = '#004488'; ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                ctx.moveTo(-r * 0.6, -r * 0.3); ctx.bezierCurveTo(-r * 0.2, 0, 0, r * 0.2, r * 0.4, r * 0.3); ctx.stroke();
-                ctx.beginPath();
-                ctx.arc(-r * 0.2, r * 0.3, r * 0.1, 0, Math.PI * 2);
-                ctx.fillStyle = '#002233'; ctx.fill(); ctx.strokeStyle = '#005577'; ctx.stroke();
-                let cockpitGrad = ctx.createRadialGradient(r * 0.4, 0, 2, r * 0.4, 0, r * 0.25);
+                canvasContext.fillStyle = chassisGrad; canvasContext.fill();
+                canvasContext.lineWidth = 2; canvasContext.strokeStyle = '#0088ff'; canvasContext.stroke();
+                canvasContext.fillStyle = '#003366';
+                canvasContext.fillRect(-r * 0.5, -r * 0.2, r * 0.3, r * 0.4);
+                canvasContext.strokeStyle = '#004488'; canvasContext.lineWidth = 1.5;
+                canvasContext.beginPath();
+                canvasContext.moveTo(-r * 0.6, -r * 0.3); canvasContext.bezierCurveTo(-r * 0.2, 0, 0, r * 0.2, r * 0.4, r * 0.3); canvasContext.stroke();
+                canvasContext.beginPath();
+                canvasContext.arc(-r * 0.2, r * 0.3, r * 0.1, 0, Math.PI * 2);
+                canvasContext.fillStyle = '#002233'; canvasContext.fill(); canvasContext.strokeStyle = '#005577'; canvasContext.stroke();
+                let cockpitGrad = canvasContext.createRadialGradient(r * 0.4, 0, 2, r * 0.4, 0, r * 0.25);
                 cockpitGrad.addColorStop(0, '#aaffff'); cockpitGrad.addColorStop(1, '#00ffff');
-                ctx.fillStyle = cockpitGrad;
-                ctx.beginPath(); ctx.ellipse(r * 0.4, 0, r * 0.2, r * 0.12, 0, 0, Math.PI * 2); ctx.fill();
+                canvasContext.fillStyle = cockpitGrad;
+                canvasContext.beginPath(); canvasContext.ellipse(r * 0.4, 0, r * 0.2, r * 0.12, 0, 0, Math.PI * 2); canvasContext.fill();
                 if (playerShip.thrusting) {
-                    ctx.shadowColor = '#ffaa00'; ctx.strokeStyle = '#ffaa00'; ctx.lineWidth = 2;
-                    ctx.beginPath();
+                    canvasContext.shadowColor = '#ffaa00'; canvasContext.strokeStyle = '#ffaa00'; canvasContext.lineWidth = 2;
+                    canvasContext.beginPath();
                     const rX = -r; const rY = 0;
-                    ctx.moveTo(rX, rY);
-                    ctx.lineTo(rX - 20 * Math.cos((Math.random() - 0.5) * 0.5), rY + 20 * Math.sin((Math.random() - 0.5) * 0.5));
-                    ctx.stroke();
-                    ctx.fillStyle = '#ff5500';
-                    ctx.beginPath(); ctx.arc(rX - 5, 0, 5, 0, Math.PI * 2); ctx.fill();
+                    canvasContext.moveTo(rX, rY);
+                    canvasContext.lineTo(rX - 20 * Math.cos((Math.random() - 0.5) * 0.5), rY + 20 * Math.sin((Math.random() - 0.5) * 0.5));
+                    canvasContext.stroke();
+                    canvasContext.fillStyle = '#ff5500';
+                    canvasContext.beginPath(); canvasContext.arc(rX - 5, 0, 5, 0, Math.PI * 2); canvasContext.fill();
                 }
             }
-            ctx.restore();
+            canvasContext.restore();
         }
         if (playerShip.blinkNum > 0) playerShip.blinkNum--;
-        ctx.restore(); // POP 1: Restore state after ship block
+        canvasContext.restore(); // POP 1: Restore state after ship block
     }
 
-    ctx.shadowColor = '#ff0000'; ctx.fillStyle = '#ff0000';
+    canvasContext.shadowColor = '#ff0000'; canvasContext.fillStyle = '#ff0000';
     for (let i = enemyShipBullets.length - 1; i >= 0; i--) {
         let enemyShipBullet = enemyShipBullets[i];
 
@@ -2439,16 +2417,13 @@ function loop() {
             }
         }
 
-        // Update ABSOLUTE WORLD POSITION
         enemyShipBullet.x += enemyShipBullet.xv; enemyShipBullet.y += enemyShipBullet.yv;
         enemyShipBullet.life--;
 
-        // Check boundary OR lifetime (World Distance)
         if (enemyShipBullet.life <= 0 || Math.hypot(worldOffsetX - enemyShipBullet.x, worldOffsetY - enemyShipBullet.y) > WORLD_BOUNDS * 1.5) {
             enemyShipBullets.splice(i, 1); continue;
         }
 
-        // Calculate Viewport Position for drawing
         const vpX = enemyShipBullet.x - worldOffsetX + width / 2;
         const vpY = enemyShipBullet.y - worldOffsetY + height / 2;
 
@@ -2456,7 +2431,7 @@ function loop() {
         if (enemyShipBullet.life < SHIP_BULLET_FADE_FRAMES) {
             alpha = enemyShipBullet.life / SHIP_BULLET_FADE_FRAMES;
         }
-        ctx.globalAlpha = alpha;
+        canvasContext.globalAlpha = alpha;
 
         // TIERED ENEMY BULLET RENDERING (Synchronized with Player)
         const tier = enemyShipBullet.tier || 0;
@@ -2468,41 +2443,41 @@ function loop() {
         const coreColor = '#ffffff';
 
         if (tier >= 8) { // Ultimate Beam-like (Enemy)
-            ctx.shadowBlur = 15; ctx.shadowColor = glowColor; ctx.fillStyle = mainColor;
-            ctx.beginPath();
+            canvasContext.shadowBlur = 15; canvasContext.shadowColor = glowColor; canvasContext.fillStyle = mainColor;
+            canvasContext.beginPath();
             let ang = Math.atan2(enemyShipBullet.yv, enemyShipBullet.xv);
-            ctx.ellipse(vpX, vpY, enemyShipBullet.size * 4, enemyShipBullet.size * 0.8, ang, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = coreColor;
-            ctx.beginPath(); ctx.arc(vpX, vpY, enemyShipBullet.size / 2, 0, Math.PI * 2); ctx.fill();
+            canvasContext.ellipse(vpX, vpY, enemyShipBullet.size * 4, enemyShipBullet.size * 0.8, ang, 0, Math.PI * 2);
+            canvasContext.fill();
+            canvasContext.fillStyle = coreColor;
+            canvasContext.beginPath(); canvasContext.arc(vpX, vpY, enemyShipBullet.size / 2, 0, Math.PI * 2); canvasContext.fill();
         } else {
             // GEOMETRIC SHAPES (Tier 0-7) matching Ship Hull
             let sides = 3 + tier;
-            ctx.shadowBlur = 5; ctx.shadowColor = glowColor; ctx.fillStyle = mainColor;
+            canvasContext.shadowBlur = 5; canvasContext.shadowColor = glowColor; canvasContext.fillStyle = mainColor;
 
-            ctx.save();
-            ctx.translate(vpX, vpY);
+            canvasContext.save();
+            canvasContext.translate(vpX, vpY);
             // Spin effect based on life
-            ctx.rotate(enemyShipBullet.life * 0.2);
+            canvasContext.rotate(enemyShipBullet.life * 0.2);
 
-            ctx.beginPath();
+            canvasContext.beginPath();
             for (let k = 0; k < sides; k++) {
                 let ang = k * (2 * Math.PI / sides);
                 let r = enemyShipBullet.size * (1 + tier * 0.1); // Slightly larger for higher tiers
-                if (k === 0) ctx.moveTo(r * Math.cos(ang), r * Math.sin(ang));
-                else ctx.lineTo(r * Math.cos(ang), r * Math.sin(ang));
+                if (k === 0) canvasContext.moveTo(r * Math.cos(ang), r * Math.sin(ang));
+                else canvasContext.lineTo(r * Math.cos(ang), r * Math.sin(ang));
             }
-            ctx.closePath();
-            ctx.fill();
+            canvasContext.closePath();
+            canvasContext.fill();
 
             // Core
-            ctx.fillStyle = coreColor;
-            ctx.beginPath(); ctx.arc(0, 0, enemyShipBullet.size * 0.4, 0, Math.PI * 2); ctx.fill();
+            canvasContext.fillStyle = coreColor;
+            canvasContext.beginPath(); canvasContext.arc(0, 0, enemyShipBullet.size * 0.4, 0, Math.PI * 2); canvasContext.fill();
 
-            ctx.restore();
+            canvasContext.restore();
         }
 
-        ctx.globalAlpha = 1; // Reset alpha
+        canvasContext.globalAlpha = 1; // Reset alpha
 
         let hit = false;
         // Collision with player (World Coords)
@@ -2585,7 +2560,7 @@ function loop() {
     }
 
     // --- Player Bullet Logic (All in World Coords) ---
-    ctx.shadowColor = '#ff0055'; ctx.fillStyle = '#ff0055';
+    canvasContext.shadowColor = '#ff0055'; canvasContext.fillStyle = '#ff0055';
     for (let i = playerShipBullets.length - 1; i >= 0; i--) {
         let playerShipBullet = playerShipBullets[i];
 
@@ -2601,16 +2576,13 @@ function loop() {
             }
         }
 
-        // Update ABSOLUTE WORLD POSITION
         playerShipBullet.x += playerShipBullet.xv; playerShipBullet.y += playerShipBullet.yv;
         playerShipBullet.life--;
 
-        // Check boundary OR lifetime (World Distance)
         if (playerShipBullet.life <= 0 || Math.hypot(worldOffsetX - playerShipBullet.x, worldOffsetY - playerShipBullet.y) > WORLD_BOUNDS * 1.5) {
             playerShipBullets.splice(i, 1); continue;
         }
 
-        // Calculate Viewport Position for drawing
         const vpX = playerShipBullet.x - worldOffsetX + width / 2;
         const vpY = playerShipBullet.y - worldOffsetY + height / 2;
 
@@ -2619,23 +2591,23 @@ function loop() {
         if (playerShipBullet.life < SHIP_BULLET_FADE_FRAMES) {
             alpha = playerShipBullet.life / SHIP_BULLET_FADE_FRAMES;
         }
-        ctx.globalAlpha = alpha;
+        canvasContext.globalAlpha = alpha;
 
-        ctx.globalAlpha = alpha;
+        canvasContext.globalAlpha = alpha;
 
         // TIERED BULLET RENDERING
         const tier = playerShipBullet.tier || 0;
 
         if (tier >= 8) { // Ultimate Beam-like
-            ctx.shadowBlur = 15; ctx.shadowColor = '#00ffff'; ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
+            canvasContext.shadowBlur = 15; canvasContext.shadowColor = '#00ffff'; canvasContext.fillStyle = '#ffffff';
+            canvasContext.beginPath();
             // Draw elongated bolt
             let ang = Math.atan2(playerShipBullet.yv, playerShipBullet.xv); // Use velocity for orientation
-            ctx.ellipse(vpX, vpY, playerShipBullet.size * 4, playerShipBullet.size * 0.8, ang, 0, Math.PI * 2);
-            ctx.fill();
+            canvasContext.ellipse(vpX, vpY, playerShipBullet.size * 4, playerShipBullet.size * 0.8, ang, 0, Math.PI * 2);
+            canvasContext.fill();
             // Core
-            ctx.fillStyle = '#ccffff';
-            ctx.beginPath(); ctx.arc(vpX, vpY, playerShipBullet.size / 2, 0, Math.PI * 2); ctx.fill();
+            canvasContext.fillStyle = '#ccffff';
+            canvasContext.beginPath(); canvasContext.arc(vpX, vpY, playerShipBullet.size / 2, 0, Math.PI * 2); canvasContext.fill();
         } else {
             // GEOMETRIC SHAPES (Tier 0-7)
             let sides = 3 + tier;
@@ -2645,30 +2617,30 @@ function loop() {
             if (tier >= 4) { pColor = '#ffff00'; pGlow = '#ffff00'; }
             else if (tier >= 1) { pColor = '#ffaa00'; pGlow = '#ffaa00'; }
 
-            ctx.shadowBlur = 5; ctx.shadowColor = pGlow; ctx.fillStyle = pColor;
+            canvasContext.shadowBlur = 5; canvasContext.shadowColor = pGlow; canvasContext.fillStyle = pColor;
 
-            ctx.save();
-            ctx.translate(vpX, vpY);
-            ctx.rotate(playerShipBullet.life * 0.2);
+            canvasContext.save();
+            canvasContext.translate(vpX, vpY);
+            canvasContext.rotate(playerShipBullet.life * 0.2);
 
-            ctx.beginPath();
+            canvasContext.beginPath();
             for (let k = 0; k < sides; k++) {
                 let ang = k * (2 * Math.PI / sides);
                 let r = playerShipBullet.size; // Size already accounts for tier boost in createBullet
-                if (k === 0) ctx.moveTo(r * Math.cos(ang), r * Math.sin(ang));
-                else ctx.lineTo(r * Math.cos(ang), r * Math.sin(ang));
+                if (k === 0) canvasContext.moveTo(r * Math.cos(ang), r * Math.sin(ang));
+                else canvasContext.lineTo(r * Math.cos(ang), r * Math.sin(ang));
             }
-            ctx.closePath();
-            ctx.fill();
+            canvasContext.closePath();
+            canvasContext.fill();
 
             // Core
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath(); ctx.arc(0, 0, playerShipBullet.size * 0.4, 0, Math.PI * 2); ctx.fill();
+            canvasContext.fillStyle = '#ffffff';
+            canvasContext.beginPath(); canvasContext.arc(0, 0, playerShipBullet.size * 0.4, 0, Math.PI * 2); canvasContext.fill();
 
-            ctx.restore();
+            canvasContext.restore();
         }
 
-        ctx.globalAlpha = 1; // Reset alpha
+        canvasContext.globalAlpha = 1; // Reset alpha
         let hit = false;
 
         // Collision with asteroids/planets (World Coords)
@@ -2730,7 +2702,7 @@ function loop() {
                     AudioEngine.playExplosion('small', r.x, r.y, r.z);
                 }
                 if (!r.isPlanet) {
-                    score += ASTEROID_DESTROYED_REWARD; scoreEl.innerText = score;
+                    score += ASTEROID_DESTROYED_REWARD; scoreDisplay.innerText = score;
                 }
                 playerShipBullets.splice(i, 1); hit = true; break;
             }
@@ -2786,7 +2758,7 @@ function loop() {
                     createExplosion(eVpX, eVpY, 40, '#ffaa00', 3, 'spark'); createExplosion(eVpX, eVpY, 20, debrisColor, 4, 'debris');
                     if (ship.type === 'station') { onStationDestroyed(ship, playerShipBullet.owner); }
                     else { onShipDestroyed(ship, playerShipBullet.owner); }
-                    ships.splice(j, 1); scoreEl.innerText = score;
+                    ships.splice(j, 1); scoreDisplay.innerText = score;
                     AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
                 }
                 break;
@@ -2806,10 +2778,10 @@ function loop() {
         const vpX = p.x - worldOffsetX + width / 2;
         const vpY = p.y - worldOffsetY + height / 2;
 
-        ctx.shadowColor = p.color; ctx.fillStyle = p.color; ctx.globalAlpha = p.life / 60;
-        ctx.beginPath();
-        if (p.type === 'debris') ctx.fillRect(vpX, vpY, p.size, p.size); else ctx.arc(vpX, vpY, p.size, 0, Math.PI * 2);
-        ctx.fill(); ctx.globalAlpha = 1;
+        canvasContext.shadowColor = p.color; canvasContext.fillStyle = p.color; canvasContext.globalAlpha = p.life / 60;
+        canvasContext.beginPath();
+        if (p.type === 'debris') canvasContext.fillRect(vpX, vpY, p.size, p.size); else canvasContext.arc(vpX, vpY, p.size, 0, Math.PI * 2);
+        canvasContext.fill(); canvasContext.globalAlpha = 1;
 
         p.life--; if (p.life <= 0) particles.splice(i, 1);
     }
@@ -2825,14 +2797,14 @@ function loop() {
 
     drawRadar();
 
-    ctx.restore();
-    ctx.shadowBlur = 0;
+    canvasContext.restore();
+    canvasContext.shadowBlur = 0;
 
     // --- Off-Screen Enemy Indicators ---
     // Show red dots at screen borders for ships that are approaching but not visible
     // Draw in screen space (unscaled) to work correctly in touch mode
-    ctx.save();
-    ctx.resetTransform(); // Draw in screen space, not affected by viewport scaling
+    canvasContext.save();
+    canvasContext.resetTransform(); // Draw in screen space, not affected by viewport scaling
     const INDICATOR_SIZE = 8;
     const BORDER_PADDING = 20;
     const DETECTION_RANGE = 3000; // How far off-screen to detect ships
@@ -2849,7 +2821,6 @@ function loop() {
         const vpX = worldVpX * viewScale + width / 2 * (1 - viewScale);
         const vpY = worldVpY * viewScale + height / 2 * (1 - viewScale);
 
-        // Since we're using resetTransform(), screen boundaries are the full canvas
         const screenLeft = 0;
         const screenRight = width;
         const screenTop = 0;
@@ -2873,27 +2844,27 @@ function loop() {
 
             // Draw pulsing red indicator
             const pulseAlpha = 0.5 + Math.sin(Date.now() / 200) * 0.3;
-            ctx.globalAlpha = pulseAlpha;
-            ctx.fillStyle = '#FF0000';
-            ctx.shadowColor = '#FF0000';
-            ctx.shadowBlur = 10;
+            canvasContext.globalAlpha = pulseAlpha;
+            canvasContext.fillStyle = '#FF0000';
+            canvasContext.shadowColor = '#FF0000';
+            canvasContext.shadowBlur = 10;
 
             // Draw arrow pointing towards enemy
             const angleToEnemy = Math.atan2(vpY - indicatorY, vpX - indicatorX);
-            ctx.save();
-            ctx.translate(indicatorX, indicatorY);
-            ctx.rotate(angleToEnemy);
+            canvasContext.save();
+            canvasContext.translate(indicatorX, indicatorY);
+            canvasContext.rotate(angleToEnemy);
 
             // Draw triangle arrow
-            ctx.beginPath();
-            ctx.moveTo(INDICATOR_SIZE, 0);
-            ctx.lineTo(-INDICATOR_SIZE / 2, -INDICATOR_SIZE / 2);
-            ctx.lineTo(-INDICATOR_SIZE / 2, INDICATOR_SIZE / 2);
-            ctx.closePath();
-            ctx.fill();
+            canvasContext.beginPath();
+            canvasContext.moveTo(INDICATOR_SIZE, 0);
+            canvasContext.lineTo(-INDICATOR_SIZE / 2, -INDICATOR_SIZE / 2);
+            canvasContext.lineTo(-INDICATOR_SIZE / 2, INDICATOR_SIZE / 2);
+            canvasContext.closePath();
+            canvasContext.fill();
 
-            ctx.restore();
-            ctx.globalAlpha = 1;
+            canvasContext.restore();
+            canvasContext.globalAlpha = 1;
         }
     });
 
@@ -2911,7 +2882,6 @@ function loop() {
         const vpX = worldVpX * viewScale + width / 2 * (1 - viewScale);
         const vpY = worldVpY * viewScale + height / 2 * (1 - viewScale);
 
-        // Since we're using resetTransform(), screen boundaries are the full canvas
         const screenLeft = 0;
         const screenRight = width;
         const screenTop = 0;
@@ -2935,66 +2905,66 @@ function loop() {
 
             // Draw subtle gray indicator
             const pulseAlpha = 0.4 + Math.sin(Date.now() / 250) * 0.2;
-            ctx.globalAlpha = pulseAlpha;
-            ctx.fillStyle = '#AAAAAA';
-            ctx.shadowColor = '#AAAAAA';
-            ctx.shadowBlur = 8;
+            canvasContext.globalAlpha = pulseAlpha;
+            canvasContext.fillStyle = '#AAAAAA';
+            canvasContext.shadowColor = '#AAAAAA';
+            canvasContext.shadowBlur = 8;
 
             // Draw arrow pointing towards asteroid
             const angleToAsteroid = Math.atan2(vpY - indicatorY, vpX - indicatorX);
-            ctx.save();
-            ctx.translate(indicatorX, indicatorY);
-            ctx.rotate(angleToAsteroid);
+            canvasContext.save();
+            canvasContext.translate(indicatorX, indicatorY);
+            canvasContext.rotate(angleToAsteroid);
 
             // Draw triangle arrow (slightly smaller than enemy indicators)
             const asteroidIndicatorSize = INDICATOR_SIZE * 0.75;
-            ctx.beginPath();
-            ctx.moveTo(asteroidIndicatorSize, 0);
-            ctx.lineTo(-asteroidIndicatorSize / 2, -asteroidIndicatorSize / 2);
-            ctx.lineTo(-asteroidIndicatorSize / 2, asteroidIndicatorSize / 2);
-            ctx.closePath();
-            ctx.fill();
+            canvasContext.beginPath();
+            canvasContext.moveTo(asteroidIndicatorSize, 0);
+            canvasContext.lineTo(-asteroidIndicatorSize / 2, -asteroidIndicatorSize / 2);
+            canvasContext.lineTo(-asteroidIndicatorSize / 2, asteroidIndicatorSize / 2);
+            canvasContext.closePath();
+            canvasContext.fill();
 
-            ctx.restore();
-            ctx.globalAlpha = 1;
+            canvasContext.restore();
+            canvasContext.globalAlpha = 1;
         }
     });
 
-    ctx.restore();
-    ctx.shadowBlur = 0;
+    canvasContext.restore();
+    canvasContext.shadowBlur = 0;
 
     // --- Render Screen Messages ---
     if (screenMessages.length > 0) {
-        ctx.save();
-        ctx.resetTransform(); // Draw in screen space
-        ctx.textAlign = 'center';
+        canvasContext.save();
+        canvasContext.resetTransform(); // Draw in screen space
+        canvasContext.textAlign = 'center';
 
         // Responsive font size based on screen width
         const baseFontSize = 24;
         const fontSize = Math.max(14, Math.min(baseFontSize, width / 30)); // Scale between 14px and 24px
-        ctx.font = `bold ${fontSize}px Courier New`;
+        canvasContext.font = `bold ${fontSize}px Courier New`;
 
         for (let i = screenMessages.length - 1; i >= 0; i--) {
             const m = screenMessages[i];
             const alpha = Math.min(1, m.life / 30);
-            ctx.globalAlpha = alpha;
-            ctx.fillStyle = m.color;
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = m.color;
+            canvasContext.globalAlpha = alpha;
+            canvasContext.fillStyle = m.color;
+            canvasContext.shadowBlur = 10;
+            canvasContext.shadowColor = m.color;
 
             // Draw relative to center, offset by message index
             const yPos = height * 0.3 + (i * (fontSize + 16));
 
             // Use maxWidth to prevent text overflow (90% of screen width)
             const maxWidth = width * 0.9;
-            ctx.fillText(m.text, width / 2, yPos, maxWidth);
+            canvasContext.fillText(m.text, width / 2, yPos, maxWidth);
 
             m.life--;
             if (m.life <= 0) screenMessages.splice(i, 1);
         }
-        ctx.restore();
+        canvasContext.restore();
     }
-    ctx.restore();
+    canvasContext.restore();
     requestAnimationFrame(loop);
 }
 
@@ -3008,20 +2978,18 @@ function startGame() {
 
     startScreen.style.display = 'none'; level = 0; score = 0; homePlanetId = null; isLoneWolf = false; screenMessages = [];
 
-    // NEW: Reset game over background and fade overlay
-    startScreen.classList.remove('game-over-bg');
+    // startScreen.classList.remove('game-over-bg');
     fadeOverlay.style.background = 'rgba(0, 0, 0, 0)';
 
-    lives = 3;
     velocity = { x: 0, y: 0 };
     worldOffsetX = 0; // NEW: Reset world position on start
     worldOffsetY = 0;
     stationSpawnTimer = STATIONS_SPAWN_TIMER;
     stationsDestroyedCount = 0;
     playerReloadTime = 0; // Reset reload timer
-    scoreEl.innerText = score;
+    scoreDisplay.innerText = score;
 
-    playerShip = newShip();
+    playerShip = newPlayerShip();
     ships.push(playerShip);
     particles = [];
     ambientFogs = [];

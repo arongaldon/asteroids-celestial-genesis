@@ -1,3 +1,49 @@
+/******************/
+/*** ANIMATIONS ***/
+/******************/
+
+@keyframes blink {
+    0% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.3;
+    }
+
+    100% {
+        opacity: 0.2;
+    }
+}
+
+@keyframes radar-spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 0.2;
+    }
+
+    50% {
+        opacity: 0.6;
+    }
+
+    100% {
+        opacity: 0.2;
+    }
+}
+
+/*****************/
+/*** HTML TAGS ***/
+/*****************/
+
 body {
     margin: 0;
     overflow: hidden;
@@ -11,29 +57,31 @@ canvas {
     display: block;
 }
 
-#ui-layer {
+/*********************/
+/*** STYLE CLASSES ***/
+/*********************/
+
+.start-btn {
+    background: rgba(0, 255, 255, 0.1);
+    color: #0ff;
+    border: 2px solid #0ff;
+    padding: 15px 50px;
+    font-size: 1.5em;
+    font-family: inherit;
+    cursor: pointer;
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    z-index: 20;
+    bottom: 5vh;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    box-shadow: 0 0 15px #0ff;
+    transition: all 0.5s;
 }
 
-.boundary-alert {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 90;
-    box-shadow: none;
-    transition: box-shadow 0.1s linear;
+.start-btn:hover {
+    background: #0ff;
+    color: black;
+    font-weight: bold;
+    box-shadow: 0 0 40px #0ff;
 }
 
 .hud-top {
@@ -54,23 +102,11 @@ canvas {
     gap: 5px;
 }
 
-/* Contenedor para los iconos de vida */
-#lives-display {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 5px;
-    height: 16px;
-    /* Para mantener el layout estable */
-    align-items: center;
-    /* Centrar verticalmente el símbolo de infinito si aparece */
-}
-
 .ship-icon {
     width: 16px;
     height: 16px;
     background-color: #0ff;
     clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
-    /* Triángulo isósceles */
     box-shadow: 0 0 5px #0ff;
     transition: opacity 0.5s;
 }
@@ -81,35 +117,80 @@ canvas {
     box-shadow: none;
 }
 
-/* ESTILO PARA EL SÍMBOLO DE VIDA INFINITA */
-#lives-display .infinity-symbol {
-    font-size: 24px;
-    text-shadow: 0 0 15px #00ff00;
-    color: #00ff00;
-    line-height: 1;
-}
-
-@keyframes blink {
-    0% {
-        opacity: 1;
-    }
-
-    50% {
-        opacity: 0.3;
-    }
-
-    100% {
-        opacity: 0.2;
-    }
-}
-
-/* RADAR & AUDIO BTN */
 .radar-block {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
     gap: 10px;
     padding-right: 10px;
+}
+
+.key {
+    color: #ff9900;
+    font-weight: bold;
+}
+
+.alert {
+    color: #ff0055;
+    font-weight: bold;
+}
+
+.upgrade {
+    color: #00ffff;
+    font-weight: bold;
+    text-shadow: 0 0 5px #00ffff;
+}
+
+
+/********************/
+/*** ID SELECTORS ***/
+/********************/
+
+#fade-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0);
+    z-index: 49;
+    pointer-events: none;
+    transition: background 3s ease-in;
+    /* Seconds fade to black */
+}
+
+#info-led {
+    color: #0ff;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 3.5em;
+    font-weight: bold;
+    opacity: 0.7;
+    overflow: hidden;
+    text-align: center;
+    text-shadow: 0 0 5px #00ff00, 0 0 10px #00ff00, 0 0 20px #00ff00;
+    white-space: pre-wrap;
+    width: 80%;
+}
+
+#lives-display {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 5px;
+    height: 16px;
+    align-items: center;
+}
+
+#ui-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    z-index: 20;
 }
 
 #radar-container {
@@ -143,42 +224,6 @@ canvas {
     pointer-events: none;
 }
 
-@keyframes radar-spin {
-    from {
-        transform: rotate(0deg);
-    }
-
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-#gesture-hint {
-    position: absolute;
-    bottom: 150px;
-    left: 0;
-    width: 100%;
-    text-align: center;
-    color: rgba(255, 255, 255, 0.3);
-    font-size: 14px;
-    pointer-events: none;
-    animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-    0% {
-        opacity: 0.2;
-    }
-
-    50% {
-        opacity: 0.6;
-    }
-
-    100% {
-        opacity: 0.2;
-    }
-}
-
 #start-screen {
     position: absolute;
     top: 0;
@@ -210,108 +255,19 @@ canvas {
     z-index: -1;
 }
 
-/* NEW: Class for Game Over screen background */
-#start-screen.game-over-bg::before {
-    background-image: url('game over.jpg') !important;
-    background-size: contain !important;
-}
-
 #start-screen.fade-out::before {
     opacity: 0;
 }
 
-/* NEW: Full-screen overlay for the slow fade-to-black effect */
-#fade-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0);
-    /* Starts transparent */
-    z-index: 49;
-    pointer-events: none;
-    transition: background 3s ease-in;
-    /* 3 seconds fade to black */
-}
-
-h1 {
+#title {
     color: white;
-    font-size: 40px;
-    margin-bottom: 10px;
-    text-shadow: 0 0 20px #0ff, 0 0 40px #0ff;
+    font-size: 3.5em;
+    font-weight: bold;
     letter-spacing: 5px;
-    text-align: center;
-}
-
-.instructions {
-    color: #00ffff;
-    text-shadow: 0 0 10px #00ffff;
-    font-weight: bold;
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 24px;
-    letter-spacing: 0.15em;
-    line-height: 1.6;
-    text-align: center;
-    margin: 30px auto;
-    height: 150px;
-    width: 80%;
-    padding: 10px;
-    box-sizing: border-box;
-}
-
-#led-instructions,
-#game-over-led {
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 24px;
-    color: #00ff00;
-    text-shadow: 0 0 5px #00ff00, 0 0 10px #00ff00, 0 0 20px #00ff00;
-    white-space: pre-wrap;
-    text-align: center;
-    height: 100%;
-    overflow: hidden;
-}
-
-.key {
-    color: #ff9900;
-    font-weight: bold;
-}
-
-.alert {
-    color: #ff0055;
-    font-weight: bold;
-}
-
-.upgrade {
-    color: #00ffff;
-    font-weight: bold;
-    text-shadow: 0 0 5px #00ffff;
-}
-
-button.start-btn {
-    background: rgba(0, 255, 255, 0.1);
-    color: #0ff;
-    border: 2px solid #0ff;
-    padding: 15px 50px;
-    font-size: 24px;
-    font-family: inherit;
-    cursor: pointer;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    box-shadow: 0 0 15px #0ff;
-    transition: all 0.3s;
-}
-
-button.start-btn:hover {
-    background: #0ff;
-    color: black;
-    box-shadow: 0 0 40px #0ff;
-}
-
-#audio-prompt {
+    margin-top: 5vh;
+    opacity: 0.8;
     position: absolute;
-    bottom: 20px;
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 12px;
-    pointer-events: none;
+    text-align: center;
+    text-shadow: 0 0 20px #0ff, 0 0 40px #0ff;
+    top: 0;
 }
