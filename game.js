@@ -671,7 +671,7 @@ function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
         const roid = createAsteroid(x, y, r);
 
         // Small tangential velocity to give a sense of belt movement
-        const orbitalSpeed = 0.2 + Math.random() * 0.3;
+        const orbitalSpeed = 0.1 + Math.random() * 0.15;
         const tangentAngle = angle + Math.PI / 2;
         roid.xv += Math.cos(tangentAngle) * orbitalSpeed * (Math.random() < 0.5 ? 1 : -1);
         roid.yv += Math.sin(tangentAngle) * orbitalSpeed * (Math.random() < 0.5 ? 1 : -1);

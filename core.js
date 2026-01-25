@@ -441,8 +441,8 @@ function createAsteroid(x, y, r, z = 0) {
     let roid = {
         id: ++roidCounter,
         x, y,
-        xv: (0.5 + Math.random() * 25 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
-        yv: (0.5 + Math.random() * 25 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
+        xv: (0.2 + Math.random() * 15 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
+        yv: (0.2 + Math.random() * 15 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
         r, a: Math.random() * Math.PI * 2,
         vert: Math.floor(Math.random() * 8 + 6), offs: [],
         mass: r * r * 0.05,
@@ -482,7 +482,7 @@ function initializePlanetAttributes(roid, forcedHue = null) {
     // Orbital Speed (The farther, the slower, naturally, but we can tune this)
     // Using a base speed divided by radius for angular velocity
     // Random direction (CW or CCW)
-    const baseOrbitSpeed = 10; // Reduced from 40 to 10
+    const baseOrbitSpeed = 5; // Reduced from 10 to 5
     roid.orbitSpeed = (baseOrbitSpeed / roid.orbitRadius) * (rng() < 0.5 ? 1 : -1);
 
     roid.zSpeed = (rng() * 0.001) + 0.0005;
