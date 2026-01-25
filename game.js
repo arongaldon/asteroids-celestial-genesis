@@ -754,7 +754,7 @@ function killPlayerShip() {
     else {
         setTimeout(() => {
             startScreen.style.display = 'flex';
-            showInfoLEDText("Communication lost. Rest in eternity.");
+            showInfoLEDText("Your home planet will never forget you.");
             AudioEngine.setTrack('menu');
             AudioEngine.startMusic();
 
@@ -833,7 +833,7 @@ function updatePhysics() {
 
             // --- PLANET ORBITAL MECHANICS ---
             // Planets move smoothly in continuous orbit sizes over the map.
-            // APPLY BUBBLE FRICTION (User Request: expands slower and slower)
+            // APPLY BUBBLE FRICTION: expands slower and slower.
             if (r1.isBubbleDebris) {
                 r1.xv *= r1.bubbleFriction;
                 r1.yv *= r1.bubbleFriction;
@@ -867,14 +867,14 @@ function updatePhysics() {
         if (r1.blinkNum > 0) r1.blinkNum--;
 
         // --- Gravity Check on Player (Feathering near center) ---
-        if (r1.isPlanet && r1.z < 0.5) { // Solo si el planeta está en el plano cercano
+        if (r1.isPlanet && r1.z < 0.5) {
             // dx, dy are the vector from the Planet to the Player (in World Units)
             let dx = worldOffsetX - r1.x;
             let dy = worldOffsetY - r1.y;
             let distSq = dx * dx + dy * dy;
             let dist = Math.sqrt(distSq);
 
-            // Gravedad solo activa en la zona de influencia y fuera del radio de la nave (para evitar atascos)
+            // Influence zone gravity
             if (dist < r1.r * 8 && dist > playerShip.r) {
                 nearbyGravity = true;
 
@@ -1005,7 +1005,7 @@ function updatePhysics() {
                         // BONUS CRECIMIENTO: 5% extra de radio al fusionar
                         let newR = Math.sqrt(r1.r * r1.r + r2.r * r2.r) * 1.05;
 
-                        // USER REQUEST: Max size for planet growth
+                        // Max size for planet growth.
                         if (newR > PLANET_MAX_SIZE) newR = PLANET_MAX_SIZE;
 
                         const DAMPENING_FACTOR = 0.5;
@@ -1095,7 +1095,6 @@ function updatePhysics() {
                     // Actually, since we override Planet X/Y in the loop, we shouldn't apply force TO the planet.
                 } else {
                     // Asteroid-Asteroid Gravity
-                    // Gravedad más fuerte y rango cercano más agresivo (USER REQUEST in previous turn, maintained)
                     let G_ROIDS = 0.08;
                     force = (G_ROIDS * r1.mass * r2.mass) / Math.max(distSq, 400);
 
@@ -1482,6 +1481,9 @@ function loop() {
                 // COLLISION CHECK Z-FILTER: Ignore if station/enemy is far away
                 if (ship.z > 0.5) continue;
 
+                // SKIP PLANET COLLISIONS: Ships go through planets.
+                if (r.isPlanet) continue;
+
                 let angle = Math.atan2(dy, dx);
                 let overlap = minDist - dist;
 
@@ -1866,7 +1868,6 @@ function loop() {
 
     canvasContext.shadowColor = '#ffffff'; canvasContext.strokeStyle = 'white'; canvasContext.lineWidth = 1.5;
 
-    // Ordenar los asteroides de Cercano a Lejano (Z baja a Z alta)
     roids.sort((a, b) => a.z - b.z);
 
     // --- Asteroid/Planet DRAWING (Order 1: Behind ships) ---
@@ -1905,7 +1906,7 @@ function loop() {
         const cullRange = Math.max(width, height) * WORLD_SCALE / 2 + r.r;
         if (!r.isPlanet) {
             if (Math.hypot(r.x - worldOffsetX, r.y - worldOffsetY) > cullRange) {
-                // Solo eliminar asteroides si están fuera de los límites del mundo
+                // Remove asteroids out ot world bounds.
                 if (Math.abs(r.x) > WORLD_BOUNDS * 1.2 || Math.abs(r.y) > WORLD_BOUNDS * 1.2) {
                     roids.splice(i, 1);
                     continue;
