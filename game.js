@@ -94,8 +94,6 @@ function changeRadarZoom(direction) {
 document.addEventListener('keydown', (e) => {
     if (e.code === 'Space') shootLaser();
 
-    // NOTE: The logic for KeyE to create matter has been permanently removed as requested.
-
     // NEW: Radar Zoom Toggle (Key Z)
     if (e.code === 'KeyZ' && gameRunning) {
         changeRadarZoom(1); // Zoom Out (next level)
@@ -272,19 +270,15 @@ function spawnStation(hostPlanet = null) {
 }
 
 function spawnShipsSquad(station) {
-    // Avoid more than 6 friends, since all of them want to join the player ship formation, and there are only 6 slots.
-    if (station.isFriendly) {
-        const currentFriendlyShips = ships.filter(en => en.type === 'ship' && en.isFriendly === true);
-        if (currentFriendlyShips.length > 0) { return; }
-    }
+    // Although having 6 free slots in player's squad, more friendly squads are allowed.
     const squadId = Math.random();
     console.log(`New squad ${squadId} from ${station.isFriendly ? 'friendly' : 'hostile'} station at planet ${station.hostPlanet.name}.`);
 
     const formationData = [
         { role: 'leader', x: 0, y: 0 },
-        { role: 'wingman', x: -120, y: -120 }, { role: 'wingman', x: 120, y: -120 },
-        { role: 'wingman', x: -240, y: -240 }, { role: 'wingman', x: 240, y: -240 },
-        { role: 'wingman', x: -360, y: -360 }, { role: 'wingman', x: 360, y: -360 }
+        { role: 'wingman', x: -SQUAD_X_OFFSET, y: -SQUAD_Y_OFFSET }, { role: 'wingman', x: SQUAD_X_OFFSET, y: -SQUAD_Y_OFFSET },
+        { role: 'wingman', x: -SQUAD_X_OFFSET * 2, y: -SQUAD_Y_OFFSET * 2 }, { role: 'wingman', x: SQUAD_X_OFFSET * 2, y: -SQUAD_Y_OFFSET * 2 },
+        { role: 'wingman', x: -SQUAD_X_OFFSET * 3, y: -SQUAD_Y_OFFSET * 3 }, { role: 'wingman', x: SQUAD_X_OFFSET * 3, y: -SQUAD_Y_OFFSET * 3 }
     ];
 
     const spawnDist = station.r * 2.0;
@@ -334,7 +328,9 @@ function spawnShipsSquad(station) {
             e.leaderRef = leader;
         }
 
-        ships.push(e);
+        if (e !== playerShip) {
+            ships.push(e);
+        }
     });
 }
 
@@ -1584,6 +1580,7 @@ function loop() {
                     // Check Asteroids
                     for (let r of roids) {
                         if (r.z > 0.5) continue;
+                        if (r.isPlanet) continue; // IGNORE PLANETS
                         let d = Math.hypot(ship.x - r.x, ship.y - r.y);
                         if (d < r.r + ship.r + safetyDist) {
                             obstacle = r; break;
@@ -1600,8 +1597,8 @@ function loop() {
                         }
                     }
 
-                    if (obstacle && isPlayerActive) ship.isAvoiding = true;
-                    else if (!isPlayerActive) ship.isAvoiding = false;
+                    // Update isAvoiding state: Only avoid if there is an obstacle AND player is active
+                    ship.isAvoiding = (obstacle && isPlayerActive);
 
                     let formationForce = 0.05;
                     ship.arrivalDamping = 0.85;
@@ -1613,9 +1610,6 @@ function loop() {
                             ship.xv += Math.cos(avoidAng) * 2.5;
                             ship.yv += Math.sin(avoidAng) * 2.5;
                             ship.arrivalDamping = 0.92;
-                        } else {
-                            // ABANDONED: Just slow down and wait for player to stop
-                            ship.arrivalDamping = 0.98;
                         }
                     } else {
                         // Normal formation logic
@@ -1629,12 +1623,17 @@ function loop() {
                         ship.yv += dy * formationForce;
                     }
 
-                    let angleDiff = la - ship.a;
-                    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-                    while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
-                    // Mirror rotation EXACTLY if stable, else quick align
-                    if (Math.abs(angleDiff) < 0.05) ship.a = la;
-                    else ship.a += angleDiff * 0.4;
+                    if (!ship.isAvoiding) {
+                        let angleDiff = la - ship.a;
+                        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                        while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+
+                        // FORCE EXACT ROTATION MATCH
+                        ship.a = -la;
+                    } else {
+                        // Abandon squad: Face movement direction
+                        ship.a = Math.atan2(ship.yv, ship.xv);
+                    }
 
                     // Damping and Speed Cap (IMPORTANT for stability)
                     const speed = Math.hypot(ship.xv, ship.yv);
