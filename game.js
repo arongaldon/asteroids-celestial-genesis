@@ -29,7 +29,7 @@ function onStationDestroyed(station, killerShip = null) {
         stationsDestroyedCount++;
 
         playerShip.lives++;
-        drawLives();
+        drawPlayerLives();
         addScreenMessage("EXTRA LIFE!");
 
         playerShip.structureHP = SHIP_RESISTANCE;
@@ -42,7 +42,8 @@ const canvasRadar = document.getElementById('radar-canvas');
 const fadeOverlay = document.getElementById('fade-overlay');
 const infoLED = document.getElementById('info-led');
 const livesDisplay = document.getElementById('lives-display');
-const scoreDisplay = document.getElementById('scoreEl');
+const radarDisplay = document.getElementById('radar-display');
+const scoreDisplay = document.getElementById('score-display');
 const startBtn = document.getElementById('start-btn');
 const startScreen = document.getElementById('start-screen');
 
@@ -627,7 +628,7 @@ function drawRadar() {
 
     ships.forEach(e => {
         if (e.z <= 0.1) {
-            const color = e.isFriendly ? '#0088FF' : '#FF0000';
+            const color = e.isFriendly ? '#0ff' : '#FF0000';
             if (e.type === 'station') {
                 drawBlip(e.x, e.y, 'station', color, 0);
             } else {
@@ -655,10 +656,12 @@ function drawHeart(ctx, x, y, size) {
     ctx.restore();
 }
 
-function drawLives() {
-    livesDisplay.innerText = `LIVES: ${playerShip.lives}`;
-    livesDisplay.style.color = '#0ff';
-    livesDisplay.style.marginTop = '5px';
+function setHUDVisibility(visible) {
+    const displayVal = visible ? 'block' : 'none';
+    livesDisplay.style.display = displayVal;
+    scoreDisplay.style.display = displayVal;
+    // Radar canvas visibility
+    radarDisplay.style.display = visible ? 'block' : 'none';
 }
 
 function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
@@ -742,10 +745,13 @@ function killPlayerShip() {
 
     increaseShipScore(playerShip, -1000);
 
+    setHUDVisibility(false); // Hide HUD
+
     if (playerShip.lives > 0) setTimeout(() => {
         playerShip.dead = false;
         playerShip.structureHP = SHIP_RESISTANCE;
-        drawLives();
+        drawPlayerLives();
+        setHUDVisibility(true); // Show HUD
     }, 1500);
     else {
         setTimeout(() => {
@@ -1551,118 +1557,130 @@ function loop() {
             if (ship.aiState === 'FORMATION') {
                 proactiveCombatScanner(ship);
 
-                if (ship.isFriendly && !playerShip.dead) {
-                    // FRIENDLY: Follow Player in V-Formation
-                    const lx = worldOffsetX;
-                    const ly = worldOffsetY;
-                    const la = playerShip.a;
+                if (ship.isFriendly) {
+                    if (playerShip.dead) {
+                        // Player is dead: Friendly ships drift to a halt
+                        ship.xv *= 0.95;
+                        ship.yv *= 0.95;
+                    } else {
+                        // FRIENDLY: Follow Player in V-Formation
+                        const lx = worldOffsetX;
+                        const ly = worldOffsetY;
+                        const la = playerShip.a;
 
-                    const fwdX = Math.cos(la);
-                    const fwdY = -Math.sin(la); // Player uses Cartesian Up (Negative Screen Y)
-                    const rightX = -fwdY; // 90deg CW: (x,y) -> (-y,x)
-                    const rightY = fwdX;
+                        const fwdX = Math.cos(la);
+                        const fwdY = -Math.sin(la); // Player uses Cartesian Up (Negative Screen Y)
+                        const rightX = -fwdY; // 90deg CW: (x,y) -> (-y,x)
+                        const rightY = fwdX;
 
-                    const targetX = lx + (rightX * ship.formationOffset.x) + (fwdX * ship.formationOffset.y);
-                    const targetY = ly + (rightY * ship.formationOffset.x) + (fwdY * ship.formationOffset.y);
+                        const targetX = lx + (rightX * ship.formationOffset.x) + (fwdX * ship.formationOffset.y);
+                        const targetY = ly + (rightY * ship.formationOffset.x) + (fwdY * ship.formationOffset.y);
 
-                    const dx = targetX - ship.x;
-                    const dy = targetY - ship.y;
-                    const distToTarget = Math.hypot(dx, dy);
+                        const dx = targetX - ship.x;
+                        const dy = targetY - ship.y;
+                        const distToTarget = Math.hypot(dx, dy);
 
-                    // Break formation if about to crash while player is active
-                    const isPlayerActive = Math.abs(velocity.x) > 0.5 || Math.abs(velocity.y) > 0.5 ||
-                        keys.KeyA || keys.KeyD || keys.ArrowLeft || keys.ArrowRight ||
-                        keys.ArrowUp || keys.KeyW || keys.Space;
+                        // Break formation if about to crash while player is active
+                        const isPlayerActive = Math.abs(velocity.x) > 0.5 || Math.abs(velocity.y) > 0.5 ||
+                            keys.KeyA || keys.KeyD || keys.ArrowLeft || keys.ArrowRight ||
+                            keys.ArrowUp || keys.KeyW || keys.Space;
 
-                    let obstacle = null;
-                    const safetyDist = 150;
+                        let obstacle = null;
+                        const safetyDist = 150;
 
-                    // Check Asteroids
-                    for (let r of roids) {
-                        if (r.z > 0.5) continue;
-                        if (r.isPlanet) continue; // IGNORE PLANETS
-                        let d = Math.hypot(ship.x - r.x, ship.y - r.y);
-                        if (d < r.r + ship.r + safetyDist) {
-                            obstacle = r; break;
-                        }
-                    }
-                    // Check Stations
-                    if (!obstacle) {
-                        for (let other of ships) {
-                            if (other === ship || (other.isFriendly && other.type !== 'station')) continue;
-                            let d = Math.hypot(ship.x - other.x, ship.y - other.y);
-                            if (d < other.r + ship.r + safetyDist) {
-                                obstacle = other; break;
+                        // Check Asteroids
+                        for (let r of roids) {
+                            if (r.z > 0.5) continue;
+                            if (r.isPlanet) continue; // IGNORE PLANETS
+                            let d = Math.hypot(ship.x - r.x, ship.y - r.y);
+                            if (d < r.r + ship.r + safetyDist) {
+                                obstacle = r; break;
                             }
                         }
-                    }
-
-                    // Update isAvoiding state: Only avoid if there is an obstacle AND player is active
-                    ship.isAvoiding = (obstacle && isPlayerActive);
-
-                    let formationForce = 0.05;
-                    ship.arrivalDamping = 0.85;
-
-                    if (ship.isAvoiding) {
-                        if (obstacle) {
-                            // STEER AWAY from obstacle
-                            let avoidAng = Math.atan2(ship.y - obstacle.y, ship.x - obstacle.x);
-                            ship.xv += Math.cos(avoidAng) * 2.5;
-                            ship.yv += Math.sin(avoidAng) * 2.5;
-                            ship.arrivalDamping = 0.92;
-                        }
-                    } else {
-                        // Normal formation logic
-                        if (distToTarget < 200) {
-                            const arrivalFactor = distToTarget / 200;
-                            formationForce *= arrivalFactor;
-                            ship.arrivalDamping = 0.85 + (1 - arrivalFactor) * 0.1;
+                        // Check Stations
+                        if (!obstacle) {
+                            for (let other of ships) {
+                                if (other === ship || (other.isFriendly && other.type !== 'station')) continue;
+                                let d = Math.hypot(ship.x - other.x, ship.y - other.y);
+                                if (d < other.r + ship.r + safetyDist) {
+                                    obstacle = other; break;
+                                }
+                            }
                         }
 
-                        ship.xv += dx * formationForce;
-                        ship.yv += dy * formationForce;
-                    }
+                        // Update isAvoiding state: Only avoid if there is an obstacle AND player is active
+                        ship.isAvoiding = (obstacle && isPlayerActive);
 
-                    if (!ship.isAvoiding) {
-                        let angleDiff = la - ship.a;
-                        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-                        while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                        let formationForce = 0.05;
+                        ship.arrivalDamping = 0.85;
 
-                        // FORCE EXACT ROTATION MATCH
-                        ship.a = -la;
-                    } else {
-                        // Abandon squad: Face movement direction
-                        ship.a = Math.atan2(ship.yv, ship.xv);
-                    }
+                        if (ship.isAvoiding) {
+                            if (obstacle) {
+                                // STEER AWAY from obstacle
+                                let avoidAng = Math.atan2(ship.y - obstacle.y, ship.x - obstacle.x);
+                                ship.xv += Math.cos(avoidAng) * 2.5;
+                                ship.yv += Math.sin(avoidAng) * 2.5;
+                                ship.arrivalDamping = 0.92;
+                            }
+                        } else {
+                            // Normal formation logic
+                            if (distToTarget < 200) {
+                                const arrivalFactor = distToTarget / 200;
+                                formationForce *= arrivalFactor;
+                                ship.arrivalDamping = 0.85 + (1 - arrivalFactor) * 0.1;
+                            }
 
-                    // Damping and Speed Cap (IMPORTANT for stability)
-                    const speed = Math.hypot(ship.xv, ship.yv);
-                    const maxFormationSpeed = 25;
-                    if (speed > maxFormationSpeed) {
-                        ship.xv = (ship.xv / speed) * maxFormationSpeed;
-                        ship.yv = (ship.yv / speed) * maxFormationSpeed;
+                            ship.xv += dx * formationForce;
+                            ship.yv += dy * formationForce;
+                        }
+
+                        if (!ship.isAvoiding) {
+                            let angleDiff = la - ship.a;
+                            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+
+                            // FORCE EXACT ROTATION MATCH
+                            ship.a = -la;
+                        } else {
+                            // Abandon squad: Face movement direction
+                            ship.a = Math.atan2(ship.yv, ship.xv);
+                        }
+
+                        // Damping and Speed Cap (IMPORTANT for stability)
+                        const speed = Math.hypot(ship.xv, ship.yv);
+                        const maxFormationSpeed = 25;
+                        if (speed > maxFormationSpeed) {
+                            ship.xv = (ship.xv / speed) * maxFormationSpeed;
+                            ship.yv = (ship.yv / speed) * maxFormationSpeed;
+                        }
+                        ship.xv *= (ship.arrivalDamping || 0.85); ship.yv *= (ship.arrivalDamping || 0.85); // Stronger damping for formation
                     }
-                    ship.xv *= (ship.arrivalDamping || 0.85); ship.yv *= (ship.arrivalDamping || 0.85); // Stronger damping for formation
                 } else if (ship.role === 'leader') {
                     // LEADER: Long-range travel towards player
-                    let targetAngle = Math.atan2(worldOffsetY - ship.y, worldOffsetX - ship.x);
+                    if (playerShip.dead) {
+                        // Player dead? Stop hunting.
+                        ship.xv *= 0.95;
+                        ship.yv *= 0.95;
+                    } else {
+                        let targetAngle = Math.atan2(worldOffsetY - ship.y, worldOffsetX - ship.x);
 
-                    // Smooth rotation
-                    let angleDiff = targetAngle - ship.a;
-                    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-                    while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
-                    ship.a += angleDiff * 0.05;
+                        // Smooth rotation
+                        let angleDiff = targetAngle - ship.a;
+                        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                        while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                        ship.a += angleDiff * 0.05;
 
-                    // Cruising Speed (Faster than before to hunt)
-                    const CRUISE_SPEED = 12;
-                    ship.xv += Math.cos(ship.a) * 0.5;
-                    ship.yv += Math.sin(ship.a) * 0.5;
+                        // Cruising Speed (Faster than before to hunt)
+                        const CRUISE_SPEED = 12;
+                        ship.xv += Math.cos(ship.a) * 0.5;
+                        ship.yv += Math.sin(ship.a) * 0.5;
 
-                    // Cap speed
-                    const speed = Math.hypot(ship.xv, ship.yv);
-                    if (speed > CRUISE_SPEED) {
-                        ship.xv = (ship.xv / speed) * CRUISE_SPEED;
-                        ship.yv = (ship.yv / speed) * CRUISE_SPEED;
+                        // Cap speed
+                        const speed = Math.hypot(ship.xv, ship.yv);
+                        if (speed > CRUISE_SPEED) {
+                            ship.xv = (ship.xv / speed) * CRUISE_SPEED;
+                            ship.yv = (ship.yv / speed) * CRUISE_SPEED;
+                        }
                     }
                 } else if (ship.role === 'wingman') {
                     if (ship.leaderRef && !ships.includes(ship.leaderRef)) ship.leaderRef = null;
@@ -2991,7 +3009,8 @@ function startGame() {
     enemyShipBullets = [];
     shockwaves = [];
 
-    drawLives(); // NEW: Initial draw
+    setHUDVisibility(true); // Show HUD
+    drawPlayerLives(); // NEW: Initial draw
 
     initBackground(); createLevel(); gameRunning = true;
 

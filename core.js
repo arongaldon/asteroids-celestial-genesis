@@ -342,6 +342,14 @@ const AudioEngine = {
     }
 };
 
+function drawPlayerLives() {
+    livesDisplay.innerText = `LIVES: ${playerShip.lives}`;
+}
+
+function drawPlayerScore() {
+    scoreDisplay.innerText = `SCORE: ${playerShip.score}`;
+}
+
 function generatePlanetName() {
     const s1 = syllables[Math.floor(Math.random() * syllables.length)];
     const s2 = syllables[Math.floor(Math.random() * syllables.length)];
@@ -371,7 +379,7 @@ function increaseShipScore(ship, reward) {
             addScreenMessage(`DEVOLVED TO THE ${getShapeName(newTier)}`, "#ff0000");
             console.log(`Player score: ${ship.score}, devolved tier: ${ship.tier}`);
         }
-        scoreDisplay.innerText = playerShip.score;
+        drawPlayerScore();
     }
 
     ship.tier = newTier;

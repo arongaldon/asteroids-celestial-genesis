@@ -193,7 +193,7 @@ canvas {
     z-index: 20;
 }
 
-#radar-container {
+#radar-display {
     width: 140px;
     height: 140px;
     border: 2px solid #005555;
@@ -211,7 +211,7 @@ canvas {
     border-radius: 50%;
 }
 
-#radar-container::after {
+#radar-display::after {
     content: '';
     position: absolute;
     top: 0;
