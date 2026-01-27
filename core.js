@@ -5,12 +5,12 @@
 /* =========================================
    PARAMETERS
    ========================================= */
-const ASTEROIDS_PER_BELT = 1000;
+const ASTEROIDS_PER_BELT = 1500;
 const ASTEROID_BELT_INNER_RADIUS = 2000
 const ASTEROID_BELT_OUTER_RADIUS = 20000
 const ASTEROID_DESTROYED_REWARD = 100;
-const ASTEROID_MAX_SIZE = 150;
-const ASTEROID_MIN_SIZE = 70;
+const ASTEROID_MAX_SIZE = 120;
+const ASTEROID_MIN_SIZE = 60;
 const ASTEROID_SPLIT_OFFSET = 90;
 const ASTEROID_SPLIT_SPEED = 3;
 const BOUNDARY_DAMPENING = 0.5;
@@ -20,10 +20,10 @@ const FRICTION = 0.99;
 const G_CONST = 0.9; // Gravity Constant
 const MAX_Z_DEPTH = 2.0;
 const MIN_DURATION_TAP_TO_MOVE = 200;
-const NUM_STATIONS_PER_PLANET = 1;
-const PLANETS_LIMIT = 10;
-const PLANET_MAX_SIZE = 900;
-const PLANET_THRESHOLD = 450;
+const NUM_STATIONS_PER_PLANET = 2;
+const PLANETS_LIMIT = 9;
+const PLANET_MAX_SIZE = 800;
+const PLANET_THRESHOLD = 400;
 const PLAYER_INITIAL_LIVES = 3;
 const PLAYER_RELOAD_TIME_MAX = 8;
 const SCALE_IN_MOUSE_MODE = 1.0;
@@ -52,6 +52,8 @@ const SQUAD_Y_OFFSET = 120; // V formation distance on Y axis
 const STATIONS_SPAWN_TIMER = 300;
 const STATION_KILLED_REWARD = 500;
 const STATION_RESISTANCE = 6;
+const TIME_DEAD = 3000;
+const TIME_SHOW_RESTART = 2000;
 const TOUCH_ROTATION_SENSITIVITY = 0.008;
 const WORLD_BOUNDS = 25000;
 const WORLD_SCALE = 5;
@@ -80,6 +82,7 @@ let stationSpawnTimer = 0;
 let stationsDestroyedCount = 0;
 let level = 0;
 let homePlanetId = null;
+let homePlanetDestroyed = false;
 let screenMessages = [];
 let gameRunning = false;
 let loopStarted = false;

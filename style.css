@@ -146,19 +146,6 @@ canvas {
 /*** ID SELECTORS ***/
 /********************/
 
-#fade-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0);
-    z-index: 49;
-    pointer-events: none;
-    transition: background 3s ease-in;
-    /* Seconds fade to black */
-}
-
 #info-led {
     color: #0ff;
     font-family: 'Courier New', Courier, monospace;
