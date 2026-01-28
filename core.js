@@ -5,59 +5,62 @@
 /* =========================================
    PARAMETERS
    ========================================= */
-const ASTEROIDS_PER_BELT = 1500;
-const ASTEROID_BELT_INNER_RADIUS = 2000
+const ASTEROIDS_PER_BELT = 1200;
+const ASTEROID_BELT_INNER_RADIUS = 1000
 const ASTEROID_BELT_OUTER_RADIUS = 20000
 const ASTEROID_DESTROYED_REWARD = 100;
-const ASTEROID_MAX_SIZE = 120;
-const ASTEROID_MIN_SIZE = 60;
-const ASTEROID_SPLIT_OFFSET = 90;
+const ASTEROID_MAX_SIZE = 100;
+const ASTEROID_MIN_SIZE = 50;
+const ASTEROID_SPLIT_OFFSET = 50;
 const ASTEROID_SPLIT_SPEED = 3;
 const BOUNDARY_DAMPENING = 0.5;
 const BOUNDARY_TOLERANCE = 100;
 const FPS = 60;
-const FRICTION = 0.99;
+const FRICTION = 0.985;
 const G_CONST = 0.9; // Gravity Constant
-const MAX_Z_DEPTH = 2.0;
+const MAX_Z_DEPTH = 0.7;
 const MIN_DURATION_TAP_TO_MOVE = 200;
-const NUM_STATIONS_PER_PLANET = 2;
-const PLANETS_LIMIT = 9;
-const PLANET_MAX_SIZE = 800;
-const PLANET_THRESHOLD = 400;
+const NUM_STATIONS_PER_PLANET = 1;
+const PLANETS_LIMIT = 20;
+const PLANET_SIZE = 200;
 const PLAYER_INITIAL_LIVES = 3;
 const PLAYER_RELOAD_TIME_MAX = 8;
 const SCALE_IN_MOUSE_MODE = 1.0;
 const SCALE_IN_TOUCH_MODE = 0.6;
 const SHIPS_COMBAT_ORBIT_DISTANCE = 340;
-const SHIPS_MAX_NUMBER = 18;
-const SHIPS_SEPARATION_DISTANCE = 120;
-const SHIPS_SPAWN_TIME = 1000;
+const SHIPS_ORBIT_RADIUS_VIEWPORT = 500; // Aim to orbit at this distance when in viewport
+const SHIPS_ORBIT_TANGENTIAL_FORCE = 0.8; // Increased for better orbiting feel
+const SHIPS_MAX_NUMBER = 35; // 5 V squads * 7 ships
+const SHIPS_SPAWN_TIME = 10000;
+const SHIPS_SQUAD_X_OFFSET = 120; // V formation distance on X axis
+const SHIPS_SQUAD_Y_OFFSET = 120; // V formation distance on Y axis
+const SHIPS_SABOTAGE_PROBABILITY = 0.4; // 40% of hostile squads are saboteurs
+const SHIP_PLANET_PUSH_FORCE = 1.5; // Force applied to planet per ship per frame
+const SHIP_SABOTAGE_RANGE = 800; // Distance to search for sabotage targets
 const SHIP_BASE_MAX_SHIELD = 100;
-const SHIP_BULLET1_LIFETIME = 40;
+const SHIP_BULLET1_LIFETIME = 50;
 const SHIP_BULLET1_SIZE = 5;
-const SHIP_BULLET2_LIFETIME = 20;
+const SHIP_BULLET2_LIFETIME = 25;
 const SHIP_BULLET2_SIZE = 3;
-const SHIP_BULLET_FADE_FRAMES = 5;
+const SHIP_BULLET_FADE_FRAMES = 10;
 const SHIP_BULLET_GRAVITY_FACTOR = 90;
 const SHIP_EVOLUTION_SCORE_STEP = 1000;
 const SHIP_FRIENDLY_BLUE_HUE = 210;
 const SHIP_KILLED_REWARD = 200;
-const SHIP_MAX_SPEED = 30;
+const SHIP_MAX_SPEED = 60;
 const SHIP_RESISTANCE = 2;
-const SHIP_SIGHT_RANGE = 1200; // Approx screen width: 1200
+const SHIP_SIGHT_RANGE = 3000; // Increased to engage earlier
 const SHIP_SIZE = 30;
-const SHIP_THRUST = 0.9;
-const SQUAD_X_OFFSET = 120; // V formation distance on X axis
-const SQUAD_Y_OFFSET = 120; // V formation distance on Y axis
+const SHIP_THRUST = 1.2;
 const STATIONS_SPAWN_TIMER = 300;
 const STATION_KILLED_REWARD = 500;
 const STATION_RESISTANCE = 6;
 const TIME_DEAD = 3000;
 const TIME_SHOW_RESTART = 2000;
 const TOUCH_ROTATION_SENSITIVITY = 0.008;
-const WORLD_BOUNDS = 25000;
+const WORLD_BOUNDS = 20000;
 const WORLD_SCALE = 5;
-const ZOOM_LEVELS = [1000, 2000, 3000, 5000, 8000, 13000, 21000];
+const ZOOM_LEVELS = [1000, 2000, 3000, 5000, 8000, 12000];
 const suffixes = ["PRIME", "IV", "X", "ALPHA", "BETA", "MAJOR", "MINOR", "ZERO", "AEON"];
 const syllables = ["KRON", "XER", "ZAN", "TOR", "AER", "ION", "ULA", "PROX", "VEX", "NOV", "SOL", "LUNA", "TER", "MAR", "JUP"];
 
@@ -448,12 +451,12 @@ function newPlayerShip() {
 
 let roidCounter = 0;
 function createAsteroid(x, y, r, z = 0) {
-    let isPlanet = r > PLANET_THRESHOLD;
+    let isPlanet = r > PLANET_SIZE;
     let roid = {
         id: ++roidCounter,
         x, y,
-        xv: (0.2 + Math.random() * 15 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
-        yv: (0.2 + Math.random() * 15 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
+        xv: isPlanet ? 0 : (0.2 + Math.random() * 15 / FPS) * (Math.random() < 0.5 ? 1 : -1),
+        yv: isPlanet ? 0 : (0.2 + Math.random() * 15 / FPS) * (Math.random() < 0.5 ? 1 : -1),
         r, a: Math.random() * Math.PI * 2,
         vert: Math.floor(Math.random() * 8 + 6), offs: [],
         mass: r * r * 0.05,
@@ -485,7 +488,7 @@ function initializePlanetAttributes(roid, forcedHue = null) {
     // ORBITAL INITIALIZATION
     // Calculate distance from center to determine orbit radius
     roid.orbitRadius = Math.hypot(roid.x, roid.y);
-    if (roid.orbitRadius < 1000) roid.orbitRadius = 1000; // Minimum orbit size
+    if (roid.orbitRadius < 3000) roid.orbitRadius = 3000; // Increased from 1000
 
     // Initial angle based on position
     roid.orbitAngle = Math.atan2(roid.y, roid.x);
@@ -493,7 +496,7 @@ function initializePlanetAttributes(roid, forcedHue = null) {
     // Orbital Speed (The farther, the slower, naturally, but we can tune this)
     // Using a base speed divided by radius for angular velocity
     // Random direction (CW or CCW)
-    const baseOrbitSpeed = 5; // Reduced from 10 to 5
+    const baseOrbitSpeed = 1.2; // Reduced from 5 to 1.2
     roid.orbitSpeed = (baseOrbitSpeed / roid.orbitRadius) * (rng() < 0.5 ? 1 : -1);
 
     roid.zSpeed = (rng() * 0.001) + 0.0005;
@@ -538,7 +541,7 @@ function initializePlanetAttributes(roid, forcedHue = null) {
     }
     roid.zWait = 0;
     roid.textureData = textureData;
-    if (Math.random() < 0.25 || r > PLANET_THRESHOLD + 100) {
+    if (Math.random() < 0.25 || r > PLANET_SIZE + 100) {
         roid.rings = {
             tilt: (rng() * 0.4 - 0.2) + (Math.PI / 2),
             bands: [

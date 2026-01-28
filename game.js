@@ -299,9 +299,9 @@ function spawnShipsSquad(station) {
 
     const formationData = [
         { role: 'leader', x: 0, y: 0 },
-        { role: 'wingman', x: -SQUAD_X_OFFSET, y: -SQUAD_Y_OFFSET }, { role: 'wingman', x: SQUAD_X_OFFSET, y: -SQUAD_Y_OFFSET },
-        { role: 'wingman', x: -SQUAD_X_OFFSET * 2, y: -SQUAD_Y_OFFSET * 2 }, { role: 'wingman', x: SQUAD_X_OFFSET * 2, y: -SQUAD_Y_OFFSET * 2 },
-        { role: 'wingman', x: -SQUAD_X_OFFSET * 3, y: -SQUAD_Y_OFFSET * 3 }, { role: 'wingman', x: SQUAD_X_OFFSET * 3, y: -SQUAD_Y_OFFSET * 3 }
+        { role: 'wingman', x: -SHIPS_SQUAD_X_OFFSET, y: -SHIPS_SQUAD_Y_OFFSET }, { role: 'wingman', x: SHIPS_SQUAD_X_OFFSET, y: -SHIPS_SQUAD_Y_OFFSET },
+        { role: 'wingman', x: -SHIPS_SQUAD_X_OFFSET * 2, y: -SHIPS_SQUAD_Y_OFFSET * 2 }, { role: 'wingman', x: SHIPS_SQUAD_X_OFFSET * 2, y: -SHIPS_SQUAD_Y_OFFSET * 2 },
+        { role: 'wingman', x: -SHIPS_SQUAD_X_OFFSET * 3, y: -SHIPS_SQUAD_Y_OFFSET * 3 }, { role: 'wingman', x: SHIPS_SQUAD_X_OFFSET * 3, y: -SHIPS_SQUAD_Y_OFFSET * 3 }
     ];
 
     const spawnDist = station.r * 2.0;
@@ -349,11 +349,16 @@ function spawnShipsSquad(station) {
                     aggressivity: 0.7 + Math.random() * 0.6     // 0.7 to 1.3
                 }
             };
+
+            if (slot.role === 'leader' && !e.isFriendly && Math.random() < SHIPS_SABOTAGE_PROBABILITY) {
+                e.squadMission = 'SABOTAGE';
+            }
         }
         if (slot.role === 'leader') {
             leader = e;
         } else {
             e.leaderRef = leader;
+            if (leader) e.squadMission = leader.squadMission;
         }
 
         if (e !== playerShip) {
@@ -504,6 +509,58 @@ function isTrajectoryClear(e, targetX, targetY) {
     return true;
 }
 
+function getLeadTarget(ship, target, bulletSpeed = 20) {
+    // tx, ty, vx, vy are world coordinates/velocity
+    let tx = target.x;
+    let ty = target.y;
+    let tvx = target.xv || 0;
+    let tvy = target.yv || 0;
+
+    // Special case for player
+    if (target === playerShip || (target.x === worldOffsetX && target.y === worldOffsetY)) {
+        tx = worldOffsetX;
+        ty = worldOffsetY;
+        tvx = velocity.x;
+        tvy = velocity.y;
+    }
+
+    const dx = tx - ship.x;
+    const dy = ty - ship.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const flightTime = dist / bulletSpeed;
+    return {
+        x: tx + tvx * flightTime,
+        y: ty + tvy * flightTime
+    };
+}
+function getSabotageTargets(ship) {
+    // Only planets that are at Z=0 (active)
+    const planets = roids.filter(r => r.isPlanet && r.z === 0);
+    if (planets.length < 2) return null;
+
+    // Target: A planet that isn't their host (can be home planet!)
+    const possibleTargets = planets.filter(p => p.id !== ship.hostPlanetId);
+    if (possibleTargets.length === 0) return null;
+
+    // Pick a random target
+    const target = possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
+
+
+    // Goal: Another planet (Prefer home planet IF it's not the target)
+    let goal = planets.find(p => p.id === homePlanetId && p.id !== target.id);
+    if (!goal) {
+        const possibleGoals = planets.filter(p => p.id !== target.id && p.id !== ship.hostPlanetId);
+        if (possibleGoals.length > 0) {
+            goal = possibleGoals[Math.floor(Math.random() * possibleGoals.length)];
+        } else {
+            // If no 3rd planet, push towards ship's host? No, crash into host!
+            goal = planets.find(p => p.id === ship.hostPlanetId);
+        }
+    }
+
+    return { target, goal };
+}
+
 function proactiveCombatScanner(e) {
     if (e.reloadTime > 0) return;
 
@@ -517,9 +574,9 @@ function proactiveCombatScanner(e) {
 
         if (isRival) {
             const dist = Math.hypot(target.x - e.x, target.y - e.y);
-            if (dist < 1000) {
-                // Since we mirror rotation, we only shoot if lined up
-                enemyShoot(e, target.x, target.y);
+            if (dist < 1500) { // Increased scan range
+                const lead = getLeadTarget(e, target);
+                enemyShoot(e, lead.x, lead.y);
                 if (e.reloadTime > 0) return; // Shot fired
             }
         }
@@ -530,7 +587,7 @@ function proactiveCombatScanner(e) {
         if (r.z > 0.5) continue;
         const dist = Math.hypot(r.x - e.x, r.y - e.y);
         if (dist < 800) {
-            enemyShoot(e, r.x, r.y);
+            enemyShoot(e, r.x, r.y); // Asteroids don't need much leading
             if (e.reloadTime > 0) return; // Shot fired
         }
     }
@@ -538,54 +595,46 @@ function proactiveCombatScanner(e) {
     // 3. SCAN FOR PLAYER (if enemy)
     if (!e.isFriendly && !playerShip.dead) {
         const dist = Math.hypot(worldOffsetX - e.x, worldOffsetY - e.y);
-        if (dist < 1000) {
-            enemyShoot(e, worldOffsetX, worldOffsetY);
+        if (dist < 1500) {
+            const lead = getLeadTarget(e, playerShip);
+            enemyShoot(e, lead.x, lead.y);
         }
     }
 }
 
 function enemyShoot(e, tx, ty) {
-    // e.x, e.y, tx, ty are ABSOLUTE WORLD COORDINATES
-
     if (tx === undefined) tx = worldOffsetX;
     if (ty === undefined) ty = worldOffsetY;
 
-    let trajectoryAngle = Math.atan2(ty - e.y, tx - e.x); // Correct angle in world space
-
+    let trajectoryAngle = Math.atan2(ty - e.y, tx - e.x);
     let angleDiff = trajectoryAngle - e.a;
-
     while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
     while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
 
-    const FIRE_CONE = Math.PI / 12; // 15 degrees
+    const FIRE_CONE = Math.PI / 15; // 12 degrees
     if (Math.abs(angleDiff) > FIRE_CONE) return;
 
     if (!isTrajectoryClear(e, tx, ty)) return;
 
     let clearShot = true;
-
     for (let other of ships) {
         if (other === e) continue;
-        let distToOther = Math.hypot(other.x - e.x, other.y - e.y); // World distance
-        let distToTarget = Math.hypot(tx - e.x, ty - e.y); // World distance
+        let distToOtherSq = (other.x - e.x) ** 2 + (other.y - e.y) ** 2;
+        let distToTargetSq = (tx - e.x) ** 2 + (ty - e.y) ** 2;
 
-        // If the friend is closer than the target (potential block)
-        if (distToOther < distToTarget) {
+        if (distToOtherSq < distToTargetSq) {
             let angleToOther = Math.atan2(other.y - e.y, other.x - e.x);
             let checkAngleDiff = Math.abs(trajectoryAngle - angleToOther);
             if (checkAngleDiff > Math.PI) checkAngleDiff = 2 * Math.PI - checkAngleDiff;
-
-            // If friend is within a 20-degree cone (approx 0.35 rad) of the firing line
-            if (checkAngleDiff < 0.35) {
-                clearShot = false;
-                break;
+            if (checkAngleDiff < 0.25) { // 14 degrees
+                clearShot = false; break;
             }
         }
     }
 
     if (clearShot) {
         fireEntityWeapon(e, enemyShipBullets, true);
-        const baseReload = 60 + Math.random() * 40;
+        const baseReload = 25 + Math.random() * 35; // Much faster
         e.reloadTime = e.personality ? (baseReload * e.personality.reloadMultiplier) : baseReload;
     }
 }
@@ -714,10 +763,11 @@ function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
 function createLevel() {
     roids = []; ships = []; enemyShipBullets = []; playerShipBullets = []; shockwaves = [];
 
-    let planetSpawned = false;
-    let planetX = (Math.random() - 0.5) * 5000;
-    let planetY = (Math.random() - 0.5) * 5000;
-    let firstPlanet = createAsteroid(planetX, planetY, PLANET_THRESHOLD + 1, 0);
+    let homeRadius = ASTEROID_BELT_INNER_RADIUS * 2 + Math.random() * ASTEROID_BELT_INNER_RADIUS;
+    let homeAngle = Math.random() * Math.PI * 2;
+    let planetX = Math.cos(homeAngle) * homeRadius;
+    let planetY = Math.sin(homeAngle) * homeRadius;
+    let firstPlanet = createAsteroid(planetX, planetY, PLANET_SIZE + 1, 0);
     roids.push(firstPlanet);
     homePlanetId = firstPlanet.id;
     firstPlanet.name = "Your world";
@@ -732,6 +782,17 @@ function createLevel() {
     planetSpawned = true;
 
     createAsteroidBelt(0, 0, ASTEROID_BELT_INNER_RADIUS, ASTEROID_BELT_OUTER_RADIUS, ASTEROIDS_PER_BELT);
+
+    // Add some initial hostile planets
+    for (let i = 0; i < 3; i++) {
+        let ang = (homeAngle + Math.PI / 2 + (i * Math.PI * 0.5)) % (Math.PI * 2);
+        // Bring them closer: from 0.8x to 1.5x homeRadius
+        let dist = homeRadius * (0.8 + Math.random() * 0.7);
+        let px = Math.cos(ang) * dist;
+        let py = Math.sin(ang) * dist;
+        let p = createAsteroid(px, py, PLANET_SIZE + Math.random() * 50, 0);
+        roids.push(p);
+    }
 
     roids.filter(r => r.isPlanet).forEach(planet => {
         const stationCount = Math.floor(Math.random() * NUM_STATIONS_PER_PLANET) + 1;
@@ -805,6 +866,7 @@ function killPlayerShip() {
             setHUDVisibility(true); // Show HUD
         }
         else {
+            startScreen.classList.add('game-over');
             startScreen.style.display = 'flex';
             let msg = "Cold and silence at the end of all things.";
             if (homePlanetDestroyed) {
@@ -827,9 +889,25 @@ function killPlayerShip() {
 function updatePhysics() {
     let nearbyGravity = false;
 
+    const GRID_SIZE = 2000;
+    const grid = new Map();
+
+    // 0. Update Spatial Grid
+    for (let i = 0; i < roids.length; i++) {
+        const r = roids[i];
+        if (isNaN(r.x) || isNaN(r.y)) continue;
+        const gx = Math.floor(r.x / GRID_SIZE);
+        const gy = Math.floor(r.y / GRID_SIZE);
+        const key = `${gx},${gy}`;
+        if (!grid.has(key)) grid.set(key, []);
+        grid.get(key).push(r); // Store object reference
+    }
+
     for (let i = 0; i < roids.length; i++) {
         let r1 = roids[i];
-        if (isNaN(r1.x) || isNaN(r1.y)) { roids.splice(i, 1); i--; continue; }
+        if (isNaN(r1.x) || isNaN(r1.y) || r1.markedForDeletion) {
+            roids.splice(i, 1); i--; continue;
+        }
 
         // 1. SMOOTH RADIUS GROWTH (NEW IMPLEMENTATION)
         if (r1.targetR && r1.r < r1.targetR) {
@@ -896,23 +974,28 @@ function updatePhysics() {
             // The farthest they are in z, the slower they move.
 
             if (r1.orbitRadius && r1.orbitSpeed) {
-                // Calculate speed modifier based on Z depth
-                // 1.0 at Z=0, smaller as Z increases. e.g. at Z=4, speed is 1/5.
                 const zSpeedModifier = 1 / (1 + r1.z);
-
                 const effectiveSpeed = r1.orbitSpeed * zSpeedModifier;
 
-                // Calculate new position relative to center (0,0)
-                const nextAngle = r1.orbitAngle + effectiveSpeed;
-                const newX = Math.cos(nextAngle) * r1.orbitRadius;
-                const newY = Math.sin(nextAngle) * r1.orbitRadius;
+                // Predict where the planet SHOULD be in its orbit
+                r1.orbitAngle += effectiveSpeed;
+                const targetX = Math.cos(r1.orbitAngle) * r1.orbitRadius;
+                const targetY = Math.sin(r1.orbitAngle) * r1.orbitRadius;
 
-                // Update velocity to take us exactly to newX/newY in the next step
-                r1.xv = newX - r1.x;
-                r1.yv = newY - r1.y;
+                // Apply a restoring force towards the orbital path
+                // This allows the planet to be "pushed" away from its orbit
+                const dx = targetX - r1.x;
+                const dy = targetY - r1.y;
 
-                // We update the angle for the next frame
-                r1.orbitAngle = nextAngle;
+                // HIGHLY STABLE spring system
+                // Heavy damping (0.8) and moderate spring (0.15) for rock-solid orbits
+                const k = 0.15;
+                r1.xv += dx * k;
+                r1.yv += dy * k;
+
+                // Strong internal damping to eliminate oscillations immediately
+                r1.xv *= 0.85;
+                r1.yv *= 0.85;
             }
         }
 
@@ -949,227 +1032,206 @@ function updatePhysics() {
         }
         // --- End Gravity Check ---
 
-        // --- Asteroid/Planet Collision and Merge (All in World Coords) ---
-        for (let j = i + 1; j < roids.length; j++) {
-            let r2 = roids[j];
-            if (isNaN(r2.x) || isNaN(r2.y)) { roids.splice(j, 1); j--; continue; }
+        // --- Optimized Asteroid/Planet Collision and Merge via Spatial Grid ---
+        const gx1 = Math.floor(r1.x / GRID_SIZE);
+        const gy1 = Math.floor(r1.y / GRID_SIZE);
 
-            // Skip collision check if either asteroid is blinking (newly created by player)
-            if (r1.blinkNum > 0 || r2.blinkNum > 0) continue;
+        // We only check the current cell and adjacent cells
+        for (let ox = -1; ox <= 1; ox++) {
+            if (r1.markedForDeletion) break;
+            for (let oy = -1; oy <= 1; oy++) {
+                if (r1.markedForDeletion) break;
+                const key = `${gx1 + ox},${gy1 + oy}`;
+                const cell = grid.get(key);
+                if (!cell) continue;
 
-            let dx = r2.x - r1.x; let dy = r2.y - r1.y; // World Distance Vector
-            let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
+                for (let idx = 0; idx < cell.length; idx++) {
+                    const r2 = cell[idx];
+                    if (r2.id <= r1.id || r2.markedForDeletion) continue; // Avoid self/double/dead/invalid
 
-            // Gravitational attraction between asteroids when close (for natural merging)
-            const attractionRange = (r1.r + r2.r) * 3; // 3x combined radii
-            if (dist < attractionRange && dist > 1) {
-                // Calculate gravitational force (stronger for larger mass difference)
-                const force = (G_CONST * r1.mass * r2.mass) / Math.max(distSq, 100);
-                const forceX = (dx / dist) * force * 0.5; // Reduced strength for smooth approach
-                const forceY = (dy / dist) * force * 0.5;
+                    // Skip collision check if either asteroid is blinking (newly created by player)
+                    if (r1.blinkNum > 0 || r2.blinkNum > 0) continue;
 
-                // Apply force to both asteroids (smaller accelerates more toward larger)
-                r1.xv += forceX / r1.mass;
-                r1.yv += forceY / r1.mass;
-                r2.xv -= forceX / r2.mass;
-                r2.yv -= forceY / r2.mass;
-            }
+                    let dx = r2.x - r1.x; let dy = r2.y - r1.y; // World Distance Vector
+                    let distSq = dx * dx + dy * dy;
 
-            // If the distance is less than the sum of the radius, a collision has occurred.
-            if (dist < r1.r + r2.r) {
-                // Midpoint of the collision
-                const midX = (r1.x + r2.x) / 2;
-                const midY = (r1.y + r2.y) / 2;
+                    // Gravitational attraction between asteroids when close (for natural merging)
+                    const combinedR = r1.r + r2.r;
+                    const attractionRangeSq = (combinedR * 3) ** 2; // 3x combined radii
+                    if (distSq < attractionRangeSq && distSq > 1) {
+                        const dist = Math.sqrt(distSq);
+                        // Calculate gravitational force (stronger for larger mass difference)
+                        const force = (G_CONST * r1.mass * r2.mass) / Math.max(distSq, 100);
+                        const forceX = (dx / dist) * force * 0.5; // Reduced strength for smooth approach
+                        const forceY = (dy / dist) * force * 0.5;
 
-                // Midpoint in Viewport Coords
-                const midVpX = midX - worldOffsetX + width / 2;
-                const midVpY = midY - worldOffsetY + height / 2;
+                        // Apply force to both asteroids (smaller accelerates more toward larger)
+                        r1.xv += forceX / r1.mass;
+                        r1.yv += forceY / r1.mass;
+                        r2.xv -= forceX / r2.mass;
+                        r2.yv -= forceY / r2.mass;
+                    }
 
-                // 1. Planet-Planet Collision
-                if (r1.isPlanet && r2.isPlanet) {
-                    // Only if both are in the same z level
-                    if (r1.z == r2.z) {
-                        createExplosion(midVpX, midVpY, 80, '#ffaa00', 5, 'spark');
-                        createExplosion(midVpX, midVpY, 40, '#ff0000', 8, 'debris');
-                        AudioEngine.playPlanetExplosion(midX, midY, r1.z); // Strong sound if visible
+                    // If the distance is less than the sum of the radius, a collision has occurred.
+                    if (distSq < (r1.r + r2.r) ** 2) {
+                        const dist = Math.sqrt(distSq);
+                        // Midpoint of the collision
+                        const midX = (r1.x + r2.x) / 2;
+                        const midY = (r1.y + r2.y) / 2;
 
-                        createAsteroidBelt(midVpX, midVpY, 0, ASTEROID_BELT_OUTER_RADIUS - ASTEROID_BELT_INNER_RADIUS, ASTEROIDS_PER_BELT / 2);
-                        createShockwave(midX, midY);
+                        // Midpoint in Viewport Coords
+                        const midVpX = midX - worldOffsetX + width / 2;
+                        const midVpY = midY - worldOffsetY + height / 2;
 
-                        // Destroy both planets' stations
-                        for (let k = ships.length - 1; k >= 0; k--) {
-                            if (ships[k].hostPlanet === r1 || ships[k].hostPlanet === r2) {
-                                ships.splice(k, 1);
+                        // 1. Planet-Planet Collision
+                        if (r1.isPlanet && r2.isPlanet) {
+                            // Only if both are in the same z level
+                            if (r1.z == r2.z) {
+                                createExplosion(midVpX, midVpY, 80, '#ffaa00', 5, 'spark');
+                                createExplosion(midVpX, midVpY, 40, '#ff0000', 8, 'debris');
+                                AudioEngine.playPlanetExplosion(midX, midY, r1.z); // Strong sound if visible
+
+                                createAsteroidBelt(midX, midY, 0, 1500, 100);
+                                createShockwave(midX, midY);
+
+                                // Destroy both planets' stations
+                                for (let k = ships.length - 1; k >= 0; k--) {
+                                    if (ships[k].hostPlanet === r1 || ships[k].hostPlanet === r2) {
+                                        ships.splice(k, 1);
+                                    }
+                                }
+
+                                if (r1.id === homePlanetId || r2.id === homePlanetId) {
+                                    homePlanetDestroyed = true;
+                                    if (playerShip.lives > 0) {
+                                        playerShip.lives = 0;
+                                        addScreenMessage("HOME PLANET DESTROYED!", "#ff0000");
+                                        killPlayerShip();
+                                    }
+                                }
+
+                                r1.markedForDeletion = true;
+                                r2.markedForDeletion = true;
+                                break; // Exit idx loop for r1
                             }
                         }
-
-                        if (r1.id === homePlanetId || r2.id === homePlanetId) {
-                            homePlanetDestroyed = true;
-                            if (playerShip.lives > 0) {
-                                playerShip.lives = 0;
-                                addScreenMessage("HOME PLANET DESTROYED!", "#ff0000");
-                                killPlayerShip();
+                        // 2. Planet-Asteroid and Asteroid-Asteroid collisions (only on near Z plane)
+                        else if (Math.abs(r1.z) < 0.5 && Math.abs(r2.z) < 0.5) {
+                            // Planet-Asteroid and Asteroid-Asteroid collisions (only on near Z plane)
+                            if (r1.isPlanet !== r2.isPlanet) {
+                                // Asteroids now deflect or "rub" the atmosphere instead of merging.
+                                // We achieve this by simply ignoring the collision here and letting the gravity 
+                                // logic (enhanced below) handle the deflection. 
+                                // To prevent them from just passing through the center too easily, 
+                                // we can apply a "push" if they get deep inside, but for now, 
+                                // we'll rely on the high-G slingshot.
                             }
-                        }
+                            // Asteroid-Asteroid Merge
+                            else {
+                                let totalMass = r1.mass + r2.mass;
+                                let newVX = (r1.xv * r1.mass + r2.xv * r2.mass) / totalMass;
+                                let newVY = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass;
+                                let newR = Math.sqrt(r1.r * r1.r + r2.r * r2.r) * 1.05;
 
-                        roids.splice(j, 1);
-                        roids.splice(i, 1);
-                        i--; break; // Exit j-loop
-                    }
-                }
-                // 2. Planet-Asteroid and Asteroid-Asteroid collisions (only on near Z plane)
-                else if (Math.abs(r1.z) < 0.5 && Math.abs(r2.z) < 0.5) {
-                    // Planet-Asteroid Coalescence
-                    if (r1.isPlanet !== r2.isPlanet) {
-                        let planet, asteroid, asteroidIndex;
-                        // Determine which is the planet and which is the asteroid
-                        if (r1.isPlanet) {
-                            planet = r1;
-                            asteroid = r2;
-                            asteroidIndex = j;
-                        } else {
-                            planet = r2;
-                            asteroid = r1;
-                            asteroidIndex = i;
-                        }
+                                // Max size for planet growth.
+                                if (newR > PLANET_SIZE) newR = PLANET_SIZE;
 
-                        let area1 = Math.PI * planet.r * planet.r;
-                        let area2 = Math.PI * asteroid.r * asteroid.r;
-                        let totalArea = area1 + area2;
-                        let newR = Math.sqrt(totalArea / Math.PI);
+                                const DAMPENING_FACTOR = 0.5;
+                                if (newR > PLANET_SIZE) { newVX *= DAMPENING_FACTOR; newVY *= DAMPENING_FACTOR; }
 
-                        // Physics: Transfer momentum and mass
-                        let totalMass = planet.mass + asteroid.mass;
-                        planet.xv = (planet.xv * planet.mass + asteroid.xv * asteroid.mass) / totalMass;
-                        planet.yv = (planet.yv * planet.mass + asteroid.yv * asteroid.mass) / totalMass;
-                        planet.x = (planet.x * planet.mass + asteroid.x * asteroid.mass) / totalMass;
-                        planet.y = (planet.y * planet.mass + asteroid.y * asteroid.mass) / totalMass;
+                                let newX = (r1.x * r1.mass + r2.x * r2.mass) / totalMass;
+                                let newY = (r1.y * r1.mass + r2.y * r2.mass) / totalMass;
 
-                        // Smoothly grow to new size
-                        if (planet.id !== homePlanetId) {
-                            planet.targetR = newR;
-                            planet.mass = totalMass; // Update mass immediately for gravity
-                        }
-
-                        roids.splice(asteroidIndex, 1);
-                        // If we removed the item at 'i', we must adjust 'i' and break
-                        if (asteroidIndex === i) {
-                            i--;
-                            break;
-                        } else {
-                            // If we removed 'j', just break the j-loop and continue with 'i'
-                            break;
-                        }
-                    }
-                    // Asteroid-Asteroid Merge
-                    else {
-                        let totalMass = r1.mass + r2.mass;
-                        let newVX = (r1.xv * r1.mass + r2.xv * r2.mass) / totalMass;
-                        let newVY = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass;
-                        // BONUS CRECIMIENTO: 5% extra de radio al fusionar
-                        let newR = Math.sqrt(r1.r * r1.r + r2.r * r2.r) * 1.05;
-
-                        // Max size for planet growth.
-                        if (newR > PLANET_MAX_SIZE) newR = PLANET_MAX_SIZE;
-
-                        const DAMPENING_FACTOR = 0.5;
-                        if (newR > PLANET_THRESHOLD) { newVX *= DAMPENING_FACTOR; newVY *= DAMPENING_FACTOR; }
-
-                        let newX = (r1.x * r1.mass + r2.x * r2.mass) / totalMass;
-                        let newY = (r1.y * r1.mass + r2.y * r2.mass) / totalMass;
-
-                        r1.x = newX; r1.y = newY;
-                        r1.xv = newVX; r1.yv = newVY;
-                        r1.targetR = newR;
-
-                        if (newR > PLANET_THRESHOLD && !r1.isPlanet) {
-                            const currentPlanets = roids.filter(r => r.isPlanet).length;
-                            if (currentPlanets <= PLANETS_LIMIT) {
-                                r1.r = newR;
-                                initializePlanetAttributes(r1);
+                                r1.x = newX; r1.y = newY;
+                                r1.xv = newVX; r1.yv = newVY;
                                 r1.targetR = newR;
-                                console.log(`New planet ${r1.name}.`);
-                                createExplosion(midVpX, midVpY, 30, '#fff', 5);
-                            } else {
-                                r1.r = newR;
-                                r1.targetR = newR;
+
+                                if (newR > PLANET_SIZE && !r1.isPlanet) {
+                                    const currentPlanets = roids.filter(r => r.isPlanet).length;
+                                    if (currentPlanets <= PLANETS_LIMIT) {
+                                        r1.r = newR;
+                                        initializePlanetAttributes(r1);
+                                        r1.targetR = newR;
+                                        console.log(`New planet ${r1.name}.`);
+                                        createExplosion(midVpX, midVpY, 30, '#fff', 5);
+                                    } else {
+                                        r1.r = newR;
+                                        r1.targetR = newR;
+                                    }
+                                } else if (r1.isPlanet) {
+                                    r1.r = newR;
+                                    r1.mass = totalMass * 0.05;
+                                }
+
+                                // NEW: Audio feedback for asteroid fusion
+                                if (newR <= PLANET_SIZE) {
+                                    AudioEngine.playSoftThud(midX, midY, r1.z); // Soft sound for merge
+                                }
+
+                                r2.markedForDeletion = true;
+                                continue;
                             }
-                        } else if (r1.isPlanet) {
-                            r1.r = newR;
-                            r1.mass = totalMass * 0.05;
                         }
-
-                        // NEW: Audio feedback for asteroid fusion
-                        if (newR <= PLANET_THRESHOLD) {
-                            AudioEngine.playSoftThud(midX, midY, r1.z); // Soft sound for merge
-                        }
-
-                        roids.splice(j, 1); j--; continue;
                     }
-                }
-            }
 
-            // --- Gravitational Attraction between Roids/Planets (World Coords) ---
-            if (r1.blinkNum === 0 && r2.blinkNum === 0 && dist > 10) {
-                let force = 0;
-                let G = G_CONST;
+                    // --- Gravitational Attraction between Roids/Planets (World Coords) ---
+                    // Recalculate dist only if needed, or use existing dist from collision check
+                    if (r1.blinkNum === 0 && r2.blinkNum === 0 && distSq > 100) {
+                        const dist = Math.sqrt(distSq);
+                        let force = 0;
+                        let G = G_CONST;
 
-                // SPECIAL: Planet acting on Asteroid
-                if ((r1.isPlanet && !r2.isPlanet && r1.z < 0.5) || (!r1.isPlanet && r2.isPlanet && r2.z < 0.5)) {
-                    // Identify Planet and Asteroid
-                    const planet = r1.isPlanet ? r1 : r2;
-                    const asteroid = r1.isPlanet ? r2 : r1;
+                        // SPECIAL: Planet acting on Asteroid
+                        if ((r1.isPlanet && !r2.isPlanet && r1.z < 0.5) || (!r1.isPlanet && r2.isPlanet && r2.z < 0.5)) {
+                            // Identify Planet and Asteroid
+                            const planet = r1.isPlanet ? r1 : r2;
+                            const asteroid = r1.isPlanet ? r2 : r1;
 
-                    // Planets in default z attract near asteroids
-                    // Check range - slightly larger range for "near" asteroids
-                    const attractionRange = planet.r * 6; // 6 times radius
+                            // Planets in default z attract near asteroids
+                            // Check range - slightly larger range for "near" asteroids
+                            const attractionRange = planet.r * 6; // 6 times radius
 
-                    if (dist < attractionRange) {
-                        // "the nearer, the faster they are atracted"
-                        // Standard gravity is F = G*M1*M2 / r^2. 
-                        // To make it noticeably "faster" as they get closer, we can use 1/r (linear falloff) or keep 1/r^2 with high constant.
+                            if (dist < attractionRange) {
+                                // "the nearer, the faster they are atracted"
+                                // For slingshots, we need high G at close range.
+                                const G_PLANET_ATTRACT = 25.0; // Increased significantly for slingshot effect
 
-                        // Let's rely on standard physics but boost the mass/G effect significantly for this interaction
-                        const G_PLANET_ATTRACT = 5.0; // Stronger G for absorption
+                                // Use a softer clamping for asteroids nearing the atmosphere to allow for high acceleration
+                                let effectiveDistSq = Math.max(distSq, planet.r * planet.r * 0.25);
+                                force = (G_PLANET_ATTRACT * planet.mass * asteroid.mass) / effectiveDistSq;
 
-                        force = (G_PLANET_ATTRACT * planet.mass * asteroid.mass) / Math.max(distSq, 100);
+                                let fx = (dx / dist) * force;
+                                let fy = (dy / dist) * force;
 
-                        let fx = (dx / dist) * force;
-                        let fy = (dy / dist) * force;
+                                if (!isNaN(fx) && !isNaN(fy)) {
+                                    // Only affect the asteroid. The planet is on rails (orbit).
+                                    if (r1 === asteroid) {
+                                        r1.xv += fx / r1.mass;
+                                        r1.yv += fy / r1.mass;
+                                    } else {
+                                        r2.xv -= fx / r2.mass;
+                                        r2.yv -= fy / r2.mass;
+                                    }
+                                }
+                            }
+                        }
+                        else if (r1.isPlanet || r2.isPlanet) {
+                            // Planets are on rails, don't attract each other to avoid jitter
+                        } else {
+                            // Asteroid-Asteroid Gravity
+                            let G_ROIDS = 0.08;
+                            force = (G_ROIDS * r1.mass * r2.mass) / Math.max(distSq, 400);
 
-                        if (!isNaN(fx) && !isNaN(fy)) {
-                            // Only affect the asteroid. The planet is on rails (orbit).
-                            if (r1 === asteroid) {
+                            let fx = (dx / dist) * force;
+                            let fy = (dy / dist) * force;
+
+                            if (!isNaN(fx) && !isNaN(fy)) {
                                 r1.xv += fx / r1.mass;
                                 r1.yv += fy / r1.mass;
-                            } else {
                                 r2.xv -= fx / r2.mass;
                                 r2.yv -= fy / r2.mass;
                             }
                         }
-                    }
-                }
-                else if (r1.isPlanet || r2.isPlanet) {
-                    // Generic planet-planet or deep-z gravity (weaker)
-                    force = (G * r1.mass * r2.mass) / Math.max(distSq, 500);
-                    let fx = (dx / dist) * force;
-                    let fy = (dy / dist) * force;
-                    // Planets are on rails, so this force likely won't move them effectively if we override x/y, 
-                    // but we calculate it for completeness or if one isn't orbiting.
-                    // Actually, since we override Planet X/Y in the loop, we shouldn't apply force TO the planet.
-                } else {
-                    // Asteroid-Asteroid Gravity
-                    let G_ROIDS = 0.08;
-                    force = (G_ROIDS * r1.mass * r2.mass) / Math.max(distSq, 400);
-
-                    let fx = (dx / dist) * force;
-                    let fy = (dy / dist) * force;
-
-                    if (!isNaN(fx) && !isNaN(fy)) {
-                        r1.xv += fx / r1.mass;
-                        r1.yv += fy / r1.mass;
-                        r2.xv -= fx / r2.mass;
-                        r2.yv -= fy / r2.mass;
                     }
                 }
             }
@@ -1224,8 +1286,11 @@ function loop() {
     }
 
     if (stationSpawnTimer > 0) stationSpawnTimer--;
-    if (stationSpawnTimer <= 0 && ships.length < 3) {
-        spawnStation();
+    if (stationSpawnTimer <= 0) {
+        const stationCount = ships.filter(s => s.type === 'station').length;
+        if (stationCount < 10) {
+            spawnStation();
+        }
     }
 
     const isSafe = (obj) => !isNaN(obj.x) && !isNaN(obj.y) && isFinite(obj.x) && isFinite(obj.y);
@@ -1239,8 +1304,11 @@ function loop() {
     canvasContext.save();
 
     // In touch mode, zoom out to see more of the world
-    const targetScale = (inputMode === 'touch') ? SCALE_IN_TOUCH_MODE : SCALE_IN_MOUSE_MODE;
-    viewScale += (targetScale - viewScale) * 0.1;
+    // Only lerp if NOT in game over, so it doesn't fight the zoom-out
+    if (!(playerShip.dead && playerShip.lives === 0)) {
+        const targetScale = (inputMode === 'touch') ? SCALE_IN_TOUCH_MODE : SCALE_IN_MOUSE_MODE;
+        viewScale += (targetScale - viewScale) * 0.1;
+    }
 
     if (viewScale !== 1.0) {
         // Scale and translate to keep (width/2, height/2) at the center
@@ -1367,8 +1435,8 @@ function loop() {
             // Only start zooming out once camera is close to target
             const distToTarget = Math.hypot(targetX - worldOffsetX, targetY - worldOffsetY);
             if (distToTarget < 50) {
-                viewScale *= 0.997; // Much slower zoom out (was 0.9)
-                if (viewScale < 0.0001) viewScale = 0.0001;
+                viewScale *= 0.9;
+                if (viewScale < 0.001) viewScale = 0.001; // Don't go ultra-microscopic
             }
         }
     }
@@ -1632,8 +1700,11 @@ function loop() {
             const distToPlayer = Math.hypot(worldOffsetX - ship.x, worldOffsetY - ship.y);
 
             // 1. STATE TRANSITION
-            if (!ship.isFriendly && distToPlayer < SHIP_SIGHT_RANGE && !playerShip.dead) { // Only ships auto-switch to combat by distance
-                ship.aiState = 'COMBAT';
+            if (!ship.isFriendly && distToPlayer < SHIP_SIGHT_RANGE && !playerShip.dead) {
+                // Wingmen stay in formation if they have a leader; otherwise they can engage
+                if (ship.role !== 'wingman' || !ship.leaderRef) {
+                    ship.aiState = 'COMBAT';
+                }
             } else if (distToPlayer > SHIP_SIGHT_RANGE * 1.5 && ship.aiState === 'COMBAT') {
                 ship.aiState = 'FORMATION';
             }
@@ -1767,36 +1838,114 @@ function loop() {
                     } else {
                         const distToPlayer = Math.hypot(worldOffsetX - ship.x, worldOffsetY - ship.y);
 
-                        // Friendly leaders follow player at a distance
+                        // 1. Friendly leaders follow player at a distance
                         if (ship.isFriendly && distToPlayer < 900) {
                             ship.xv *= 0.92;
                             ship.yv *= 0.92;
-
-                            // Face the player
                             let targetAngle = Math.atan2(worldOffsetY - ship.y, worldOffsetX - ship.x);
                             let angleDiff = targetAngle - ship.a;
                             while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
                             while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
                             ship.a += angleDiff * 0.05;
-                        } else {
-                            let targetAngle = Math.atan2(worldOffsetY - ship.y, worldOffsetX - ship.x);
+                        }
+                        // 2. Saboteur Leaders: Focused on crashing planets
+                        else if (!ship.isFriendly && ship.squadMission === 'SABOTAGE' && (distToPlayer > 1500)) {
+                            if (!ship.sabotageTargetId || !roids.find(r => r.id === ship.sabotageTargetId)) {
+                                const targets = getSabotageTargets(ship);
+                                if (targets) {
+                                    ship.sabotageTargetId = targets.target.id;
+                                    ship.sabotageGoalId = targets.goal.id;
+                                }
+                            }
 
-                            // Smooth rotation
+                            const sTarget = roids.find(r => r.id === ship.sabotageTargetId);
+                            const sGoal = roids.find(r => r.id === ship.sabotageGoalId);
+
+                            if (sTarget && sGoal) {
+                                const angleToGoal = Math.atan2(sGoal.y - sTarget.y, sGoal.x - sTarget.x);
+
+                                // Use vector math to find the "push point" behind the planet
+                                const targetX_final = sTarget.x - Math.cos(angleToGoal) * (sTarget.r + 150);
+                                const targetY_final = sTarget.y - Math.sin(angleToGoal) * (sTarget.r + 150);
+
+                                const dx = targetX_final - ship.x;
+                                const dy = targetY_final - ship.y;
+                                const distToPushPos = Math.hypot(dx, dy);
+
+                                if (distToPushPos > 150) {
+                                    // Move to push position
+                                    const ang = Math.atan2(dy, dx);
+                                    let angleDiff = ang - ship.a;
+                                    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                                    while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                                    ship.a += angleDiff * 0.1;
+                                    ship.xv += Math.cos(ship.a) * 1.2;
+                                    ship.yv += Math.sin(ship.a) * 1.2;
+                                } else {
+                                    // Positioned: PUSH it!
+                                    // Rotate to face the planet and push towards the goal
+                                    ship.a = angleToGoal;
+                                    ship.xv += Math.cos(ship.a) * 2.5;
+                                    ship.yv += Math.sin(ship.a) * 2.5;
+
+                                    // Apply sabotage force directly to planet velocity
+                                    // Scale by number of ships in the squad to represent collective pushing power
+                                    const squadSize = ships.filter(s => s.squadId === ship.squadId).length;
+                                    sTarget.xv += Math.cos(ship.a) * SHIP_PLANET_PUSH_FORCE * squadSize;
+                                    sTarget.yv += Math.sin(ship.a) * SHIP_PLANET_PUSH_FORCE * squadSize;
+
+                                    // Random thud sound
+                                    if (Math.random() < 0.05) AudioEngine.playSoftThud(sTarget.x, sTarget.y, sTarget.z);
+                                }
+                                ship.xv *= 0.96; ship.yv *= 0.96;
+                            } else {
+                                // Default back to approach player if no sabotge targets found
+                                ship.squadMission = null;
+                            }
+                        }
+                        // 3. Enemy leaders orbit player when in viewport
+                        else if (!ship.isFriendly && distToPlayer < SHIP_SIGHT_RANGE) {
+                            // Calculate orbit parameters
+                            const lead = getLeadTarget(ship, playerShip);
+                            const angleToTarget = Math.atan2(lead.y - ship.y, lead.x - ship.x);
+                            const orbitDir = (ship.squadId && ship.squadId > 0.5) ? 1 : -1;
+                            const tangentialAngle = angleToTarget + (Math.PI / 2 * orbitDir);
+
+                            // Radial Force (maintain distance)
+                            const distError = distToPlayer - SHIPS_ORBIT_RADIUS_VIEWPORT;
+                            const radialForce = distError * 0.008; // Stronger spring
+
+                            // Apply forces
+                            ship.xv += Math.cos(angleToTarget) * radialForce;
+                            ship.yv += Math.sin(angleToTarget) * radialForce;
+                            ship.xv += Math.cos(tangentialAngle) * SHIPS_ORBIT_TANGENTIAL_FORCE * (ship.personality?.speedMultiplier || 1.0);
+                            ship.yv += Math.sin(tangentialAngle) * SHIPS_ORBIT_TANGENTIAL_FORCE * (ship.personality?.speedMultiplier || 1.0);
+
+                            // Face the target (using lead aiming)
+                            let targetAngle = angleToTarget;
+                            let angleDiff = targetAngle - ship.a;
+                            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                            ship.a += angleDiff * 0.1; // Faster rotation
+
+                            // Damping
+                            ship.xv *= 0.98;
+                            ship.yv *= 0.98;
+                        }
+                        // 3. Long range approach
+                        else {
+                            let targetAngle = Math.atan2(worldOffsetY - ship.y, worldOffsetX - ship.x);
                             let angleDiff = targetAngle - ship.a;
                             while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
                             while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
                             ship.a += angleDiff * 0.05;
 
-                            // Cruising Speed (Faster than before to hunt/follow)
                             let cruiseSpeed = ship.isFriendly ? 10 : 12;
                             if (ship.personality) cruiseSpeed *= ship.personality.speedMultiplier;
-
-                            // Use personality for acceleration
                             const accel = 0.5 * (ship.personality ? ship.personality.aggressivity : 1.0);
                             ship.xv += Math.cos(ship.a) * accel;
                             ship.yv += Math.sin(ship.a) * accel;
 
-                            // Cap speed (don't exceed personality-modified cruise speed OR global MAX)
                             const maxPossibleSpeed = Math.min(SHIP_MAX_SPEED, cruiseSpeed);
                             const speed = Math.hypot(ship.xv, ship.yv);
                             if (speed > maxPossibleSpeed) {
@@ -1890,11 +2039,19 @@ function loop() {
 
                         if (isRival && (other.type === 'ship' || other.type === 'station')) {
                             let d = Math.hypot(other.x - ship.x, other.y - ship.y);
-                            // Aggro if closer than player or player is dead/far
-                            if (d < minDist && d < 2000) { // 2000 is aggro range
+
+                            // Defensive prioritization: attack saboteurs near planets
+                            let priority = 1.0;
+                            if (ship.isFriendly && other.squadMission === 'SABOTAGE') {
+                                // Increase priority if they are close to a planet
+                                let nearPlanet = roids.some(r => r.isPlanet && Math.hypot(other.x - r.x, other.y - r.y) < 1500);
+                                if (nearPlanet) priority = 3.0;
+                            }
+
+                            if ((d / priority) < minDist && d < 3000) {
                                 target = other;
-                                target.isRival = true; // Mark as rival
-                                minDist = d;
+                                target.isRival = true;
+                                minDist = d / priority;
                             }
                         }
                     }
@@ -1907,19 +2064,22 @@ function loop() {
                         let ty = target.y;
                         let d = minDist;
 
-                        let targetAngle = Math.atan2(ty - ship.y, tx - ship.x);
+                        const lead = getLeadTarget(ship, target);
+                        let targetAngle = Math.atan2(lead.y - ship.y, lead.x - ship.x);
                         let angleDiff = targetAngle - ship.a;
                         while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
                         while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
 
-                        // Smoother elegant rotation (Reduced from 0.1 to 0.04)
-                        ship.a += angleDiff * 0.04;
+                        // Much faster rotation for tracking (Increased from 0.04 to 0.1)
+                        ship.a += angleDiff * 0.1;
 
                         // 1. Radial Force (Push/Pull) - Proportional smooth spring
-                        // Instead of hard ±0.8, we scale by distance diff
-                        const distError = d - SHIPS_COMBAT_ORBIT_DISTANCE;
+                        // If in combat individually, we might use a tighter orbit, 
+                        // but let's respect the viewport orbit preference if this IS a leader
+                        const targetOrbitRadius = (ship.role === 'leader') ? SHIPS_ORBIT_RADIUS_VIEWPORT : SHIPS_COMBAT_ORBIT_DISTANCE;
+                        const distError = d - targetOrbitRadius;
                         // If positive (too far), pull in. If negative (too close), push out.
-                        const radialForce = distError * 0.002; // Small spring constant
+                        const radialForce = distError * 0.005; // Matches leader formation orbit spring
 
                         ship.xv += Math.cos(targetAngle) * radialForce;
                         ship.yv += Math.sin(targetAngle) * radialForce;
@@ -1928,8 +2088,10 @@ function loop() {
                         const orbitDir = (ship.squadId && ship.squadId > 0.5) ? 1 : -1;
                         const orbAngle = targetAngle + (Math.PI / 2 * orbitDir);
 
-                        ship.xv += Math.cos(orbAngle) * 0.08; // Slower (Reduced from 0.20)
-                        ship.yv += Math.sin(orbAngle) * 0.08;
+                        const orbitSpeedBase = (orbitDir === 1) ? SHIPS_ORBIT_TANGENTIAL_FORCE : -SHIPS_ORBIT_TANGENTIAL_FORCE;
+                        // Actually, orbAngle already incorporates orbitDir, so we just use the constant magnitude
+                        ship.xv += Math.cos(orbAngle) * SHIPS_ORBIT_TANGENTIAL_FORCE * (ship.personality?.speedMultiplier || 1.0);
+                        ship.yv += Math.sin(orbAngle) * SHIPS_ORBIT_TANGENTIAL_FORCE * (ship.personality?.speedMultiplier || 1.0);
 
                         // 3. Separation Logic (Avoid bunching up)
                         let sepX = 0;
@@ -1940,11 +2102,11 @@ function loop() {
                             if (other === ship || other.type !== 'ship') continue;
                             // Simple distance check
                             let distToOther = Math.hypot(ship.x - other.x, ship.y - other.y);
-                            if (distToOther < SHIPS_SEPARATION_DISTANCE) {
+                            if (distToOther < SHIPS_SQUAD_X_OFFSET) {
                                 // Push away relative to other
                                 let ang = Math.atan2(ship.y - other.y, ship.x - other.x);
                                 // Force stronger the closer they are
-                                let force = (SHIPS_SEPARATION_DISTANCE - distToOther) * 0.01;
+                                let force = (SHIPS_SQUAD_X_OFFSET - distToOther) * 0.01;
                                 sepX += Math.cos(ang) * force;
                                 sepY += Math.sin(ang) * force;
                                 count++;
@@ -1970,7 +2132,7 @@ function loop() {
                         // Shoot if lined up (slightly wider angle for smoother shooting feel)
                         if (ship.reloadTime <= 0 && Math.abs(angleDiff) < 0.4) {
                             fireEntityWeapon(ship, enemyShipBullets, true);
-                            const baseReload = 60 + Math.random() * 100;
+                            const baseReload = 30 + Math.random() * 50; // Faster
                             ship.reloadTime = ship.personality ? (baseReload * ship.personality.reloadMultiplier) : baseReload;
                         }
                     }
@@ -2956,8 +3118,7 @@ function loop() {
     const DETECTION_RANGE = 3000; // How far off-screen to detect ships
 
     ships.forEach(e => {
-        if (playerShip.dead && playerShip.lives === 0) return; // Hide indicators during Game Over
-        if (e.isFriendly || e.z > 0.5) return; // Skip friendly ships and far-away ships
+        if (e === playerShip || e.z > 0.5) return; // Skip player ship and far-away ships
 
         // Calculate viewport position (in world viewport space)
         const depthScale = 1 / (1 + e.z);
@@ -2989,11 +3150,12 @@ function loop() {
             if (vpY < screenTop) indicatorY = screenTop + BORDER_PADDING;
             else if (vpY > screenBottom) indicatorY = screenBottom - BORDER_PADDING;
 
-            // Draw pulsing red indicator
+            // Draw pulsing colored indicator
             const pulseAlpha = 0.5 + Math.sin(Date.now() / 200) * 0.3;
             canvasContext.globalAlpha = pulseAlpha;
-            canvasContext.fillStyle = '#FF0000';
-            canvasContext.shadowColor = '#FF0000';
+            const indicatorColor = e.fleetHue !== undefined ? `hsl(${e.fleetHue}, 100%, 50%)` : (e.isFriendly ? '#00FFFF' : '#FF0000');
+            canvasContext.fillStyle = indicatorColor;
+            canvasContext.shadowColor = indicatorColor;
             canvasContext.shadowBlur = 10;
 
             // Draw arrow pointing towards enemy
@@ -3018,7 +3180,6 @@ function loop() {
     // --- Off-Screen Asteroid Indicators ---
     // Show gray indicators at screen borders for asteroids that are approaching but not visible
     roids.forEach(r => {
-        if (playerShip.dead && playerShip.lives === 0) return; // Hide indicators during Game Over
         if (r.isPlanet || r.z > 0.5) return; // Skip planets and far-away asteroids
 
         // Calculate viewport position (in world viewport space)
@@ -3124,6 +3285,7 @@ function startGame() {
     // Hide start/restart button in order to gradually show it again in the game over screen.
     startBtn.style.display = 'none';
 
+    startScreen.classList.remove('game-over');
     startScreen.style.display = 'none'; level = 0; homePlanetId = null; homePlanetDestroyed = false; screenMessages = [];
 
     velocity = { x: 0, y: 0 };
@@ -3135,7 +3297,6 @@ function startGame() {
 
     playerShip = newPlayerShip();
     increaseShipScore(playerShip, 0);
-    ships.push(playerShip);
     particles = [];
     ambientFogs = [];
     playerShipBullets = [];
@@ -3147,6 +3308,20 @@ function startGame() {
 
     initBackground(); createLevel(); gameRunning = true;
     viewScale = 1.0; // Reset view scale
+
+    // Ensure player ship is in the ships list (createLevel clears it)
+    if (!ships.includes(playerShip)) {
+        ships.push(playerShip);
+    }
+
+    // Spawn near a friendly station at start
+    const startStation = ships.find(s => s.type === 'station' && s.isFriendly);
+    if (startStation) {
+        worldOffsetX = startStation.x;
+        worldOffsetY = startStation.y;
+        velocity.x = startStation.xv || 0;
+        velocity.y = startStation.yv || 0;
+    }
 
     // Reset radar zoom to default (2500)
     currentZoomIndex = 2;
