@@ -65,6 +65,11 @@ const audioStarter = () => {
     startScreen.removeEventListener('click', audioStarter);
 }
 
+const audioStopper = () => {
+    AudioEngine.stopMusic();
+    startScreen.removeEventListener('click', audioStopper);
+}
+
 window.onload = function () {
     resize();
     AudioEngine.init();
@@ -687,22 +692,27 @@ function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
 function createLevel() {
     roids = []; ships = []; enemyShipBullets = []; playerShipBullets = []; shockwaves = [];
 
-    let planetSpawned = false;
-    let planetX = (Math.random() - 0.5) * 5000;
-    let planetY = (Math.random() - 0.5) * 5000;
-    let firstPlanet = createAsteroid(planetX, planetY, PLANET_THRESHOLD + 1, 0);
-    roids.push(firstPlanet);
-    homePlanetId = firstPlanet.id;
-    firstPlanet.name = "HOME";
-    firstPlanet.zSpeed = 0;
-
-    if (firstPlanet.textureData) {
-        firstPlanet.textureData.waterColor = `hsl(${SHIP_FRIENDLY_BLUE_HUE}, 60%, 30%)`;
-        firstPlanet.textureData.atmosphereColor = `hsl(${SHIP_FRIENDLY_BLUE_HUE}, 80%, 60%)`;
-        firstPlanet.textureData.innerGradColor = `hsl(${SHIP_FRIENDLY_BLUE_HUE}, 10%, 2%)`;
+    if (PLANETS_LIMIT === 0) {
+        homePlanetId = null;
     }
+    else {
+        let planetSpawned = false;
+        let planetX = (Math.random() - 0.5) * 5000;
+        let planetY = (Math.random() - 0.5) * 5000;
+        let firstPlanet = createAsteroid(planetX, planetY, PLANET_THRESHOLD + 1, 0);
+        roids.push(firstPlanet);
+        homePlanetId = firstPlanet.id;
+        firstPlanet.name = "HOME";
+        firstPlanet.zSpeed = 0;
 
-    planetSpawned = true;
+        if (firstPlanet.textureData) {
+            firstPlanet.textureData.waterColor = `hsl(${SHIP_FRIENDLY_BLUE_HUE}, 60%, 30%)`;
+            firstPlanet.textureData.atmosphereColor = `hsl(${SHIP_FRIENDLY_BLUE_HUE}, 80%, 60%)`;
+            firstPlanet.textureData.innerGradColor = `hsl(${SHIP_FRIENDLY_BLUE_HUE}, 10%, 2%)`;
+        }
+
+        planetSpawned = true;
+            }
 
     createAsteroidBelt(0, 0, ASTEROID_BELT_INNER_RADIUS, ASTEROID_BELT_OUTER_RADIUS, ASTEROIDS_PER_BELT);
 
@@ -757,9 +767,11 @@ function killPlayerShip() {
             showInfoLEDText("Communication lost. Rest in eternity.");
             AudioEngine.setTrack('menu');
             AudioEngine.startMusic();
+            startScreen.addEventListener('click', audioStopper);
 
-            // Reset opacity before fading out
+            // Reset opacity before fading out during game over
             startScreen.classList.remove('fade-out');
+            startScreen.classList.add('game-over');
 
             setTimeout(() => {
                 startScreen.classList.add('fade-out');
@@ -1020,7 +1032,7 @@ function updatePhysics() {
 
                         if (newR > PLANET_THRESHOLD && !r1.isPlanet) {
                             const currentPlanets = roids.filter(r => r.isPlanet).length;
-                            if (currentPlanets <= PLANETS_LIMIT) {
+                            if (currentPlanets < PLANETS_LIMIT) {
                                 r1.r = newR;
                                 initializePlanetAttributes(r1);
                                 r1.targetR = newR;
@@ -1148,6 +1160,8 @@ function drawRings(ctx, rings, planetRadius, depthScale) {
 
 function loop() {
     if (!gameRunning) return;
+
+    if (playerShip.lives === 0) killPlayerShip();
 
     // Decrement player reload timer
     if (playerReloadTime > 0) playerReloadTime--;

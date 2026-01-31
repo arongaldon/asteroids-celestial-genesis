@@ -255,8 +255,13 @@ canvas {
     z-index: -1;
 }
 
+#start-screen.game-over::before {
+    background-image: url('game over.jpg');
+    opacity: 0.75;
+}
+
 #start-screen.fade-out::before {
-    opacity: 0;
+    opacity: 0.0;
 }
 
 #title {
