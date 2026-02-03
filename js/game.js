@@ -568,7 +568,7 @@ function drawRadar() {
     const radarRadius = rW / 2;
     const scale = radarRadius / RADAR_RANGE;
 
-    const drawBlip = (worldX, worldY, type, color, size) => {
+    const drawBlip = (worldX, worldY, type, color, size, z = 0) => {
         if (isNaN(worldX) || isNaN(worldY)) return;
 
         let dx = worldX - worldOffsetX;
@@ -579,9 +579,15 @@ function drawRadar() {
 
         let angle = Math.atan2(dy, dx);
         let radarDist = dist * scale;
+        let radarSize = (size * scale) / (1 + z);
 
-        if (radarDist > radarRadius - size) {
-            radarDist = radarRadius - size - 1;
+        // Ensure elements are visible on the radar regardless of zoom
+        if (type === 'planet') radarSize = Math.max(4, radarSize);
+        else if (type === 'asteroid') radarSize = Math.max(1.5, radarSize);
+        else radarSize = Math.max(2, radarSize); // Default minimum for ships/etc
+
+        if (radarDist > radarRadius - radarSize) {
+            radarDist = radarRadius - radarSize - 1;
         }
 
         let rx = cX + radarDist * Math.cos(angle);
@@ -595,17 +601,13 @@ function drawRadar() {
             canvasRadarContext.textAlign = 'center';
             canvasRadarContext.textBaseline = 'middle';
             canvasRadarContext.fillText('O', rx, ry);
-        } else if (type === 'ship') {
+        } else if (type === 'asteroid') {
             canvasRadarContext.beginPath();
-            canvasRadarContext.arc(rx, ry, 2, 0, Math.PI * 2);
-            canvasRadarContext.fill();
-        } else if (type === 'planet') {
-            canvasRadarContext.beginPath();
-            canvasRadarContext.arc(rx, ry, Math.max(4, size), 0, Math.PI * 2);
-            canvasRadarContext.fill();
+            canvasRadarContext.arc(rx, ry, radarSize, 0, Math.PI * 2);
+            canvasRadarContext.stroke();
         } else {
             canvasRadarContext.beginPath();
-            canvasRadarContext.arc(rx, ry, 2, 0, Math.PI * 2);
+            canvasRadarContext.arc(rx, ry, radarSize, 0, Math.PI * 2);
             canvasRadarContext.fill();
         }
     };
@@ -613,14 +615,14 @@ function drawRadar() {
     roids.forEach(r => {
         if (r.isPlanet) {
             const color = r.textureData ? r.textureData.waterColor : 'rgba(0, 150, 255, 0.7)';
-            const radarSize = (r.r * scale) / (1 + r.z);
-            drawBlip(r.x, r.y, 'planet', color, radarSize);
+            const radarSize = r.r;
+            drawBlip(r.x, r.y, 'planet', color, radarSize, r.z);
         }
     });
 
     roids.forEach(r => {
         if (!r.isPlanet && r.z <= 0.1) {
-            drawBlip(r.x, r.y, 'asteroid', 'rgba(170, 170, 170, 0.7)', 2);
+            drawBlip(r.x, r.y, 'asteroid', 'rgba(200, 200, 200, 0.9)', r.r, r.z);
         }
     });
 
@@ -628,9 +630,9 @@ function drawRadar() {
         if (e.z <= 0.1) {
             const color = e.isFriendly ? '#0088FF' : '#FF0000';
             if (e.type === 'station') {
-                drawBlip(e.x, e.y, 'station', color, 0);
+                drawBlip(e.x, e.y, 'station', color, 0, e.z);
             } else {
-                drawBlip(e.x, e.y, 'ship', color, 2);
+                drawBlip(e.x, e.y, 'ship', color, 2, e.z);
             }
         }
     });
@@ -680,7 +682,8 @@ function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
 }
 
 function createLevel() {
-    roids = []; ships = []; enemyShipBullets = []; playerShipBullets = []; shockwaves = [];
+    roids = []; enemyShipBullets = []; playerShipBullets = []; shockwaves = [];
+    // ships = []; // REMOVED: Don't clear ships here, clear it in startGame instead
 
     if (PLANETS_LIMIT === 0) {
         homePlanetId = null;
@@ -752,6 +755,10 @@ function killPlayerShip() {
         drawLives();
     }, 1500);
     else {
+        // HIDE HUD DURING GAME OVER
+        const uiLayer = document.getElementById('ui-layer');
+        if (uiLayer) uiLayer.style.display = 'none';
+
         setTimeout(() => {
             startScreen.style.display = 'flex';
             showInfoLEDText("Communication lost. Rest in eternity.");
@@ -767,9 +774,17 @@ function killPlayerShip() {
                 startScreen.classList.add('fade-out');
                 startBtn.style.display = 'block';
                 startBtn.innerText = 'RESTART';
-                startBtn.onclick = () => startGame();
+                startBtn.onclick = () => {
+                    // SHOW HUD FOR RESTART
+                    const uiLayer = document.getElementById('ui-layer');
+                    if (uiLayer) uiLayer.style.display = 'flex';
+                    startGame();
+                };
             }, 3000);
         }, 3000);
+
+        // Reset loopStarted to allow startGame to re-call loop() if it somehow stopped.
+        loopStarted = false;
     }
 }
 
@@ -1149,9 +1164,11 @@ function drawRings(ctx, rings, planetRadius, depthScale) {
 }
 
 function loop() {
+    requestAnimationFrame(loop);
     if (!gameRunning) return;
 
-    if (playerShip.lives === 0) killPlayerShip();
+    // killPlayerShip is handled in hitShip and collision logic.
+    // Calling it here every frame causes a recursion bug during Game Over.
 
     // Decrement player reload timer
     if (playerReloadTime > 0) playerReloadTime--;
@@ -2251,9 +2268,7 @@ function loop() {
             }
             canvasContext.beginPath(); canvasContext.arc(vpX, vpY, shipToDraw.r + 10, 0, Math.PI * 2); canvasContext.stroke();
         }
-    }
-
-    );
+    });
 
     canvasContext.shadowBlur = 10; canvasContext.lineCap = 'round'; canvasContext.lineJoin = 'round'; canvasContext.globalAlpha = 1;
 
@@ -2801,169 +2816,169 @@ function loop() {
     // --- Off-Screen Enemy Indicators ---
     // Show red dots at screen borders for ships that are approaching but not visible
     // Draw in screen space (unscaled) to work correctly in touch mode
-    canvasContext.save();
-    canvasContext.resetTransform(); // Draw in screen space, not affected by viewport scaling
-    const INDICATOR_SIZE = 8;
-    const BORDER_PADDING = 20;
-    const DETECTION_RANGE = 3000; // How far off-screen to detect ships
-
-    ships.forEach(e => {
-        if (e.isFriendly || e.z > 0.5) return; // Skip friendly ships and far-away ships
-
-        // Calculate viewport position (in world viewport space)
-        const depthScale = 1 / (1 + e.z);
-        const worldVpX = (e.x - worldOffsetX) * depthScale + width / 2;
-        const worldVpY = (e.y - worldOffsetY) * depthScale + height / 2;
-
-        // Apply viewScale transformation to get screen position
-        const vpX = worldVpX * viewScale + width / 2 * (1 - viewScale);
-        const vpY = worldVpY * viewScale + height / 2 * (1 - viewScale);
-
-        const screenLeft = 0;
-        const screenRight = width;
-        const screenTop = 0;
-        const screenBottom = height;
-
-        // Check if enemy is off-screen but within detection range
-        const isOffScreen = vpX < screenLeft || vpX > screenRight || vpY < screenTop || vpY > screenBottom;
-        const distToPlayer = Math.hypot(e.x - worldOffsetX, e.y - worldOffsetY);
-
-        if (isOffScreen && distToPlayer < DETECTION_RANGE) {
-            // Calculate indicator position at screen border
-            let indicatorX = vpX;
-            let indicatorY = vpY;
-
-            // Clamp to screen borders with padding
-            if (vpX < screenLeft) indicatorX = screenLeft + BORDER_PADDING;
-            else if (vpX > screenRight) indicatorX = screenRight - BORDER_PADDING;
-
-            if (vpY < screenTop) indicatorY = screenTop + BORDER_PADDING;
-            else if (vpY > screenBottom) indicatorY = screenBottom - BORDER_PADDING;
-
-            // Draw pulsing red indicator
-            const pulseAlpha = 0.5 + Math.sin(Date.now() / 200) * 0.3;
-            canvasContext.globalAlpha = pulseAlpha;
-            canvasContext.fillStyle = '#FF0000';
-            canvasContext.shadowColor = '#FF0000';
-            canvasContext.shadowBlur = 10;
-
-            // Draw arrow pointing towards enemy
-            const angleToEnemy = Math.atan2(vpY - indicatorY, vpX - indicatorX);
-            canvasContext.save();
-            canvasContext.translate(indicatorX, indicatorY);
-            canvasContext.rotate(angleToEnemy);
-
-            // Draw triangle arrow
-            canvasContext.beginPath();
-            canvasContext.moveTo(INDICATOR_SIZE, 0);
-            canvasContext.lineTo(-INDICATOR_SIZE / 2, -INDICATOR_SIZE / 2);
-            canvasContext.lineTo(-INDICATOR_SIZE / 2, INDICATOR_SIZE / 2);
-            canvasContext.closePath();
-            canvasContext.fill();
-
-            canvasContext.restore();
-            canvasContext.globalAlpha = 1;
-        }
-    });
-
-    // --- Off-Screen Asteroid Indicators ---
-    // Show gray indicators at screen borders for asteroids that are approaching but not visible
-    roids.forEach(r => {
-        if (r.isPlanet || r.z > 0.5) return; // Skip planets and far-away asteroids
-
-        // Calculate viewport position (in world viewport space)
-        const depthScale = 1 / (1 + r.z);
-        const worldVpX = (r.x - worldOffsetX) * depthScale + width / 2;
-        const worldVpY = (r.y - worldOffsetY) * depthScale + height / 2;
-
-        // Apply viewScale transformation to get screen position
-        const vpX = worldVpX * viewScale + width / 2 * (1 - viewScale);
-        const vpY = worldVpY * viewScale + height / 2 * (1 - viewScale);
-
-        const screenLeft = 0;
-        const screenRight = width;
-        const screenTop = 0;
-        const screenBottom = height;
-
-        // Check if asteroid is off-screen but within detection range
-        const isOffScreen = vpX < screenLeft || vpX > screenRight || vpY < screenTop || vpY > screenBottom;
-        const distToPlayer = Math.hypot(r.x - worldOffsetX, r.y - worldOffsetY);
-
-        if (isOffScreen && distToPlayer < DETECTION_RANGE) {
-            // Calculate indicator position at screen border
-            let indicatorX = vpX;
-            let indicatorY = vpY;
-
-            // Clamp to screen borders with padding
-            if (vpX < screenLeft) indicatorX = screenLeft + BORDER_PADDING;
-            else if (vpX > screenRight) indicatorX = screenRight - BORDER_PADDING;
-
-            if (vpY < screenTop) indicatorY = screenTop + BORDER_PADDING;
-            else if (vpY > screenBottom) indicatorY = screenBottom - BORDER_PADDING;
-
-            // Draw subtle gray indicator
-            const pulseAlpha = 0.4 + Math.sin(Date.now() / 250) * 0.2;
-            canvasContext.globalAlpha = pulseAlpha;
-            canvasContext.fillStyle = '#AAAAAA';
-            canvasContext.shadowColor = '#AAAAAA';
-            canvasContext.shadowBlur = 8;
-
-            // Draw arrow pointing towards asteroid
-            const angleToAsteroid = Math.atan2(vpY - indicatorY, vpX - indicatorX);
-            canvasContext.save();
-            canvasContext.translate(indicatorX, indicatorY);
-            canvasContext.rotate(angleToAsteroid);
-
-            // Draw triangle arrow (slightly smaller than enemy indicators)
-            const asteroidIndicatorSize = INDICATOR_SIZE * 0.75;
-            canvasContext.beginPath();
-            canvasContext.moveTo(asteroidIndicatorSize, 0);
-            canvasContext.lineTo(-asteroidIndicatorSize / 2, -asteroidIndicatorSize / 2);
-            canvasContext.lineTo(-asteroidIndicatorSize / 2, asteroidIndicatorSize / 2);
-            canvasContext.closePath();
-            canvasContext.fill();
-
-            canvasContext.restore();
-            canvasContext.globalAlpha = 1;
-        }
-    });
-
-    canvasContext.restore();
-    canvasContext.shadowBlur = 0;
-
-    // --- Render Screen Messages ---
-    if (screenMessages.length > 0) {
+    if (!(playerShip.dead && playerShip.lives <= 0)) {
         canvasContext.save();
-        canvasContext.resetTransform(); // Draw in screen space
-        canvasContext.textAlign = 'center';
+        canvasContext.resetTransform(); // Draw in screen space, not affected by viewport scaling
+        const INDICATOR_SIZE = 8;
+        const BORDER_PADDING = 20;
+        const DETECTION_RANGE = 3000; // How far off-screen to detect ships
 
-        // Responsive font size based on screen width
-        const baseFontSize = 24;
-        const fontSize = Math.max(14, Math.min(baseFontSize, width / 30)); // Scale between 14px and 24px
-        canvasContext.font = `bold ${fontSize}px Courier New`;
+        ships.forEach(e => {
+            if (e.isFriendly || e.z > 0.5) return; // Skip friendly ships and far-away ships
 
-        for (let i = screenMessages.length - 1; i >= 0; i--) {
-            const m = screenMessages[i];
-            const alpha = Math.min(1, m.life / 30);
-            canvasContext.globalAlpha = alpha;
-            canvasContext.fillStyle = m.color;
-            canvasContext.shadowBlur = 10;
-            canvasContext.shadowColor = m.color;
+            // Calculate viewport position (in world viewport space)
+            const depthScale = 1 / (1 + e.z);
+            const worldVpX = (e.x - worldOffsetX) * depthScale + width / 2;
+            const worldVpY = (e.y - worldOffsetY) * depthScale + height / 2;
 
-            // Draw relative to center, offset by message index
-            const yPos = height * 0.3 + (i * (fontSize + 16));
+            // Apply viewScale transformation to get screen position
+            const vpX = worldVpX * viewScale + width / 2 * (1 - viewScale);
+            const vpY = worldVpY * viewScale + height / 2 * (1 - viewScale);
 
-            // Use maxWidth to prevent text overflow (90% of screen width)
-            const maxWidth = width * 0.9;
-            canvasContext.fillText(m.text, width / 2, yPos, maxWidth);
+            const screenLeft = 0;
+            const screenRight = width;
+            const screenTop = 0;
+            const screenBottom = height;
 
-            m.life--;
-            if (m.life <= 0) screenMessages.splice(i, 1);
-        }
+            // Check if enemy is off-screen but within detection range
+            const isOffScreen = vpX < screenLeft || vpX > screenRight || vpY < screenTop || vpY > screenBottom;
+            const distToPlayer = Math.hypot(e.x - worldOffsetX, e.y - worldOffsetY);
+
+            if (isOffScreen && distToPlayer < DETECTION_RANGE) {
+                // Calculate indicator position at screen border
+                let indicatorX = vpX;
+                let indicatorY = vpY;
+
+                // Clamp to screen borders with padding
+                if (vpX < screenLeft) indicatorX = screenLeft + BORDER_PADDING;
+                else if (vpX > screenRight) indicatorX = screenRight - BORDER_PADDING;
+
+                if (vpY < screenTop) indicatorY = screenTop + BORDER_PADDING;
+                else if (vpY > screenBottom) indicatorY = screenBottom - BORDER_PADDING;
+
+                // Draw pulsing red indicator
+                const pulseAlpha = 0.5 + Math.sin(Date.now() / 200) * 0.3;
+                canvasContext.globalAlpha = pulseAlpha;
+                canvasContext.fillStyle = '#FF0000';
+                canvasContext.shadowColor = '#FF0000';
+                canvasContext.shadowBlur = 10;
+
+                // Draw arrow pointing towards enemy
+                const angleToEnemy = Math.atan2(vpY - indicatorY, vpX - indicatorX);
+                canvasContext.save();
+                canvasContext.translate(indicatorX, indicatorY);
+                canvasContext.rotate(angleToEnemy);
+
+                // Draw triangle arrow
+                canvasContext.beginPath();
+                canvasContext.moveTo(INDICATOR_SIZE, 0);
+                canvasContext.lineTo(-INDICATOR_SIZE / 2, -INDICATOR_SIZE / 2);
+                canvasContext.lineTo(-INDICATOR_SIZE / 2, INDICATOR_SIZE / 2);
+                canvasContext.closePath();
+                canvasContext.fill();
+
+                canvasContext.restore();
+                canvasContext.globalAlpha = 1;
+            }
+        });
+
+        // --- Off-Screen Asteroid Indicators ---
+        // Show gray indicators at screen borders for asteroids that are approaching but not visible
+        roids.forEach(r => {
+            if (r.isPlanet || r.z > 0.5) return; // Skip planets and far-away asteroids
+
+            // Calculate viewport position (in world viewport space)
+            const depthScale = 1 / (1 + r.z);
+            const worldVpX = (r.x - worldOffsetX) * depthScale + width / 2;
+            const worldVpY = (r.y - worldOffsetY) * depthScale + height / 2;
+
+            // Apply viewScale transformation to get screen position
+            const vpX = worldVpX * viewScale + width / 2 * (1 - viewScale);
+            const vpY = worldVpY * viewScale + height / 2 * (1 - viewScale);
+
+            const screenLeft = 0;
+            const screenRight = width;
+            const screenTop = 0;
+            const screenBottom = height;
+
+            // Check if asteroid is off-screen but within detection range
+            const isOffScreen = vpX < screenLeft || vpX > screenRight || vpY < screenTop || vpY > screenBottom;
+            const distToPlayer = Math.hypot(r.x - worldOffsetX, r.y - worldOffsetY);
+
+            if (isOffScreen && distToPlayer < DETECTION_RANGE) {
+                // Calculate indicator position at screen border
+                let indicatorX = vpX;
+                let indicatorY = vpY;
+
+                // Clamp to screen borders with padding
+                if (vpX < screenLeft) indicatorX = screenLeft + BORDER_PADDING;
+                else if (vpX > screenRight) indicatorX = screenRight - BORDER_PADDING;
+
+                if (vpY < screenTop) indicatorY = screenTop + BORDER_PADDING;
+                else if (vpY > screenBottom) indicatorY = screenBottom - BORDER_PADDING;
+
+                // Draw subtle gray indicator
+                const pulseAlpha = 0.4 + Math.sin(Date.now() / 250) * 0.2;
+                canvasContext.globalAlpha = pulseAlpha;
+                canvasContext.fillStyle = '#AAAAAA';
+                canvasContext.shadowColor = '#AAAAAA';
+                canvasContext.shadowBlur = 8;
+
+                // Draw arrow pointing towards asteroid
+                const angleToAsteroid = Math.atan2(vpY - indicatorY, vpX - indicatorX);
+                canvasContext.save();
+                canvasContext.translate(indicatorX, indicatorY);
+                canvasContext.rotate(angleToAsteroid);
+
+                // Draw triangle arrow (slightly smaller than enemy indicators)
+                const asteroidIndicatorSize = INDICATOR_SIZE * 0.75;
+                canvasContext.beginPath();
+                canvasContext.moveTo(asteroidIndicatorSize, 0);
+                canvasContext.lineTo(-asteroidIndicatorSize / 2, -asteroidIndicatorSize / 2);
+                canvasContext.lineTo(-asteroidIndicatorSize / 2, asteroidIndicatorSize / 2);
+                canvasContext.closePath();
+                canvasContext.fill();
+
+                canvasContext.restore();
+                canvasContext.globalAlpha = 1;
+            }
+        });
+
         canvasContext.restore();
+        canvasContext.shadowBlur = 0;
+
+        // --- Render Screen Messages ---
+        if (screenMessages.length > 0) {
+            canvasContext.save();
+            canvasContext.resetTransform(); // Draw in screen space
+            canvasContext.textAlign = 'center';
+
+            // Responsive font size based on screen width
+            const baseFontSize = 24;
+            const fontSize = Math.max(14, Math.min(baseFontSize, width / 30)); // Scale between 14px and 24px
+            canvasContext.font = `bold ${fontSize}px Courier New`;
+
+            for (let i = screenMessages.length - 1; i >= 0; i--) {
+                const m = screenMessages[i];
+                const alpha = Math.min(1, m.life / 30);
+                canvasContext.globalAlpha = alpha;
+                canvasContext.fillStyle = m.color;
+                canvasContext.shadowBlur = 10;
+                canvasContext.shadowColor = m.color;
+
+                // Draw relative to center, offset by message index
+                const yPos = height * 0.3 + (i * (fontSize + 16));
+
+                // Use maxWidth to prevent text overflow (90% of screen width)
+                const maxWidth = width * 0.9;
+                canvasContext.fillText(m.text, width / 2, yPos, maxWidth);
+
+                m.life--;
+                if (m.life <= 0) screenMessages.splice(i, 1);
+            }
+            canvasContext.restore();
+        }
     }
-    canvasContext.restore();
-    requestAnimationFrame(loop);
 }
 
 function startGame() {
@@ -2986,18 +3001,22 @@ function startGame() {
     stationsDestroyedCount = 0;
     playerReloadTime = 0; // Reset reload timer
 
-    playerShip = newPlayerShip();
-    increaseShipScore(playerShip, 0);
-    ships.push(playerShip);
     particles = [];
     ambientFogs = [];
     playerShipBullets = [];
     enemyShipBullets = [];
     shockwaves = [];
+    ships = []; // NEW: Reset ships here, safely before adding player and stations
+
+    playerShip = newPlayerShip();
+    increaseShipScore(playerShip, 0);
+    ships.push(playerShip);
+
+    initBackground();
+    createLevel();
 
     drawLives(); // NEW: Initial draw
-
-    initBackground(); createLevel(); gameRunning = true;
+    gameRunning = true;
 
     // Reset radar zoom to default (2500)
     currentZoomIndex = 2;

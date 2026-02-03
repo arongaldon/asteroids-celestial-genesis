@@ -1,6 +1,6 @@
-/* =========================================
-   PARAMETERS (Extracted from core.js)
-   ========================================= */
+/* ==========
+   PARAMETERS
+   ==========*/
 const ASTEROIDS_PER_BELT = 1500;
 const ASTEROID_BELT_INNER_RADIUS = 2000;
 const ASTEROID_BELT_OUTER_RADIUS = 20000;
@@ -54,9 +54,9 @@ const ZOOM_LEVELS = [1000, 2000, 3000, 5000, 8000, 13000, 21000];
 const suffixes = ["PRIME", "IV", "X", "ALPHA", "BETA", "MAJOR", "MINOR", "ZERO", "AEON"];
 const syllables = ["KRON", "XER", "ZAN", "TOR", "AER", "ION", "ULA", "PROX", "VEX", "NOV", "SOL", "LUNA", "TER", "MAR", "JUP"];
 
-/* =========================================
-   DOM ELEMENTS (Extracted from game.js)
-   ========================================= */
+/* ============
+   DOM ELEMENTS
+   ============*/
 const canvas = document.getElementById('gameCanvas');
 const canvasRadar = document.getElementById('radar-canvas');
 const fadeOverlay = document.getElementById('fade-overlay');
@@ -65,5 +65,6 @@ const livesDisplay = document.getElementById('lives-display');
 const scoreDisplay = document.getElementById('scoreEl');
 const startBtn = document.getElementById('start-btn');
 const startScreen = document.getElementById('start-screen');
+
 const canvasContext = canvas.getContext('2d');
 const canvasRadarContext = canvasRadar.getContext('2d');
