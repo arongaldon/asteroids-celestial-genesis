@@ -37,17 +37,7 @@ function onStationDestroyed(station, killerShip = null) {
     }
 }
 
-const canvas = document.getElementById('gameCanvas');
-const canvasRadar = document.getElementById('radar-canvas');
-const fadeOverlay = document.getElementById('fade-overlay');
-const infoLED = document.getElementById('info-led');
-const livesDisplay = document.getElementById('lives-display');
-const scoreDisplay = document.getElementById('scoreEl');
-const startBtn = document.getElementById('start-btn');
-const startScreen = document.getElementById('start-screen');
 
-const canvasContext = canvas.getContext('2d');
-const canvasRadarContext = canvasRadar.getContext('2d');
 
 function resize() {
     width = Math.max(window.innerWidth, 100);
@@ -712,7 +702,7 @@ function createLevel() {
         }
 
         planetSpawned = true;
-            }
+    }
 
     createAsteroidBelt(0, 0, ASTEROID_BELT_INNER_RADIUS, ASTEROID_BELT_OUTER_RADIUS, ASTEROIDS_PER_BELT);
 
