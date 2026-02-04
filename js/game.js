@@ -662,6 +662,13 @@ function drawLives() {
     livesDisplay.style.marginTop = '5px';
 }
 
+function updateAsteroidCounter() {
+    asteroidCount = roids.filter(r => !r.isPlanet).length;
+    if (asteroidCountDisplay) {
+        asteroidCountDisplay.innerText = asteroidCount;
+    }
+}
+
 function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
     for (let i = 0; i < count; i++) {
         const angle = Math.random() * Math.PI * 2;
@@ -715,10 +722,12 @@ function createLevel() {
             spawnStation(planet);
         }
     });
+
+    updateAsteroidCounter();
 }
 
 function hitShip(damageAmount, sourceIsNearPlanet = false) {
-    if (playerShip.blinkNum > 0 || playerShip.dead) return;
+    if (playerShip.blinkNum > 0 || playerShip.dead || victoryState) return;
 
     playerShip.structureHP--;
 
@@ -761,7 +770,7 @@ function killPlayerShip() {
 
         setTimeout(() => {
             startScreen.style.display = 'flex';
-            showInfoLEDText("Communication lost. Rest in eternity.");
+            showInfoLEDText("Rest in eternity.");
             AudioEngine.setTrack('menu');
             AudioEngine.startMusic();
             startScreen.addEventListener('click', audioStopper);
@@ -784,8 +793,32 @@ function killPlayerShip() {
         }, 3000);
 
         // Reset loopStarted to allow startGame to re-call loop() if it somehow stopped.
-        loopStarted = false;
     }
+}
+
+function winGame() {
+    if (victoryState) return;
+    victoryState = true;
+
+    // Play Victory Music
+    AudioEngine.playVictoryMusic();
+
+    // Show Congratulations
+    showInfoLEDText("CONGRATULATIONS: THE COSMOS IS CALM.");
+    addScreenMessage("MISSION ACCOMPLISHED!", "#00ff00");
+    addScreenMessage("YOU HAVE CLEANED THE SYSTEM.", "#ffff00");
+
+    // After a delay, show the start screen to allow restart
+    setTimeout(() => {
+        startScreen.style.display = 'flex';
+        startScreen.classList.add('victory');
+        startBtn.style.display = 'block';
+        startBtn.innerText = 'PLAY AGAIN';
+        startBtn.onclick = () => {
+            victoryState = false;
+            startGame();
+        };
+    }, 10000);
 }
 
 function updatePhysics() {
@@ -957,8 +990,11 @@ function updatePhysics() {
                         createExplosion(midVpX, midVpY, 40, '#ff0000', 8, 'debris');
                         AudioEngine.playPlanetExplosion(midX, midY, r1.z); // Strong sound if visible
 
-                        createAsteroidBelt(midVpX, midVpY, 0, ASTEROID_BELT_OUTER_RADIUS - ASTEROID_BELT_INNER_RADIUS, ASTEROIDS_PER_BELT / 2);
+                        // User request: many asteroids created
+                        const manyAsteroids = ASTEROIDS_PER_BELT; // 1500 asteroids!
+                        createAsteroidBelt(midX, midY, 0, 3000, manyAsteroids);
                         createShockwave(midX, midY);
+                        updateAsteroidCounter(); // New asteroids created!
 
                         // Destroy both planets' stations
                         for (let k = ships.length - 1; k >= 0; k--) {
@@ -969,6 +1005,7 @@ function updatePhysics() {
 
                         roids.splice(j, 1);
                         roids.splice(i, 1);
+                        updateAsteroidCounter();
                         i--; break; // Exit j-loop
                     }
                 }
@@ -1005,6 +1042,7 @@ function updatePhysics() {
                         planet.mass = totalMass; // Update mass immediately for gravity
 
                         roids.splice(asteroidIndex, 1);
+                        updateAsteroidCounter();
                         // If we removed the item at 'i', we must adjust 'i' and break
                         if (asteroidIndex === i) {
                             i--;
@@ -1057,7 +1095,9 @@ function updatePhysics() {
                             AudioEngine.playSoftThud(midX, midY, r1.z); // Soft sound for merge
                         }
 
-                        roids.splice(j, 1); j--; continue;
+                        roids.splice(j, 1); j--;
+                        updateAsteroidCounter();
+                        continue;
                     }
                 }
             }
@@ -1126,10 +1166,45 @@ function updatePhysics() {
                         r2.yv -= fy / r2.mass;
                     }
                 }
+            } // End of r2 loop
+        } // End of interaction section
+
+        // --- Speed Limit and Boundary Correction ---
+        const speed = Math.hypot(r1.xv, r1.yv);
+        if (speed > ASTEROID_SPEED_LIMIT) {
+            const ratio = ASTEROID_SPEED_LIMIT / speed;
+            r1.xv *= ratio;
+            r1.yv *= ratio;
+        }
+
+        // Steer back to center if near boundary
+        if (Math.abs(r1.x) > WORLD_BOUNDS - BOUNDARY_TOLERANCE_ROIDS) {
+            r1.xv -= Math.sign(r1.x) * BOUNDARY_CORRECTION_FORCE;
+        }
+        if (Math.abs(r1.y) > WORLD_BOUNDS - BOUNDARY_TOLERANCE_ROIDS) {
+            r1.yv -= Math.sign(r1.y) * BOUNDARY_CORRECTION_FORCE;
+        }
+
+        // Basic Avoidance for fast objects
+        for (let j = 0; j < roids.length; j++) {
+            if (i === j) continue;
+            const r2 = roids[j];
+            const dx = r2.x - r1.x;
+            const dy = r2.y - r1.y;
+            const distSq = dx * dx + dy * dy;
+            const combinedR = r1.r + r2.r;
+            if (distSq < (combinedR * 2) ** 2) {
+                const speed2 = Math.hypot(r2.xv, r2.yv);
+                if (speed2 > ASTEROID_SPEED_LIMIT * 0.8) {
+                    const dist = Math.sqrt(distSq);
+                    const force = 0.1;
+                    r1.xv -= (dx / dist) * force;
+                    r1.yv -= (dy / dist) * force;
+                }
             }
         }
-    }
-}
+    } // End of r1 loop
+} // End of updatePhysics function
 
 // NEW: Function to draw planetary rings (fixed attributes, dynamic scale)
 function drawRings(ctx, rings, planetRadius, depthScale) {
@@ -1204,6 +1279,20 @@ function loop() {
         // Scale and translate to keep (width/2, height/2) at the center
         canvasContext.translate(width / 2 * (1 - viewScale), height / 2 * (1 - viewScale));
         canvasContext.scale(viewScale, viewScale);
+    }
+
+    // Win condition check
+    if (gameRunning && !victoryState && asteroidCount === 0 && !roids.some(r => !r.isPlanet)) {
+        winGame();
+    }
+
+    // HUD Victory Effects (Flashing)
+    if (victoryState && Date.now() % 400 < 200) {
+        if (asteroidCountDisplay) asteroidCountDisplay.style.color = '#fff';
+        if (scoreDisplay) scoreDisplay.style.color = '#fff';
+    } else if (victoryState) {
+        if (asteroidCountDisplay) asteroidCountDisplay.style.color = '#0ff';
+        if (scoreDisplay) scoreDisplay.style.color = '#0ff';
     }
 
     if (!playerShip.dead) {
@@ -1415,6 +1504,19 @@ function loop() {
         }
 
         if (ship.blinkNum > 0) ship.blinkNum--;
+
+        // USER REQUEST: Ships dancing in victory (Refined: Synchronized spiral)
+        if (victoryState) {
+            const time = Date.now() / 1000;
+            const orbitR = 300 + Math.sin(time + i) * 100;
+            const destX = worldOffsetX + Math.cos(time * 0.5 + i * 0.5) * orbitR;
+            const destY = worldOffsetY + Math.sin(time * 0.5 + i * 0.5) * orbitR;
+
+            ship.xv += (destX - ship.x) * 0.05;
+            ship.yv += (destY - ship.y) * 0.05;
+            ship.xv *= 0.95; ship.yv *= 0.95;
+            ship.a += 0.1;
+        }
 
         let isOrbiting = false;
         if (ship.type === 'station' && ship.hostPlanetId) {
@@ -1923,6 +2025,8 @@ function loop() {
         }
 
         // CULLING LOGIC: Remove object if far from player
+        // REMOVED: Asteroids and planets won't disappear from the map.
+        /*
         const cullRange = Math.max(width, height) * WORLD_SCALE / 2 + r.r;
         if (!r.isPlanet) {
             if (Math.hypot(r.x - worldOffsetX, r.y - worldOffsetY) > cullRange) {
@@ -1933,6 +2037,7 @@ function loop() {
                 }
             }
         }
+        */
 
         // Apply transformations for depth
         canvasContext.save();
@@ -1988,7 +2093,16 @@ function loop() {
         } else {
             // Draw standard asteroid shape
             canvasContext.shadowBlur = 10; canvasContext.shadowColor = 'white'; canvasContext.strokeStyle = 'white';
-            canvasContext.beginPath(); for (let j = 0; j < r.vert; j++) canvasContext.lineTo(r.r * r.offs[j] * Math.cos(r.a + j * Math.PI * 2 / r.vert), r.r * r.offs[j] * Math.sin(r.a + j * Math.PI * 2 / r.vert)); canvasContext.closePath(); canvasContext.stroke();
+            canvasContext.fillStyle = r.color; // Dark gray fill
+            canvasContext.beginPath();
+            for (let j = 0; j < r.vert; j++) {
+                const px = r.r * r.offs[j] * Math.cos(r.a + j * Math.PI * 2 / r.vert);
+                const py = r.r * r.offs[j] * Math.sin(r.a + j * Math.PI * 2 / r.vert);
+                if (j === 0) canvasContext.moveTo(px, py); else canvasContext.lineTo(px, py);
+            }
+            canvasContext.closePath();
+            canvasContext.fill();
+            canvasContext.stroke();
         }
         canvasContext.restore(); // Restore context
 
@@ -2032,6 +2146,7 @@ function loop() {
                     }
 
                     roids.splice(i, 1);
+                    updateAsteroidCounter();
 
                     let ang = Math.atan2(r.y - worldOffsetY, r.x - worldOffsetX); // World Angle
                     r.x += Math.cos(ang) * 50; r.y += Math.sin(ang) * 50; // Knockback in World Coords (though it's removed next frame)
@@ -2800,12 +2915,13 @@ function loop() {
     }
 
     // Auto-spawn asteroid if count is too low
-    if (roids.length < 5 + level) {
+    if (roids.length < 5 + level && !victoryState) {
         let x, y, d;
         // Spawning logic (off-screen in World Coords)
         const spawnRadius = WORLD_BOUNDS * 0.9;
         do { x = (Math.random() - 0.5) * spawnRadius * 2; y = (Math.random() - 0.5) * spawnRadius * 2; d = Math.sqrt(x ** 2 + y ** 2); } while (d < 300);
         roids.push(createAsteroid(x, y, 60));
+        updateAsteroidCounter();
     }
 
     drawRadar();
@@ -2977,6 +3093,14 @@ function loop() {
                 if (m.life <= 0) screenMessages.splice(i, 1);
             }
             canvasContext.restore();
+        }
+
+        // Victory Fireworks
+        if (victoryState && Math.random() < 0.05) {
+            const fx = (Math.random() - 0.5) * width;
+            const fy = (Math.random() - 0.5) * height;
+            const hue = Math.floor(Math.random() * 360);
+            createExplosion(width / 2 + fx, height / 2 + fy, 40, `hsl(${hue}, 100%, 50%)`, 3, 'spark');
         }
     }
 }

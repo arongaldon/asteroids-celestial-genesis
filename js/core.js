@@ -12,6 +12,7 @@ let worldOffsetX = 0;
 let worldOffsetY = 0;
 let velocity = { x: 0, y: 0 };
 let roids = [];
+let asteroidCount = 0;
 let ships = [];
 let playerShipBullets = [];
 let enemyShipBullets = [];
@@ -26,6 +27,7 @@ let level = 0;
 let homePlanetId = null;
 let screenMessages = [];
 let gameRunning = false;
+let victoryState = false;
 let loopStarted = false;
 let inputMode = 'mouse';
 let keys = { ArrowUp: false, ArrowDown: false, Space: false, ArrowLeft: false, ArrowRight: false, KeyA: false, KeyD: false };
@@ -102,6 +104,12 @@ const AudioEngine = {
 
     stopMusic: function () {
         this.isPlayingMusic = false;
+    },
+
+    playVictoryMusic: function () {
+        if (!this.enabled || !this.ctx) return;
+        this.setTrack('victory');
+        this.startMusic();
     },
 
     createPianoNote: function (freq, volume, time, duration) {
@@ -247,16 +255,38 @@ const AudioEngine = {
 
     scheduler: function () {
         if (!this.isPlayingMusic || !this.ctx) return;
-        if (this.currentTrack !== 'menu') {
+        if (this.currentTrack !== 'menu' && this.currentTrack !== 'victory') {
             this.stopMusic();
             return;
         }
-        const beatDuration = 0.5;
+        const beatDuration = (this.currentTrack === 'victory') ? 0.3 : 0.5;
         while (this.nextNoteTime < this.ctx.currentTime + 0.1) {
-            this.playMenuBeat(this.nextNoteTime);
+            if (this.currentTrack === 'victory') {
+                this.playVictoryBeat(this.nextNoteTime);
+            } else {
+                this.playMenuBeat(this.nextNoteTime);
+            }
             this.nextNoteTime += beatDuration;
         }
         requestAnimationFrame(() => this.scheduler());
+    },
+
+    playVictoryBeat: function (time) {
+        // Space Opera Style: Majestic, full chords, multi-oscillator fanfare
+        const scale = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99]; // C Major
+        const root = scale[this.beatCount % scale.length];
+
+        // Multi-oscillator chord (Majestic fanfare)
+        this.createPianoNote(root, 0.08, time, 0.6);
+        this.createPianoNote(root * 1.5, 0.05, time, 0.4); // 5th or similar interval
+        this.createPianoNote(root * 2, 0.03, time, 0.3); // High octave
+
+        if (this.beatCount % 4 === 0) {
+            const bassFreq = scale[0] / 2;
+            this.createPianoNote(bassFreq, 0.12, time, 1.2);
+            this.createPianoNote(bassFreq * 1.005, 0.08, time, 1.2); // Detuned for warmth
+        }
+        this.beatCount++;
     },
 
     playMenuBeat: function (time) {
@@ -385,8 +415,8 @@ function createAsteroid(x, y, r, z = 0) {
     let roid = {
         id: ++roidCounter,
         x, y,
-        xv: (0.5 + Math.random() * 25 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
-        yv: (0.5 + Math.random() * 25 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
+        xv: (0.1 + Math.random() * 5 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
+        yv: (0.1 + Math.random() * 5 / FPS) * (Math.random() < 0.5 ? 1 : -1) * (isPlanet ? 0.2 : 1),
         r, a: Math.random() * Math.PI * 2,
         vert: Math.floor(Math.random() * 8 + 6), offs: [],
         mass: r * r * 0.05,
@@ -397,7 +427,8 @@ function createAsteroid(x, y, r, z = 0) {
         textureData: null,
         rings: null,
         blinkNum: 0,
-        targetR: r
+        targetR: r,
+        color: `hsl(${Math.random() * 360}, ${5 + Math.random() * 5}%, ${5 + Math.random() * 10}%)` // Almost black, low saturation
     };
     roid.stableXV = roid.xv;
     roid.stableYV = roid.yv;
@@ -426,7 +457,7 @@ function initializePlanetAttributes(roid, forcedHue = null) {
     // Orbital Speed (The farther, the slower, naturally, but we can tune this)
     // Using a base speed divided by radius for angular velocity
     // Random direction (CW or CCW)
-    const baseOrbitSpeed = 10; // Reduced from 40 to 10
+    const baseOrbitSpeed = 5; // Reduced from 10 to 5
     roid.orbitSpeed = (baseOrbitSpeed / roid.orbitRadius) * (rng() < 0.5 ? 1 : -1);
 
     roid.zSpeed = (rng() * 0.001) + 0.0005;
