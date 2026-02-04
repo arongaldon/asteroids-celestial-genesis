@@ -425,7 +425,7 @@ function fireEntityWeapon(ship, bulletList, isEnemy = true) {
 }
 
 function shootLaser() {
-    if (!gameRunning || playerShip.dead) return;
+    if (!gameRunning || playerShip.dead || victoryState) return;
     if (playerReloadTime > 0) return;
     playerReloadTime = PLAYER_RELOAD_TIME_MAX;
     fireEntityWeapon(playerShip, playerShipBullets, false);
@@ -498,7 +498,7 @@ function proactiveCombatScanner(e) {
 
     // 2. SCAN FOR ASTEROIDS
     for (let r of roids) {
-        if (r.z > 0.5) continue;
+        if (r.z > 0.5 || r.isPlanet) continue; // Skip distant roids and planets
         const dist = Math.hypot(r.x - e.x, r.y - e.y);
         if (dist < 800) {
             enemyShoot(e, r.x, r.y);
@@ -787,6 +787,7 @@ function killPlayerShip() {
                     // SHOW HUD FOR RESTART
                     const uiLayer = document.getElementById('ui-layer');
                     if (uiLayer) uiLayer.style.display = 'flex';
+                    startScreen.removeEventListener('click', audioStopper);
                     startGame();
                 };
             }, 3000);
@@ -796,6 +797,29 @@ function killPlayerShip() {
     }
 }
 
+const handleVictoryInteraction = () => {
+    if (!victoryState) return;
+
+    // Show Congratulations
+    showInfoLEDText("CONGRATULATIONS: YOUR PLANET WILL LOVE YOU FOREVER.");
+    addScreenMessage("MISSION ACCOMPLISHED!", "#00ff00");
+    addScreenMessage("YOU HAVE CLEANED THE SYSTEM.", "#ffff00");
+
+    startScreen.style.display = 'flex';
+    startScreen.classList.add('victory');
+    startScreen.addEventListener('click', audioStopper); // Allow stopping music
+    startBtn.style.display = 'block';
+    startBtn.innerText = 'PLAY AGAIN';
+    startBtn.onclick = () => {
+        victoryState = false;
+        startScreen.removeEventListener('click', audioStopper);
+        startGame();
+    };
+
+    window.removeEventListener('mousedown', handleVictoryInteraction);
+    window.removeEventListener('touchstart', handleVictoryInteraction);
+};
+
 function winGame() {
     if (victoryState) return;
     victoryState = true;
@@ -803,22 +827,12 @@ function winGame() {
     // Play Victory Music
     AudioEngine.playVictoryMusic();
 
-    // Show Congratulations
-    showInfoLEDText("CONGRATULATIONS: THE COSMOS IS CALM.");
-    addScreenMessage("MISSION ACCOMPLISHED!", "#00ff00");
-    addScreenMessage("YOU HAVE CLEANED THE SYSTEM.", "#ffff00");
-
-    // After a delay, show the start screen to allow restart
+    // User request: No text or buttons until click/tap
+    // Wait a short bit to avoid capturing the click that destroyed the last asteroid
     setTimeout(() => {
-        startScreen.style.display = 'flex';
-        startScreen.classList.add('victory');
-        startBtn.style.display = 'block';
-        startBtn.innerText = 'PLAY AGAIN';
-        startBtn.onclick = () => {
-            victoryState = false;
-            startGame();
-        };
-    }, 10000);
+        window.addEventListener('mousedown', handleVictoryInteraction);
+        window.addEventListener('touchstart', handleVictoryInteraction);
+    }, 1000);
 }
 
 function updatePhysics() {
@@ -1605,6 +1619,9 @@ function loop() {
                 // COLLISION CHECK Z-FILTER: Ignore if station/enemy is far away
                 if (ship.z > 0.5) continue;
 
+                // USER REQUEST: Ships (and player) pass through planets
+                if (r.isPlanet) continue;
+
                 let angle = Math.atan2(dy, dx);
                 let overlap = minDist - dist;
 
@@ -1615,20 +1632,16 @@ function loop() {
                 ship.yv += Math.sin(angle) * 2;
 
                 // Collision Effects
-                if (r.isPlanet) {
-                    createExplosion(vpX, vpY, 10, '#ff0000', 2, 'spark');
-                } else {
-                    ship.structureHP--;
-                    ship.shieldHitTimer = 10;
-                    const rVpX = r.x - worldOffsetX + width / 2;
-                    const rVpY = r.y - worldOffsetY + height / 2;
-                    createExplosion(rVpX, rVpY, 5, '#aa00ff', 1, 'debris');
-                    if (ship.structureHP <= 0) {
-                        createExplosion(vpX, vpY, 30, '#ffaa00', 3, 'spark');
-                        ships.splice(i, 1);
-                        i--;
-                        break;
-                    }
+                ship.structureHP--;
+                ship.shieldHitTimer = 10;
+                const rVpX = r.x - worldOffsetX + width / 2;
+                const rVpY = r.y - worldOffsetY + height / 2;
+                createExplosion(rVpX, rVpY, 5, '#aa00ff', 1, 'debris');
+                if (ship.structureHP <= 0) {
+                    createExplosion(vpX, vpY, 30, '#ffaa00', 3, 'spark');
+                    ships.splice(i, 1);
+                    i--;
+                    break;
                 }
             }
         }
@@ -1881,6 +1894,12 @@ function loop() {
                 let d = minDist;
 
                 let targetAngle = Math.atan2(ty - ship.y, tx - ship.x);
+
+                // USER REQUEST: Friendly squad ships point the same way as player
+                if (ship.isFriendly && ship.role === 'wingman' && ship.leaderRef === playerShip) {
+                    targetAngle = playerShip.a;
+                }
+
                 let angleDiff = targetAngle - ship.a;
                 while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
                 while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;

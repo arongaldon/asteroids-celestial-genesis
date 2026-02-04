@@ -135,6 +135,61 @@ const AudioEngine = {
         osc.stop(time + duration + 0.1);
     },
 
+    createAmbientPad: function (freq, volume, time, duration) {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const osc2 = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        const filter = this.ctx.createBiquadFilter();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, time);
+        osc2.type = 'triangle';
+        osc2.frequency.setValueAtTime(freq * 1.002, time);
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(freq * 2, time);
+        filter.frequency.linearRampToValueAtTime(freq * 4, time + duration * 0.5);
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(volume, time + duration * 0.3);
+        gain.gain.linearRampToValueAtTime(0, time + duration);
+        osc.connect(filter); osc2.connect(filter); filter.connect(gain);
+        gain.connect(this.masterGain); gain.connect(this.delay);
+        osc.start(time); osc.stop(time + duration + 0.1);
+        osc2.start(time); osc2.stop(time + duration + 0.1);
+    },
+
+    playSolarWind: function (time, duration) {
+        if (!this.ctx) return;
+        const bufferSize = this.ctx.sampleRate * duration;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        const noise = this.ctx.createBufferSource(); noise.buffer = buffer;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(100, time);
+        filter.frequency.exponentialRampToValueAtTime(800, time + duration * 0.5);
+        filter.frequency.exponentialRampToValueAtTime(100, time + duration);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.05, time + duration * 0.5);
+        gain.gain.linearRampToValueAtTime(0, time + duration);
+        noise.connect(filter); filter.connect(gain); gain.connect(this.masterGain);
+        noise.start(time);
+    },
+
+    playSpark: function (time) {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(3000 + Math.random() * 3000, time);
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.03, time + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+        osc.connect(gain); gain.connect(this.masterGain); gain.connect(this.delay);
+        osc.start(time); osc.stop(time + 0.1);
+    },
+
     playKick: function (time) { },
     playSnare: function (time) { },
 
@@ -272,20 +327,31 @@ const AudioEngine = {
     },
 
     playVictoryBeat: function (time) {
-        // Space Opera Style: Majestic, full chords, multi-oscillator fanfare
-        const scale = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99]; // C Major
-        const root = scale[this.beatCount % scale.length];
+        // Cosmic Ambient Lofi: Relaxing, ethereal, cosmic
+        const notes = [261.63, 293.66, 329.63, 392.00, 440.00]; // Pentatonic C Major
+        const beatInMeasure = this.beatCount % 16;
 
-        // Multi-oscillator chord (Majestic fanfare)
-        this.createPianoNote(root, 0.08, time, 0.6);
-        this.createPianoNote(root * 1.5, 0.05, time, 0.4); // 5th or similar interval
-        this.createPianoNote(root * 2, 0.03, time, 0.3); // High octave
-
-        if (this.beatCount % 4 === 0) {
-            const bassFreq = scale[0] / 2;
-            this.createPianoNote(bassFreq, 0.12, time, 1.2);
-            this.createPianoNote(bassFreq * 1.005, 0.08, time, 1.2); // Detuned for warmth
+        // Ambient Pad (Slow, relaxing melody)
+        if (beatInMeasure % 4 === 0) {
+            const freq = notes[Math.floor(Math.random() * notes.length)];
+            this.createAmbientPad(freq, 0.1, time, 4.0);
         }
+
+        // Sub-Bass (Deep and grounding)
+        if (beatInMeasure === 0) {
+            this.createAmbientPad(notes[0] / 4, 0.15, time, 8.0);
+        }
+
+        // Stellar Sparks (Random high-pitched blips)
+        if (Math.random() > 0.7) {
+            this.playSpark(time + Math.random() * 0.2);
+        }
+
+        // Solar Winds (Occasional sweeps)
+        if (beatInMeasure === 8 && Math.random() > 0.5) {
+            this.playSolarWind(time, 4.0);
+        }
+
         this.beatCount++;
     },
 
