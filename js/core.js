@@ -112,6 +112,12 @@ const AudioEngine = {
         this.startMusic();
     },
 
+    playGameOverMusic: function () {
+        if (!this.enabled || !this.ctx) return;
+        this.setTrack('gameover');
+        this.startMusic();
+    },
+
     createPianoNote: function (freq, volume, time, duration) {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
@@ -310,14 +316,16 @@ const AudioEngine = {
 
     scheduler: function () {
         if (!this.isPlayingMusic || !this.ctx) return;
-        if (this.currentTrack !== 'menu' && this.currentTrack !== 'victory') {
+        if (this.currentTrack !== 'menu' && this.currentTrack !== 'victory' && this.currentTrack !== 'gameover') {
             this.stopMusic();
             return;
         }
-        const beatDuration = (this.currentTrack === 'victory') ? 0.3 : 0.5;
+        const beatDuration = (this.currentTrack === 'menu') ? 0.5 : 0.3;
         while (this.nextNoteTime < this.ctx.currentTime + 0.1) {
             if (this.currentTrack === 'victory') {
                 this.playVictoryBeat(this.nextNoteTime);
+            } else if (this.currentTrack === 'gameover') {
+                this.playGameOverBeat(this.nextNoteTime);
             } else {
                 this.playMenuBeat(this.nextNoteTime);
             }
@@ -350,6 +358,35 @@ const AudioEngine = {
         // Solar Winds (Occasional sweeps)
         if (beatInMeasure === 8 && Math.random() > 0.5) {
             this.playSolarWind(time, 4.0);
+        }
+
+        this.beatCount++;
+    },
+
+    playGameOverBeat: function (time) {
+        // Sad Cosmic Ambient: Mournful, ethereal, mystical
+        const notes = [261.63, 311.13, 392.00, 415.30, 466.16]; // C Minor (with Eb, G, Ab, Bb)
+        const beatInMeasure = this.beatCount % 32; // Slower cycles for mystery
+
+        // Mournful Pad (Very slow, sad melody)
+        if (beatInMeasure % 8 === 0) {
+            const freq = notes[Math.floor(Math.random() * notes.length)];
+            this.createAmbientPad(freq, 0.08, time, 6.0); // Longer decay
+        }
+
+        // Mystic Bass (Deep and dark)
+        if (beatInMeasure === 0) {
+            this.createAmbientPad(notes[0] / 4, 0.12, time, 12.0); // Very deep bass
+        }
+
+        // Faint Solar Winds (Constant mournful breathing)
+        if (beatInMeasure % 4 === 0) {
+            this.playSolarWind(time, 5.0);
+        }
+
+        // Dissolving Sparks (Distant echoes)
+        if (Math.random() > 0.8) {
+            this.playSpark(time + Math.random() * 0.5);
         }
 
         this.beatCount++;

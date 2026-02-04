@@ -16,6 +16,7 @@ function onStationDestroyed(station, killerShip = null) {
         junkAst.yv = station.yv;
         junkAst.blinkNum = 30;
         roids.push(junkAst);
+        updateAsteroidCounter();
     };
 
     if (killerShip === playerShip) {
@@ -89,7 +90,7 @@ function changeRadarZoom(direction) {
 document.addEventListener('keydown', (e) => {
     if (e.code === 'Space') shootLaser();
 
-    // NOTE: The logic for KeyE to create matter has been permanently removed as requested.
+    // NOTE: The logic for KeyE to create matter has been permanently removed.
 
     // NEW: Radar Zoom Toggle (Key Z)
     if (e.code === 'KeyZ' && gameRunning) {
@@ -267,20 +268,27 @@ function spawnStation(hostPlanet = null) {
 }
 
 function spawnShipsSquad(station) {
-    // Avoid more than 6 friends, since all of them want to join the player ship formation, and there are only 6 slots.
+    // Avoid spawning more than SHIPS_LIMIT total ships (including players for friendly squads)
     if (station.isFriendly) {
-        const currentFriendlyShips = ships.filter(en => en.type === 'ship' && en.isFriendly === true);
-        if (currentFriendlyShips.length > 0) { return; }
+        const currentFriendlyShips = ships.filter(en => en.type === 'ship' && en.isFriendly === true).length;
+        if (currentFriendlyShips >= SHIPS_LIMIT) { return; }
+    } else {
+        const currentHostileShips = ships.filter(en => en.type === 'ship' && en.isFriendly === false).length;
+        // Hostile stations have their own local limit based on SHIPS_LIMIT
+        if (currentHostileShips >= SHIPS_LIMIT * 3) { return; } // Allowing more hostiles than friends for balance
     }
     const squadId = Math.random();
     console.log(`New squad ${squadId} from ${station.isFriendly ? 'friendly' : 'hostile'} station at planet ${station.hostPlanet.name}.`);
 
-    const formationData = [
+    let formationData = [
         { role: 'leader', x: 0, y: 0 },
         { role: 'wingman', x: -120, y: -120 }, { role: 'wingman', x: 120, y: -120 },
         { role: 'wingman', x: -240, y: -240 }, { role: 'wingman', x: 240, y: -240 },
         { role: 'wingman', x: -360, y: -360 }, { role: 'wingman', x: 360, y: -360 }
     ];
+
+    // Limit squad size to SHIPS_LIMIT (accounting for player if friendly)
+    formationData = formationData.slice(0, SHIPS_LIMIT);
 
     const spawnDist = station.r * 2.0;
     const spawnAngle = Math.random() * Math.PI * 2;
@@ -717,7 +725,7 @@ function createLevel() {
     createAsteroidBelt(0, 0, ASTEROID_BELT_INNER_RADIUS, ASTEROID_BELT_OUTER_RADIUS, ASTEROIDS_PER_BELT);
 
     roids.filter(r => r.isPlanet).forEach(planet => {
-        const stationCount = Math.floor(Math.random() * NUM_STATIONS_PER_PLANET) + 1;
+        const stationCount = Math.floor(Math.random() * STATIONS_PER_PLANET) + 1;
         for (let i = 0; i < stationCount; i++) {
             spawnStation(planet);
         }
@@ -752,6 +760,7 @@ function killPlayerShip() {
     playerShip.dead = true;
     playerShip.leaderRef = null;
     playerShip.lives--;
+    drawLives(); // Ensure HUD reflects 0 immediately
     playerShip.squadId = null;
 
     velocity = { x: 0, y: 0 };
@@ -771,8 +780,7 @@ function killPlayerShip() {
         setTimeout(() => {
             startScreen.style.display = 'flex';
             showInfoLEDText("Rest in eternity.");
-            AudioEngine.setTrack('menu');
-            AudioEngine.startMusic();
+            AudioEngine.playGameOverMusic();
             startScreen.addEventListener('click', audioStopper);
 
             // Reset opacity before fading out during game over
@@ -827,7 +835,7 @@ function winGame() {
     // Play Victory Music
     AudioEngine.playVictoryMusic();
 
-    // User request: No text or buttons until click/tap
+    // No text or buttons until click/tap
     // Wait a short bit to avoid capturing the click that destroyed the last asteroid
     setTimeout(() => {
         window.addEventListener('mousedown', handleVictoryInteraction);
@@ -840,7 +848,7 @@ function updatePhysics() {
 
     for (let i = 0; i < roids.length; i++) {
         let r1 = roids[i];
-        if (isNaN(r1.x) || isNaN(r1.y)) { roids.splice(i, 1); i--; continue; }
+        if (isNaN(r1.x) || isNaN(r1.y)) { roids.splice(i, 1); updateAsteroidCounter(); i--; continue; }
 
         // 1. SMOOTH RADIUS GROWTH (NEW IMPLEMENTATION)
         if (r1.targetR && r1.r < r1.targetR) {
@@ -897,7 +905,7 @@ function updatePhysics() {
 
             // --- PLANET ORBITAL MECHANICS ---
             // Planets move smoothly in continuous orbit sizes over the map.
-            // APPLY BUBBLE FRICTION (User Request: expands slower and slower)
+            // APPLY BUBBLE FRICTION (expands slower and slower)
             if (r1.isBubbleDebris) {
                 r1.xv *= r1.bubbleFriction;
                 r1.yv *= r1.bubbleFriction;
@@ -963,7 +971,7 @@ function updatePhysics() {
         // --- Asteroid/Planet Collision and Merge (All in World Coords) ---
         for (let j = i + 1; j < roids.length; j++) {
             let r2 = roids[j];
-            if (isNaN(r2.x) || isNaN(r2.y)) { roids.splice(j, 1); j--; continue; }
+            if (isNaN(r2.x) || isNaN(r2.y)) { roids.splice(j, 1); updateAsteroidCounter(); j--; continue; }
 
             // Skip collision check if either asteroid is blinking (newly created by player)
             if (r1.blinkNum > 0 || r2.blinkNum > 0) continue;
@@ -1004,7 +1012,7 @@ function updatePhysics() {
                         createExplosion(midVpX, midVpY, 40, '#ff0000', 8, 'debris');
                         AudioEngine.playPlanetExplosion(midX, midY, r1.z); // Strong sound if visible
 
-                        // User request: many asteroids created
+                        // many asteroids created
                         const manyAsteroids = ASTEROIDS_PER_BELT; // 1500 asteroids!
                         createAsteroidBelt(midX, midY, 0, 3000, manyAsteroids);
                         createShockwave(midX, midY);
@@ -1071,10 +1079,9 @@ function updatePhysics() {
                         let totalMass = r1.mass + r2.mass;
                         let newVX = (r1.xv * r1.mass + r2.xv * r2.mass) / totalMass;
                         let newVY = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass;
-                        // BONUS CRECIMIENTO: 5% extra de radio al fusionar
                         let newR = Math.sqrt(r1.r * r1.r + r2.r * r2.r) * 1.05;
 
-                        // USER REQUEST: Max size for planet growth
+                        // Max size for planet growth
                         if (newR > PLANET_MAX_SIZE) newR = PLANET_MAX_SIZE;
 
                         const DAMPENING_FACTOR = 0.5;
@@ -1166,7 +1173,7 @@ function updatePhysics() {
                     // Actually, since we override Planet X/Y in the loop, we shouldn't apply force TO the planet.
                 } else {
                     // Asteroid-Asteroid Gravity
-                    // Gravedad más fuerte y rango cercano más agresivo (USER REQUEST in previous turn, maintained)
+                    // Gravedad más fuerte y rango cercano más agresivo (in previous turn, maintained)
                     let G_ROIDS = 0.08;
                     force = (G_ROIDS * r1.mass * r2.mass) / Math.max(distSq, 400);
 
@@ -1296,7 +1303,9 @@ function loop() {
     }
 
     // Win condition check
-    if (gameRunning && !victoryState && asteroidCount === 0 && !roids.some(r => !r.isPlanet)) {
+    // USER REQUEST: Make this very robust. Directly check the roids array.
+    const activeAsteroids = roids.filter(r => !r.isPlanet).length;
+    if (gameRunning && !victoryState && activeAsteroids === 0) {
         winGame();
     }
 
@@ -1519,7 +1528,7 @@ function loop() {
 
         if (ship.blinkNum > 0) ship.blinkNum--;
 
-        // USER REQUEST: Ships dancing in victory (Refined: Synchronized spiral)
+        // Ships dancing in victory (Refined: Synchronized spiral)
         if (victoryState) {
             const time = Date.now() / 1000;
             const orbitR = 300 + Math.sin(time + i) * 100;
@@ -1619,7 +1628,7 @@ function loop() {
                 // COLLISION CHECK Z-FILTER: Ignore if station/enemy is far away
                 if (ship.z > 0.5) continue;
 
-                // USER REQUEST: Ships (and player) pass through planets
+                // Ships (and player) pass through planets
                 if (r.isPlanet) continue;
 
                 let angle = Math.atan2(dy, dx);
@@ -1669,7 +1678,7 @@ function loop() {
             ship.spawnTimer--;
             if (ship.spawnTimer <= 0) {
                 const currentShips = ships.filter(en => en.type === 'ship').length;
-                if (currentShips <= SHIPS_MAX_NUMBER) {
+                if (currentShips <= SHIPS_LIMIT) {
                     spawnShipsSquad(ship);
                 }
                 ship.spawnTimer = SHIPS_SPAWN_TIME + Math.random() * SHIPS_SPAWN_TIME;
@@ -1689,7 +1698,7 @@ function loop() {
             if (ship.aiState === 'FORMATION') {
                 proactiveCombatScanner(ship);
 
-                if (ship.isFriendly && !playerShip.dead) {
+                if (ship.isFriendly && !playerShip.dead && ship.leaderRef === playerShip) {
                     // FRIENDLY: Follow Player in V-Formation
                     const lx = worldOffsetX;
                     const ly = worldOffsetY;
@@ -1895,7 +1904,7 @@ function loop() {
 
                 let targetAngle = Math.atan2(ty - ship.y, tx - ship.x);
 
-                // USER REQUEST: Friendly squad ships point the same way as player
+                // Friendly squad ships point the same way as player
                 if (ship.isFriendly && ship.role === 'wingman' && ship.leaderRef === playerShip) {
                     targetAngle = playerShip.a;
                 }
@@ -1975,7 +1984,8 @@ function loop() {
             let collisionThreshold = (playerShip.effectiveR || playerShip.r) + ship.r + 10;
             if (distToPlayer < collisionThreshold) {
                 if (ship.isFriendly) {
-                    continue;
+                    shipsToDraw.push(ship);
+                    continue; // Skip collision response but keep alive
                 }
 
                 if (ship.structureHP > 0) {
@@ -1989,6 +1999,7 @@ function loop() {
                 } else {
                     ships.splice(i, 1); i--;
                     AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
+                    continue; // Ship is gone, don't draw
                 }
 
                 if (ship.structureHP <= 0) {
@@ -1996,7 +2007,8 @@ function loop() {
                     createExplosion(vpX, vpY, 40, '#ffaa00', 3, 'spark'); createExplosion(vpX, vpY, 20, debrisColor, 4, 'debris');
                     if (ship.type === 'station') { onStationDestroyed(ship); }
                     else { onShipDestroyed(ship); }
-                    ships.splice(i, 1); AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
+                    ships.splice(i, 1); i--; AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
+                    continue; // Ship is gone, don't draw
                 }
             }
         }
@@ -2162,6 +2174,7 @@ function loop() {
                         eastAst.yv = r.yv;
                         eastAst.blinkNum = 30;
                         roids.push(eastAst);
+                        updateAsteroidCounter();
                     }
 
                     roids.splice(i, 1);
@@ -2189,14 +2202,26 @@ function loop() {
         // Drawing enemy
         canvasContext.shadowBlur = 15;
 
+        // Proximity fading for friends
+        let alpha = depthAlpha;
+        if (shipToDraw.isFriendly) {
+            const distToPlayer = Math.hypot(worldOffsetX - shipToDraw.x, worldOffsetY - shipToDraw.y);
+            const fadeStart = 300;
+            const fadeEnd = 50;
+            if (distToPlayer < fadeStart) {
+                const ratio = Math.max(0, (distToPlayer - fadeEnd) / (fadeStart - fadeEnd));
+                alpha *= 0.4 + 0.6 * ratio; // Fades to 40% alpha (more visible)
+            }
+        }
+
         // If blinking, reduce opacity (for invulnerability feedback)
         if (shipToDraw.blinkNum % 2 !== 0) { canvasContext.globalAlpha = 0.5; }
-        else { canvasContext.globalAlpha = depthAlpha; } // Apply depth alpha
+        else { canvasContext.globalAlpha = alpha; } // Apply fading/depth alpha
 
         canvasContext.save();
         canvasContext.translate(vpX, vpY); // Translate to Viewport Position
         canvasContext.scale(depthScale, depthScale); // Apply depth scaling
-        canvasContext.rotate(shipToDraw.a);
+        canvasContext.rotate(-shipToDraw.a); // MATCH PLAYER: Invert Y-axis for rotation synchronization
 
         if (shipToDraw.type === 'ship') {
 
@@ -2697,8 +2722,13 @@ function loop() {
                         enemyShipBullet.owner.score += ASTEROID_DESTROYED_REWARD;
                     }
 
-                    if (r.r > 100) { roids.push(createAsteroid(r.x, r.y, r.r / 2)); roids.push(createAsteroid(r.x, r.y, r.r / 2)); } // New asteroids get world coords
+                    if (r.r > 100) {
+                        roids.push(createAsteroid(r.x, r.y, r.r / 2));
+                        roids.push(createAsteroid(r.x, r.y, r.r / 2));
+                        updateAsteroidCounter();
+                    } // New asteroids get world coords
                     roids.splice(j, 1);
+                    updateAsteroidCounter();
                     AudioEngine.playExplosion('small', r.x, r.y, r.z); // Added for asteroid destruction by enemy
                 }
                 enemyShipBullets.splice(i, 1); hit = true; break;
@@ -2843,9 +2873,11 @@ function loop() {
                         eastAst.yv = r.yv;
                         eastAst.blinkNum = 30;
                         roids.push(eastAst);
+                        updateAsteroidCounter();
                     }
 
                     roids.splice(j, 1);
+                    updateAsteroidCounter();
                     AudioEngine.playExplosion('small', r.x, r.y, r.z);
                 }
                 if (!r.isPlanet) {
@@ -2934,6 +2966,7 @@ function loop() {
     }
 
     // Auto-spawn asteroid if count is too low
+    /* DISABLED: Victory is based on cleaning the map
     if (roids.length < 5 + level && !victoryState) {
         let x, y, d;
         // Spawning logic (off-screen in World Coords)
@@ -2942,6 +2975,7 @@ function loop() {
         roids.push(createAsteroid(x, y, 60));
         updateAsteroidCounter();
     }
+    */
 
     drawRadar();
 
@@ -3154,6 +3188,11 @@ function startGame() {
     playerShip = newPlayerShip();
     increaseShipScore(playerShip, 0);
     ships.push(playerShip);
+
+    if (playerShip.lives <= 0) {
+        killPlayerShip();
+        return;
+    }
 
     initBackground();
     createLevel();
