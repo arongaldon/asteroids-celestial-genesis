@@ -170,6 +170,10 @@ canvas {
     text-shadow: 0 0 5px #00ff00, 0 0 10px #00ff00, 0 0 20px #00ff00;
     white-space: pre-wrap;
     width: 80%;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 #lives-display {
@@ -236,6 +240,10 @@ canvas {
     justify-content: center;
     pointer-events: auto;
     z-index: 50;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }
 
 #start-screen::before {
@@ -275,4 +283,8 @@ canvas {
     text-align: center;
     text-shadow: 0 0 20px #0ff, 0 0 40px #0ff;
     top: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
 }

@@ -496,7 +496,7 @@ function proactiveCombatScanner(e) {
 
         if (isRival) {
             const dist = Math.hypot(target.x - e.x, target.y - e.y);
-            if (dist < 1000) {
+            if (dist < 2000) {
                 // Since we mirror rotation, we only shoot if lined up
                 enemyShoot(e, target.x, target.y);
                 if (e.reloadTime > 0) return; // Shot fired
@@ -508,7 +508,7 @@ function proactiveCombatScanner(e) {
     for (let r of roids) {
         if (r.z > 0.5 || r.isPlanet) continue; // Skip distant roids and planets
         const dist = Math.hypot(r.x - e.x, r.y - e.y);
-        if (dist < 800) {
+        if (dist < 1500) {
             enemyShoot(e, r.x, r.y);
             if (e.reloadTime > 0) return; // Shot fired
         }
@@ -517,7 +517,7 @@ function proactiveCombatScanner(e) {
     // 3. SCAN FOR PLAYER (if enemy)
     if (!e.isFriendly && !playerShip.dead) {
         const dist = Math.hypot(worldOffsetX - e.x, worldOffsetY - e.y);
-        if (dist < 1000) {
+        if (dist < 2000) {
             enemyShoot(e, worldOffsetX, worldOffsetY);
         }
     }
@@ -536,7 +536,7 @@ function enemyShoot(e, tx, ty) {
     while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
     while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
 
-    const FIRE_CONE = Math.PI / 12; // 15 degrees
+    const FIRE_CONE = Math.PI / 6; // 30 degrees
     if (Math.abs(angleDiff) > FIRE_CONE) return;
 
     if (!isTrajectoryClear(e, tx, ty)) return;
@@ -564,7 +564,7 @@ function enemyShoot(e, tx, ty) {
 
     if (clearShot) {
         fireEntityWeapon(e, enemyShipBullets, true);
-        e.reloadTime = 60 + Math.random() * 40; // Set cooldown after successful shot
+        e.reloadTime = 30 + Math.random() * 20; // Set cooldown after successful shot
     }
 }
 
@@ -1293,8 +1293,17 @@ function loop() {
     canvasContext.save();
 
     // In touch mode, zoom out to see more of the world
-    const targetScale = (inputMode === 'touch') ? SCALE_IN_TOUCH_MODE : SCALE_IN_MOUSE_MODE;
-    viewScale += (targetScale - viewScale) * 0.1;
+    // Also zoom out during game over and victory to show ~50% of map
+    let targetScale = SCALE_IN_MOUSE_MODE;
+
+    if (inputMode === 'touch') {
+        targetScale = SCALE_IN_TOUCH_MODE;
+    } else if ((playerShip.dead && playerShip.lives <= 0) || victoryState) {
+        // Zoom out to show ~75% of the map during game over/victory
+        targetScale = Math.max(0.08, Math.min(width, height) / (WORLD_BOUNDS * 0.75));
+    }
+
+    viewScale += (targetScale - viewScale) * 0.001;
 
     if (viewScale !== 1.0) {
         // Scale and translate to keep (width/2, height/2) at the center
@@ -1657,10 +1666,8 @@ function loop() {
         if (i < 0) continue;
 
         let threat = null; let minThreatDist = Infinity;
-        if (!playerShip.dead) {
-            threat = { x: worldOffsetX, y: worldOffsetY };
-            minThreatDist = Math.hypot(ship.x - worldOffsetX, ship.y - worldOffsetY);
-        }
+        // Don't set player as threat if dead
+        // (threat will remain null if player is dead and no asteroids are close)
 
         // Check for closer asteroid threats (avoidance), but prioritize player if somewhat close?
         for (let r of roids) {
@@ -1682,6 +1689,18 @@ function loop() {
                     spawnShipsSquad(ship);
                 }
                 ship.spawnTimer = SHIPS_SPAWN_TIME + Math.random() * SHIPS_SPAWN_TIME;
+            }
+
+            // Stations shoot at nearby asteroids
+            if (ship.reloadTime <= 0) {
+                for (let r of roids) {
+                    if (r.z > 0.5 || r.isPlanet) continue;
+                    const distToRoid = Math.hypot(r.x - ship.x, r.y - ship.y);
+                    if (distToRoid < 1500) {
+                        enemyShoot(ship, r.x, r.y);
+                        if (ship.reloadTime > 0) break;
+                    }
+                }
             }
         } else {
             // --- ADVANCED SHIP AI ---
@@ -1850,12 +1869,48 @@ function loop() {
                             ship.yv += Math.sin(ang) * 1.5;
                         }
 
-                        // Match Leader Rotation EXACTLY
-                        let angleDiff = la - ship.a;
-                        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-                        while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
-                        if (Math.abs(angleDiff) < 0.05) ship.a = la;
-                        else ship.a += angleDiff * 0.4;
+                        // Separation from other ships (respect SHIPS_SEPARATION_DISTANCE)
+                        let sepX = 0;
+                        let sepY = 0;
+                        let sepCount = 0;
+
+                        for (let other of ships) {
+                            if (other === ship || other.type !== 'ship') continue;
+                            // Only separate from same fleet
+                            if (!ship.isFriendly && !other.isFriendly && ship.fleetHue === other.fleetHue) {
+                                let distToOther = Math.hypot(ship.x - other.x, ship.y - other.y);
+                                if (distToOther < SHIPS_SEPARATION_DISTANCE) {
+                                    let ang = Math.atan2(ship.y - other.y, ship.x - other.x);
+                                    let force = (SHIPS_SEPARATION_DISTANCE - distToOther) * 0.01;
+                                    sepX += Math.cos(ang) * force;
+                                    sepY += Math.sin(ang) * force;
+                                    sepCount++;
+                                }
+                            }
+                        }
+
+                        if (sepCount > 0) {
+                            ship.xv += sepX;
+                            ship.yv += sepY;
+                        }
+
+                        // Rotation logic: friendly ships only match rotation when following player
+                        // Enemy ships and independent friendly ships rotate toward movement
+                        if (ship.isFriendly && ship.leaderRef === playerShip) {
+                            // Match player rotation EXACTLY when in V-formation with player
+                            let angleDiff = la - ship.a;
+                            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                            if (Math.abs(angleDiff) < 0.05) ship.a = la;
+                            else ship.a += angleDiff * 0.4;
+                        } else {
+                            // Independent rotation - rotate toward movement direction
+                            const moveAngle = Math.atan2(ship.yv, ship.xv);
+                            let angleDiff = moveAngle - ship.a;
+                            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                            ship.a += angleDiff * 0.1; // Slower rotation for smoother movement
+                        }
 
                         ship.xv *= damping;
                         ship.yv *= damping;
@@ -1866,8 +1921,15 @@ function loop() {
                 }
             }
             else if (ship.aiState === 'COMBAT') {
-                let target = (!ship.isFriendly && !playerShip.dead) ? { x: worldOffsetX, y: worldOffsetY, isRival: false, r: 0 } : null;
-                let minDist = target ? distToPlayer : Infinity;
+                // Only target alive player, not dead player's position
+                let target = null;
+                let minDist = Infinity;
+
+                // Enemy ships can target alive player
+                if (!ship.isFriendly && !playerShip.dead) {
+                    target = { x: worldOffsetX, y: worldOffsetY, isRival: false, r: 0 };
+                    minDist = distToPlayer;
+                }
 
                 // Search for rivals
                 for (let other of ships) {
@@ -1971,7 +2033,26 @@ function loop() {
                 // Shoot if lined up (slightly wider angle for smoother shooting feel)
                 if (ship.reloadTime <= 0 && Math.abs(angleDiff) < 0.4) {
                     fireEntityWeapon(ship, enemyShipBullets, true);
-                    ship.reloadTime = 60 + Math.random() * 100;
+                    ship.reloadTime = 30 + Math.random() * 50;
+                }
+
+                // Also shoot at nearby asteroids while in combat
+                if (ship.reloadTime <= 0) {
+                    for (let r of roids) {
+                        if (r.z > 0.5 || r.isPlanet) continue;
+                        const distToRoid = Math.hypot(r.x - ship.x, r.y - ship.y);
+                        if (distToRoid < 1000) {
+                            const roidAngle = Math.atan2(r.y - ship.y, r.x - ship.x);
+                            let roidAngleDiff = roidAngle - ship.a;
+                            while (roidAngleDiff > Math.PI) roidAngleDiff -= 2 * Math.PI;
+                            while (roidAngleDiff <= -Math.PI) roidAngleDiff += 2 * Math.PI;
+                            if (Math.abs(roidAngleDiff) < 0.5) {
+                                fireEntityWeapon(ship, enemyShipBullets, true);
+                                ship.reloadTime = 30 + Math.random() * 50;
+                                break;
+                            }
+                        }
+                    }
                 }
             }
 
