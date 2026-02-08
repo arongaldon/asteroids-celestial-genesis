@@ -328,9 +328,12 @@ function spawnShipsSquad(station) {
                 xv: station.xv,
                 y: squadY + slot.y,
                 yv: station.yv,
-                z: 0
+                yv: station.yv,
+                z: 0,
+                homeStation: station // Assign home station for defense logic
             };
         }
+
         if (slot.role === 'leader') {
             leader = e;
         } else {
@@ -1100,7 +1103,6 @@ function updatePhysics() {
                                 r1.r = newR;
                                 initializePlanetAttributes(r1);
                                 r1.targetR = newR;
-                                console.log(`New planet ${r1.name}.`);
                                 createExplosion(midVpX, midVpY, 30, '#fff', 5);
                             } else {
                                 r1.r = newR;
@@ -1657,6 +1659,7 @@ function loop() {
                 createExplosion(rVpX, rVpY, 5, '#aa00ff', 1, 'debris');
                 if (ship.structureHP <= 0) {
                     createExplosion(vpX, vpY, 30, '#ffaa00', 3, 'spark');
+                    ship.dead = true; // Mark as dead so references know
                     ships.splice(i, 1);
                     i--;
                     break;
@@ -1807,8 +1810,70 @@ function loop() {
                     }
                     ship.xv *= (ship.arrivalDamping || 0.85); ship.yv *= (ship.arrivalDamping || 0.85); // Stronger damping for formation
                 } else if (ship.role === 'leader') {
-                    // LEADER: Long-range travel towards player
-                    let targetAngle = Math.atan2(worldOffsetY - ship.y, worldOffsetX - ship.x);
+                    // LEADER: Patrol or Defend
+                    let targetX, targetY;
+                    let targetFound = false;
+
+                    // 1. DEFEND HOME STATION (Priority)
+                    if (ship.homeStation && !ship.homeStation.dead) {
+                        // Check for asteroids threatening the home station
+                        let threateningAst = null;
+                        let minAstDist = Infinity;
+
+                        for (let r of roids) {
+                            if (r.z > 0.5 || r.isPlanet) continue;
+                            const distToHome = Math.hypot(r.x - ship.homeStation.x, r.y - ship.homeStation.y);
+
+                            // If asteroid is dangerously close to home station (within 2500 units)
+                            if (distToHome < 2500) {
+                                if (distToHome < minAstDist) {
+                                    minAstDist = distToHome;
+                                    threateningAst = r;
+                                }
+                            }
+                        }
+
+                        if (threateningAst) {
+                            targetX = threateningAst.x;
+                            targetY = threateningAst.y;
+                            targetFound = true;
+                        }
+                    }
+
+                    // 2. PATROL (If no immediate threat at home)
+                    if (!targetFound) {
+                        if (!ship.patrolTarget) {
+                            // Initialize patrol target
+                            ship.patrolTarget = { x: ship.x, y: ship.y };
+                        }
+
+                        // Check if we reached the patrol target
+                        const distToPatrol = Math.hypot(ship.x - ship.patrolTarget.x, ship.y - ship.patrolTarget.y);
+                        if (distToPatrol < 500) {
+                            // Pick a new target
+                            if (Math.random() < 0.5) {
+                                // Random point in the world
+                                ship.patrolTarget.x = (Math.random() - 0.5) * 1.8 * WORLD_BOUNDS;
+                                ship.patrolTarget.y = (Math.random() - 0.5) * 1.8 * WORLD_BOUNDS;
+                            } else {
+                                // Target check: find a rival station?
+                                let rival = ships.find(s => s.type === 'station' && !s.isFriendly && s.fleetHue !== ship.fleetHue && !s.dead);
+                                if (rival) {
+                                    ship.patrolTarget.x = rival.x;
+                                    ship.patrolTarget.y = rival.y;
+                                } else {
+                                    // Fallback to random
+                                    ship.patrolTarget.x = (Math.random() - 0.5) * 1.8 * WORLD_BOUNDS;
+                                    ship.patrolTarget.y = (Math.random() - 0.5) * 1.8 * WORLD_BOUNDS;
+                                }
+                            }
+                        }
+                        targetX = ship.patrolTarget.x;
+                        targetY = ship.patrolTarget.y;
+                    }
+
+                    // Move towards target
+                    let targetAngle = Math.atan2(targetY - ship.y, targetX - ship.x);
 
                     // Smooth rotation
                     let angleDiff = targetAngle - ship.a;
@@ -1816,7 +1881,7 @@ function loop() {
                     while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
                     ship.a += angleDiff * 0.05;
 
-                    // Cruising Speed (Faster than before to hunt)
+                    // Cruising Speed
                     const CRUISE_SPEED = 12;
                     ship.xv += Math.cos(ship.a) * 0.5;
                     ship.yv += Math.sin(ship.a) * 0.5;
@@ -1925,8 +1990,9 @@ function loop() {
                 let target = null;
                 let minDist = Infinity;
 
-                // Enemy ships can target alive player
-                if (!ship.isFriendly && !playerShip.dead) {
+                // Enemy ships can target alive player IF CLOSE ENOUGH
+                // This logic ensures they don't hunt across the map
+                if (!ship.isFriendly && !playerShip.dead && distToPlayer < SHIP_SIGHT_RANGE * 1.5) {
                     target = { x: worldOffsetX, y: worldOffsetY, isRival: false, r: 0 };
                     minDist = distToPlayer;
                 }
@@ -1945,7 +2011,8 @@ function loop() {
 
                     if (isRival && (other.type === 'ship' || other.type === 'station')) {
                         let d = Math.hypot(other.x - ship.x, other.y - ship.y);
-                        // Aggro if closer than player or player is dead/far
+                        // Aggro if closer than player or player is dead/far or ship is patroling
+                        // Modified: Enemy ships will attack everything they find on their path
                         if (d < minDist && d < 2000) { // 2000 is aggro range
                             target = other;
                             target.isRival = true; // Mark as rival
