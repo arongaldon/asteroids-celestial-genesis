@@ -1128,7 +1128,7 @@ function updatePhysics() {
 
                         // many asteroids created
                         const manyAsteroids = ASTEROIDS_PER_BELT; // 1500 asteroids!
-                        createAsteroidBelt(midX, midY, 0, 3000, manyAsteroids);
+                        createExplosionDebris(midX, midY, manyAsteroids);
                         createShockwave(midX, midY);
                         updateAsteroidCounter(); // New asteroids created!
 
@@ -1853,11 +1853,11 @@ function loop() {
                         keys.ArrowUp || keys.KeyW || keys.Space;
 
                     let obstacle = null;
-                    const safetyDist = 150;
+                    const safetyDist = 50; // Much tighter tolerance, only break for immediate collision
 
                     // Check Asteroids
                     for (let r of roids) {
-                        if (r.z > 0.5) continue;
+                        if (r.z > 0.5 || r.isPlanet) continue; // Planets are ignored (fly through/over)
                         let d = Math.hypot(ship.x - r.x, ship.y - r.y);
                         if (d < r.r + ship.r + safetyDist) {
                             obstacle = r; break;
@@ -1932,12 +1932,27 @@ function loop() {
                     ship.xv *= (ship.arrivalDamping || 0.85); ship.yv *= (ship.arrivalDamping || 0.85); // Stronger damping for formation
                 } else if (ship.role === 'leader') {
                     // Update Squad Slots (Clean dead occupants)
+                    // Update Squad Slots (Compact and Clean)
                     if (ship.squadSlots) {
+                        // 1. Collect all valid living occupants
+                        let validOccupants = [];
                         ship.squadSlots.forEach(slot => {
-                            if (slot.occupant && (slot.occupant.dead || !ships.includes(slot.occupant) && slot.occupant !== playerShip)) {
-                                slot.occupant = null; // Free the slot
+                            if (slot.occupant && !slot.occupant.dead && (ships.includes(slot.occupant) || slot.occupant === playerShip)) {
+                                validOccupants.push(slot.occupant);
                             }
+                            slot.occupant = null; // Clear all slots first
                         });
+
+                        // 2. Re-assign occupants to slots in order (filling from closest to leader)
+                        // 'squadSlots' is naturally ordered by creation (which is usually inner-to-outer in V-formation logic)
+                        for (let i = 0; i < Math.min(validOccupants.length, ship.squadSlots.length); i++) {
+                            const member = validOccupants[i];
+                            const slot = ship.squadSlots[i];
+
+                            slot.occupant = member;
+                            // Update the member's target offset to the new slot's position
+                            member.formationOffset = { x: slot.x, y: slot.y };
+                        }
                     }
 
                     // LEADER: Patrol or Defend
@@ -2098,24 +2113,17 @@ function loop() {
                             ship.yv += sepY;
 
                             // DISSOLVE SQUAD LOGIC:
-                            // If too many ships are overcrowding (lumpy), dissolve relationship to free them up.
-                            // Only do this if not in visual slot (prevent breaking formation just for a bump)
-                            // and if overcrowding is severe (e.g. > 2 neighbors pushing)
+                            // DISABLED per user request: "Only too near asteroids... would make necessary to leave a squad."
+                            // We still keep the separation force to prevent total overlapping, but we don't break the squad link.
+                            /*
                             if (sepCount > 2 && !isInVisualSlot) {
-                                if (ship.leaderRef) {
-                                    // Find my slot and free it
-                                    const slots = ship.leaderRef === playerShip ? playerShip.squadSlots : ship.leaderRef.squadSlots;
-                                    if (slots) {
-                                        const mySlot = slots.find(s => s.occupant === ship);
-                                        if (mySlot) mySlot.occupant = null;
-                                    }
-                                }
+                                if (ship.leaderRef) { ... }
                                 ship.leaderRef = null;
-                                ship.role = 'free'; // Act independently
-                                // Push away harder to break the lump
+                                ship.role = 'free';
                                 ship.xv += (Math.random() - 0.5) * 5;
                                 ship.yv += (Math.random() - 0.5) * 5;
                             }
+                            */
                         }
 
                         // Rotation logic: friendly ships only match rotation when following player
@@ -2144,20 +2152,34 @@ function loop() {
                         // ship.leaderRef is null here
                         let foundLeader = null;
                         let foundSlot = null;
+                        const JOIN_RANGE = 300; // Must be very close ("near or over him")
 
-                        // Look for leaders of same faction
-                        for (let other of ships) {
-                            if (other.dead || other === ship || other.type !== 'ship') continue;
-                            if (other.role === 'leader' && other.fleetHue === ship.fleetHue) {
-                                // Check distance
-                                const dist = Math.hypot(other.x - ship.x, other.y - ship.y);
-                                if (dist < 1500 && other.squadSlots) {
-                                    // Check for open slot
-                                    const openSlot = other.squadSlots.find(s => !s.occupant || s.occupant.dead);
-                                    if (openSlot) {
-                                        foundLeader = other;
-                                        foundSlot = openSlot;
-                                        break; // Found one
+                        // 1. CHECK PLAYER FIRST (Priority)
+                        if (ship.isFriendly && !playerShip.dead && !playerShip.loneWolf) {
+                            const distToPlayer = Math.hypot(worldOffsetX - ship.x, worldOffsetY - ship.y);
+                            if (distToPlayer < JOIN_RANGE && playerShip.squadSlots) {
+                                // Find open slot
+                                const openSlot = playerShip.squadSlots.find(s => !s.occupant || s.occupant.dead || !ships.includes(s.occupant));
+                                if (openSlot) {
+                                    foundLeader = playerShip;
+                                    foundSlot = openSlot;
+                                }
+                            }
+                        }
+
+                        // 2. CHECK NPC LEADERS (If not joined player)
+                        if (!foundLeader) {
+                            for (let other of ships) {
+                                if (other.dead || other === ship || other.type !== 'ship') continue;
+                                if (other.role === 'leader' && other.fleetHue === ship.fleetHue) {
+                                    const dist = Math.hypot(other.x - ship.x, other.y - ship.y);
+                                    if (dist < JOIN_RANGE && other.squadSlots) {
+                                        const openSlot = other.squadSlots.find(s => !s.occupant || s.occupant.dead || !ships.includes(s.occupant));
+                                        if (openSlot) {
+                                            foundLeader = other;
+                                            foundSlot = openSlot;
+                                            break;
+                                        }
                                     }
                                 }
                             }
@@ -3595,3 +3617,28 @@ function startGame() {
 }
 
 resize();
+
+function createExplosionDebris(cx, cy, count) {
+    for (let i = 0; i < count; i++) {
+        // Start from center
+        const x = cx;
+        const y = cy;
+        const r = ASTEROID_MIN_SIZE + Math.random() * (ASTEROID_MAX_SIZE - ASTEROID_MIN_SIZE);
+
+        // Use the existing factory
+        const roid = createAsteroid(x, y, r);
+
+        // Project outwards in random direction
+        const angle = Math.random() * Math.PI * 2;
+        // Random speed, but capped at limit
+        const speed = Math.random() * ASTEROID_SPEED_LIMIT;
+
+        roid.xv = Math.cos(angle) * speed;
+        roid.yv = Math.sin(angle) * speed;
+
+        // Add some random rotation speed
+        roid.rotSpeed = (Math.random() - 0.5) * 0.1;
+
+        roids.push(roid);
+    }
+}
