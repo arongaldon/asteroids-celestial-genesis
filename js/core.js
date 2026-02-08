@@ -440,11 +440,15 @@ function increaseShipScore(ship, reward) {
     const newTier = getShipTier(ship);
 
     if (ship === playerShip) {
-        if (newTier > ship.tier) {
-            addScreenMessage(`EVOLVED TO THE ${getShapeName(newTier)}`, "#00ff00");
-        }
-        else if (newTier < ship.tier) {
-            addScreenMessage(`DEVOLVED TO THE ${getShapeName(newTier)}`, "#ff0000");
+        // Only show message if tier <= 12 OR if we are devolving
+        if (newTier !== ship.tier) {
+            if (newTier > ship.tier) {
+                if (newTier <= 12) addScreenMessage(`EVOLVED TO ${getShapeName(newTier)}`, "#00ff00");
+                // If > 12, silence
+            }
+            else {
+                addScreenMessage(`DEVOLVED TO ${getShapeName(newTier)}`, "#ff0000");
+            }
         }
         scoreDisplay.innerText = playerShip.score;
     }
@@ -457,7 +461,10 @@ function getShipTier(ship) {
 }
 
 function getShapeName(tier) {
-    if (tier >= 9) return "THE CELESTIAL";
+    if (tier >= 12) return "THE GODSHIP";
+    if (tier === 11) return "THE HYPERION";
+    if (tier === 10) return "THE TITAN";
+    if (tier === 9) return "THE CELESTIAL";
     if (tier === 8) return "THE SPHERE";
     const shapes = ["TRIANGLE", "SQUARE", "PENTAGON", "HEXAGON", "HEPTAGON", "OCTAGON", "NONAGON", "DECAGON"];
     return shapes[Math.min(tier, shapes.length - 1)];

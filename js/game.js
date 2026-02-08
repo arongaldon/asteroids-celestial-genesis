@@ -406,11 +406,10 @@ function fireEntityWeapon(ship, bulletList, isEnemy = true) {
     const hue = ship.fleetHue !== undefined ? ship.fleetHue : 200;
     const a = isPlayer ? playerShip.a : ship.a;
 
-    const pushBullet = (angleOffset, perpOffset, rOffset = 0, isPrimary = true) => {
+    const pushBullet = (angleOffset, isPrimary = true) => {
         const shootAngle = a + angleOffset;
 
         // Strictly force bullet origin to be at the ship's nose (front vertex)
-        // We ignore perpOffset and rOffset to ensure all bullets exit from the exact same nose point.
         const visualScale = 1 + (tier * 0.1);
         const spawnRadius = ((ship.effectiveR || ship.r) * visualScale) + 20;
 
@@ -446,29 +445,58 @@ function fireEntityWeapon(ship, bulletList, isEnemy = true) {
         bulletList.push(bullet);
     };
 
-    if (tier >= 9) {
-        pushBullet(0, 0, 0, true);
-        pushBullet(-0.1, -15, -5, false);
-        pushBullet(0.1, 15, -5, false);
-        pushBullet(-0.2, -30, -10, false);
-        pushBullet(0.2, 30, -10, false);
-        pushBullet(-0.3, -45, -15, false);
-        pushBullet(0.3, 45, -15, false);
-    } else if (tier >= 8) {
-        pushBullet(0, 0, 0, true);
-        pushBullet(-0.1, -15, -5, false);
-        pushBullet(0.1, 15, -5, false);
-        pushBullet(-0.2, -30, -10, false);
-        pushBullet(0.2, 30, -10, false);
+    if (tier >= 12) { // THE GODSHIP: Omni-Destruction
+        pushBullet(0, true);
+        pushBullet(-0.05, true); pushBullet(0.05, true);
+        pushBullet(-0.1, true); pushBullet(0.1, true);
+        pushBullet(-0.15, true); pushBullet(0.15, true);
+        pushBullet(-0.2, true); pushBullet(0.2, true);
+        pushBullet(-0.25, true); pushBullet(0.25, true);
+        pushBullet(-0.3, true); pushBullet(0.3, true);
+        pushBullet(-0.4, true); pushBullet(0.4, true);
+        pushBullet(-0.5, false); pushBullet(0.5, false);
+        // Rear guns
+        pushBullet(Math.PI, false);
+        pushBullet(Math.PI - 0.2, false); pushBullet(Math.PI + 0.2, false);
+        pushBullet(Math.PI - 0.1, false); pushBullet(Math.PI + 0.1, false);
+    } else if (tier >= 11) { // THE HYPERION: Heavy Front + Rear Guard
+        pushBullet(0, true);
+        pushBullet(-0.1, false); pushBullet(0.1, false);
+        pushBullet(-0.2, false); pushBullet(0.2, false);
+        pushBullet(-0.4, false); pushBullet(0.4, false);
+        // Rear guns
+        pushBullet(Math.PI, false);
+        pushBullet(Math.PI - 0.2, false);
+        pushBullet(Math.PI + 0.2, false);
+    } else if (tier >= 10) { // THE TITAN: Dense Frontal Barrage
+        pushBullet(0, true);
+        pushBullet(-0.05, false); pushBullet(0.05, false);
+        pushBullet(-0.15, false); pushBullet(0.15, false);
+        pushBullet(-0.25, false); pushBullet(0.25, false);
+        pushBullet(-0.35, false); pushBullet(0.35, false);
+    } else if (tier >= 9) { // THE CELESTIAL: Wide Scatter
+        pushBullet(0, true);
+        pushBullet(-0.1, false);
+        pushBullet(0.1, false);
+        pushBullet(-0.25, false); // Wider
+        pushBullet(0.25, false);
+        pushBullet(-0.4, false); // Even Wider
+        pushBullet(0.4, false);
+    } else if (tier >= 8) { // THE SPHERE
+        pushBullet(0, true);
+        pushBullet(-0.1, false);
+        pushBullet(0.1, false);
+        pushBullet(-0.2, false);
+        pushBullet(0.2, false);
     } else if (tier >= 4) {
-        pushBullet(0, 0, 0, true);
-        pushBullet(-0.05, -10, 0, false);
-        pushBullet(0.05, 10, 0, false);
+        pushBullet(0, true);
+        pushBullet(-0.05, false);
+        pushBullet(0.05, false);
     } else if (tier >= 2) {
-        pushBullet(0, 5, 0, true);
-        pushBullet(0, -5, 0, true);
+        pushBullet(0, true);
+        pushBullet(0, true);
     } else {
-        pushBullet(0, 0, 0, true);
+        pushBullet(0, true);
     }
 
     if (isPlayer) AudioEngine.playLaser(worldOffsetX, worldOffsetY, tier);
@@ -777,7 +805,7 @@ function createLevel() {
     updateAsteroidCounter();
 }
 
-function hitShip(damageAmount, sourceIsNearPlanet = false) {
+function hitPlayerShip(damageAmount, sourceIsNearPlanet = false) {
     if (playerShip.blinkNum > 0 || playerShip.dead || victoryState) return;
 
     playerShip.structureHP--;
@@ -2376,7 +2404,9 @@ function loop() {
                     ship.structureHP--;
                     ship.shieldHitTimer = 10;
                     createExplosion(vpX, vpY, 20, '#ff0055', 2, 'spark');
-                    hitShip(1);
+                    if (playerShip.tier < 12) {
+                        hitPlayerShip(1);
+                    }
                     AudioEngine.playSoftThud(ship.x, ship.y, ship.z);
                     let ang = Math.atan2(ship.y - worldOffsetY, ship.x - worldOffsetX);
                     ship.x += Math.cos(ang) * 60; ship.y += Math.sin(ang) * 60;
@@ -2535,7 +2565,9 @@ function loop() {
 
                 // ASTEROID COLLISION: Player takes 1 hit, asteroid is destroyed.
                 if (r.blinkNum === 0) {
-                    hitShip(1, isNearPlanetCollision);
+                    if (playerShip.tier < 12) {
+                        hitPlayerShip(1, isNearPlanetCollision);
+                    }
                     AudioEngine.playSoftThud(r.x, r.y, r.z);
 
                     // Create explosions
@@ -3038,7 +3070,7 @@ function loop() {
         let hit = false;
         // Collision with player (World Coords)
         if (!playerShip.dead && !enemyShipBullet.isFriendly && Math.hypot(worldOffsetX - enemyShipBullet.x, worldOffsetY - enemyShipBullet.y) < (playerShip.effectiveR || playerShip.r) + 5) {
-            hitShip(1);
+            hitPlayerShip(1);
 
             // INDIVIDUAL EVOLUTION: Gain score for hitting/killing player
             if (enemyShipBullet.owner && ships.includes(enemyShipBullet.owner)) {
