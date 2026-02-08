@@ -92,9 +92,12 @@ document.addEventListener('keydown', (e) => {
 
     // NOTE: The logic for KeyE to create matter has been permanently removed.
 
-    // NEW: Radar Zoom Toggle (Key Z)
     if (e.code === 'KeyZ' && gameRunning) {
         changeRadarZoom(1); // Zoom Out (next level)
+    }
+
+    if (e.code === 'KeyX' && gameRunning) {
+        changeRadarZoom(-1); // Zoom In (previous level)
     }
 
     if (e.code === 'KeyW' || e.code === 'ArrowUp') keys.ArrowUp = true;
@@ -2021,12 +2024,16 @@ function loop() {
 
                         for (let other of ships) {
                             if (other === ship || other.type !== 'ship') continue;
-                            // Only separate from same fleet
-                            if (!ship.isFriendly && !other.isFriendly && ship.fleetHue === other.fleetHue) {
+                            // Separate from same fleet OR friendly ships (everyone avoids bumping)
+                            const isTeammate = (ship.isFriendly && other.isFriendly) || (ship.fleetHue === other.fleetHue);
+
+                            if (isTeammate) {
                                 let distToOther = Math.hypot(ship.x - other.x, ship.y - other.y);
-                                if (distToOther < SHIPS_SEPARATION_DISTANCE) {
+                                const requiredDist = SHIPS_SEPARATION_DISTANCE + (ship.r + other.r) * 0.5; // Ensure padding
+                                if (distToOther < requiredDist) {
                                     let ang = Math.atan2(ship.y - other.y, ship.x - other.x);
-                                    let force = (SHIPS_SEPARATION_DISTANCE - distToOther) * 0.01;
+                                    // Stronger separation force (0.05 instead of 0.01) to act as a hard buffer
+                                    let force = (requiredDist - distToOther) * 0.08;
                                     sepX += Math.cos(ang) * force;
                                     sepY += Math.sin(ang) * force;
                                     sepCount++;
@@ -2037,6 +2044,27 @@ function loop() {
                         if (sepCount > 0) {
                             ship.xv += sepX;
                             ship.yv += sepY;
+
+                            // DISSOLVE SQUAD LOGIC:
+                            // If too many ships are overcrowding (lumpy), dissolve relationship to free them up.
+                            // Only do this if not in visual slot (prevent breaking formation just for a bump)
+                            // and if overcrowding is severe (e.g. > 2 neighbors pushing)
+                            if (sepCount > 2 && !isInVisualSlot) {
+                                console.log("Squad too crowded, dissolving wingman: " + ship.squadId);
+                                if (ship.leaderRef) {
+                                    // Find my slot and free it
+                                    const slots = ship.leaderRef === playerShip ? playerShip.squadSlots : ship.leaderRef.squadSlots;
+                                    if (slots) {
+                                        const mySlot = slots.find(s => s.occupant === ship);
+                                        if (mySlot) mySlot.occupant = null;
+                                    }
+                                }
+                                ship.leaderRef = null;
+                                ship.role = 'free'; // Act independently
+                                // Push away harder to break the lump
+                                ship.xv += (Math.random() - 0.5) * 5;
+                                ship.yv += (Math.random() - 0.5) * 5;
+                            }
                         }
 
                         // Rotation logic: friendly ships only match rotation when following player
