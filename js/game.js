@@ -261,7 +261,12 @@ function spawnStation(hostPlanet = null) {
         blinkNum: 60,
         z: 0, // Always at default Z-depth for radar visibility
         hostPlanetId: hostPlanet.id, // Store ID instead of reference
-        isFriendly: friendly
+        isFriendly: friendly,
+        // Weapon Props
+        bulletSpeed: 20,
+        bulletSize: 6,
+        bulletLife: 50,
+        effectiveR: STATION_R // Use station radius for bullet spawn offset
     });
     stationSpawnTimer = STATIONS_SPAWN_TIMER + Math.random() * STATIONS_SPAWN_TIMER;
     console.log(`New station at ${hostPlanet.name}.`);
@@ -303,6 +308,7 @@ function spawnShipsSquad(station) {
         if (station.isFriendly && playerShip.dead === false && playerShip.squadId === null) {
             e = playerShip;
             e.squadId = squadId;
+            e.bulletSpeed = 25; // Player stats are handled elsewhere usually, but good fallback
             console.log(`Player ship becomes the leader of the squad ${squadId}.`);
         }
         else {
@@ -322,22 +328,46 @@ function spawnShipsSquad(station) {
                 shieldHitTimer: 0,
                 squadId: squadId,
                 structureHP: SHIP_RESISTANCE,
+                thrusting: false,
                 tier: 0,
+                // Weapon Properties (Default for Player)
+                bulletSpeed: 25,
+                bulletLife: 50,
+                bulletSize: 6,
                 type: 'ship',
                 x: squadX + slot.x,
                 xv: station.xv,
                 y: squadY + slot.y,
                 yv: station.yv,
-                yv: station.yv,
                 z: 0,
-                homeStation: station // Assign home station for defense logic
+                homeStation: station,
+                // Individual Weapon Properties (Randomized)
+                bulletSpeed: 15 + Math.random() * 10, // 15-25
+                bulletSize: 4 + Math.random() * 3, // 4-7
+                bulletLife: 45 + Math.random() * 15,
+                shootDelay: Math.random() * 20 // Randomize firing phase
             };
         }
 
         if (slot.role === 'leader') {
             leader = e;
+            leader.squadSlots = []; // Initialize slots
+            // If the leader is the player, we attach slots to the player object
+            if (e === playerShip) playerShip.squadSlots = [];
         } else {
             e.leaderRef = leader;
+            // Register this wingman in the leader's slot list
+            if (leader) {
+                // Determine which list to use (player or NPC leader)
+                const slots = leader === playerShip ? playerShip.squadSlots : leader.squadSlots;
+                if (slots) {
+                    slots.push({
+                        x: slot.x,
+                        y: slot.y,
+                        occupant: e
+                    });
+                }
+            }
         }
 
         ships.push(e);
@@ -379,25 +409,46 @@ function fireEntityWeapon(ship, bulletList, isEnemy = true) {
 
     const pushBullet = (angleOffset, perpOffset, rOffset = 0, isPrimary = true) => {
         const shootAngle = a + angleOffset;
+
+        // Force bullet origin to be at the ship's nose (front vertex)
+        // We ignore perpOffset for the STARTING position to avoid lateral shooting
+        // rOffset can be used to slightly adjust forward/backward spawn point relative to nose
+        // Interpretation: "shot from their frontal vertix" means bullets should come from the nose, 
+        // even if they travel at angles. So perpOffset (lateral shift) should be 0 or very small for the POSITION.
+
+        // However, existing code uses perpOffset for multi-cannon visuals (wings). 
+        // IF the user wants ALL shots from the center nose, we zero out perpOffset in the position calc.
+
+        // Scale spawn radius by visual tier scale significantly to ensure it clears the nose
+        // The visual drawing uses rad = r * (1 + tier * 0.1).
+        // We add a small buffer (+5) to ensure it spawns just outside.
+        const visualScale = 1 + (tier * 0.1);
+        const spawnRadius = ((ship.effectiveR || ship.r) * visualScale) + rOffset + 5;
+
         const fwdX = Math.cos(a);
         const fwdY = Math.sin(a) * ySign;
-        const rightX = -fwdY;
-        const rightY = fwdX;
 
-        const radius = (ship.effectiveR || ship.r) + rOffset;
-        let tierSizeBoost = 1 + (tier * 0.15);
-        if (tier >= 9) tierSizeBoost = 2.5;
-        const size = isPrimary ? (SHIP_BULLET1_SIZE * tierSizeBoost) : (SHIP_BULLET2_SIZE * tierSizeBoost);
+        const startX = (isPlayer ? worldOffsetX : ship.x) + (fwdX * spawnRadius);
+        const startY = (isPlayer ? worldOffsetY : ship.y) + (fwdY * spawnRadius);
+
+        // Velocity dictates the spread direction
+        // Ensure defaults if properties are missing (e.g. legacy saves or weird states)
+        const bSpeed = ship.bulletSpeed || 20;
+        const bLife = ship.bulletLife || (isPrimary ? SHIP_BULLET1_LIFETIME : SHIP_BULLET2_LIFETIME);
+        const bSize = ship.bulletSize || 6;
+
+        const velX = (Math.cos(shootAngle) * bSpeed) + (isPlayer ? velocity.x : ship.xv);
+        const velY = (Math.sin(shootAngle) * (isPlayer ? -bSpeed : bSpeed)) + (isPlayer ? velocity.y : ship.yv);
 
         const bullet = {
-            x: (isPlayer ? worldOffsetX : ship.x) + (fwdX * radius) + (rightX * perpOffset),
-            y: (isPlayer ? worldOffsetY : ship.y) + (fwdY * radius) + (rightY * perpOffset),
-            xv: (Math.cos(shootAngle) * 20) + (isPlayer ? velocity.x : ship.xv),
-            yv: (Math.sin(shootAngle) * (isPlayer ? -20 : 20)) + (isPlayer ? velocity.y : ship.yv),
+            x: startX,
+            y: startY,
+            xv: velX,
+            yv: velY,
             a: shootAngle,
             dist: 0,
-            life: isPrimary ? SHIP_BULLET1_LIFETIME : SHIP_BULLET2_LIFETIME,
-            size: size,
+            life: bLife,
+            size: bSize,
             tier: tier,
             hue: hue,
             isFriendly: isPlayer || ship.isFriendly,
@@ -1738,6 +1789,9 @@ function loop() {
                     const dy = targetY - ship.y;
                     const distToTarget = Math.hypot(dx, dy);
 
+                    // Check if strictly in visual slot
+                    const isInVisualSlot = distToTarget < 40;
+
                     // Break formation if about to crash while player is active
                     const isPlayerActive = Math.abs(velocity.x) > 0.5 || Math.abs(velocity.y) > 0.5 ||
                         keys.KeyA || keys.KeyD || keys.ArrowLeft || keys.ArrowRight ||
@@ -1782,6 +1836,7 @@ function loop() {
                             // ABANDONED: Just slow down and wait for player to stop
                             ship.arrivalDamping = 0.98;
                         }
+                        // While avoiding, do NOT imitate leader
                     } else {
                         // Normal formation logic
                         if (distToTarget < 200) {
@@ -1794,12 +1849,23 @@ function loop() {
                         ship.yv += dy * formationForce;
                     }
 
-                    let angleDiff = la - ship.a;
-                    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-                    while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
-                    // Mirror rotation EXACTLY if stable, else quick align
-                    if (Math.abs(angleDiff) < 0.05) ship.a = la;
-                    else ship.a += angleDiff * 0.4;
+                    // IMITATION LOGIC: Only if in visual slot
+                    if (isInVisualSlot && !ship.isAvoiding) {
+                        // Match player rotation EXACTLY when in V-formation with player
+                        let angleDiff = la - ship.a;
+                        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                        while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                        if (Math.abs(angleDiff) < 0.05) ship.a = la;
+                        else ship.a += angleDiff * 0.4;
+                    } else {
+                        // Independent rotation - rotate toward movement/target
+                        // If we are not in slot, we might look at enemies or look where we are going
+                        const moveAngle = Math.atan2(ship.yv, ship.xv);
+                        let angleDiff = moveAngle - ship.a;
+                        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                        while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                        ship.a += angleDiff * 0.1;
+                    }
 
                     // Damping and Speed Cap (IMPORTANT for stability)
                     const speed = Math.hypot(ship.xv, ship.yv);
@@ -1810,6 +1876,15 @@ function loop() {
                     }
                     ship.xv *= (ship.arrivalDamping || 0.85); ship.yv *= (ship.arrivalDamping || 0.85); // Stronger damping for formation
                 } else if (ship.role === 'leader') {
+                    // Update Squad Slots (Clean dead occupants)
+                    if (ship.squadSlots) {
+                        ship.squadSlots.forEach(slot => {
+                            if (slot.occupant && (slot.occupant.dead || !ships.includes(slot.occupant) && slot.occupant !== playerShip)) {
+                                slot.occupant = null; // Free the slot
+                            }
+                        });
+                    }
+
                     // LEADER: Patrol or Defend
                     let targetX, targetY;
                     let targetFound = false;
@@ -1893,11 +1968,14 @@ function loop() {
                         ship.yv = (ship.yv / speed) * CRUISE_SPEED;
                     }
                 } else if (ship.role === 'wingman') {
-                    if (ship.leaderRef && !ships.includes(ship.leaderRef)) ship.leaderRef = null;
+                    if (ship.leaderRef && (ship.leaderRef.dead || (!ships.includes(ship.leaderRef) && ship.leaderRef !== playerShip))) {
+                        ship.leaderRef = null;
+                        ship.squadId = null;
+                    }
 
                     if (ship.leaderRef) {
-                        const lx = ship.leaderRef.x;
-                        const ly = ship.leaderRef.y;
+                        const lx = ship.leaderRef.x || worldOffsetX; // Fallback for player
+                        const ly = ship.leaderRef.y || worldOffsetY;
                         const la = ship.leaderRef.a;
 
                         const fwdX = Math.cos(la);
@@ -1913,6 +1991,8 @@ function loop() {
                         const dy = targetY - ship.y;
                         const distToTarget = Math.hypot(dx, dy);
 
+                        const isInVisualSlot = distToTarget < 50;
+
                         let force = 0.05;
                         let damping = 0.90;
 
@@ -1927,7 +2007,7 @@ function loop() {
 
                         // Physical separation from leader
                         const distToLeader = Math.hypot(ship.x - lx, ship.y - ly);
-                        const minSafeDist = ship.r + ship.leaderRef.r + 10;
+                        const minSafeDist = ship.r + (ship.leaderRef.r || 30) + 10;
                         if (distToLeader < minSafeDist) {
                             const ang = Math.atan2(ship.y - ly, ship.x - lx);
                             ship.xv += Math.cos(ang) * 1.5;
@@ -1961,15 +2041,15 @@ function loop() {
 
                         // Rotation logic: friendly ships only match rotation when following player
                         // Enemy ships and independent friendly ships rotate toward movement
-                        if (ship.isFriendly && ship.leaderRef === playerShip) {
-                            // Match player rotation EXACTLY when in V-formation with player
+                        if (isInVisualSlot) {
+                            // Match leader rotation EXACTLY (Imitate)
                             let angleDiff = la - ship.a;
                             while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
                             while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
                             if (Math.abs(angleDiff) < 0.05) ship.a = la;
                             else ship.a += angleDiff * 0.4;
                         } else {
-                            // Independent rotation - rotate toward movement direction
+                            // Independent rotation - rotate toward movement direction or threat
                             const moveAngle = Math.atan2(ship.yv, ship.xv);
                             let angleDiff = moveAngle - ship.a;
                             while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
@@ -1981,7 +2061,63 @@ function loop() {
                         ship.yv *= damping;
 
                     } else {
-                        ship.role = 'leader';
+                        // JOIN LOGIC: Search for a new Leader with open slots
+                        // ship.leaderRef is null here
+                        let foundLeader = null;
+                        let foundSlot = null;
+
+                        // Look for leaders of same faction
+                        for (let other of ships) {
+                            if (other.dead || other === ship || other.type !== 'ship') continue;
+                            if (other.role === 'leader' && other.fleetHue === ship.fleetHue) {
+                                // Check distance
+                                const dist = Math.hypot(other.x - ship.x, other.y - ship.y);
+                                if (dist < 1500 && other.squadSlots) {
+                                    // Check for open slot
+                                    const openSlot = other.squadSlots.find(s => !s.occupant || s.occupant.dead);
+                                    if (openSlot) {
+                                        foundLeader = other;
+                                        foundSlot = openSlot;
+                                        break; // Found one
+                                    }
+                                }
+                            }
+                        }
+
+                        if (foundLeader && foundSlot) {
+                            ship.leaderRef = foundLeader;
+                            ship.formationOffset = { x: foundSlot.x, y: foundSlot.y };
+                            foundSlot.occupant = ship;
+                            console.log('Ship joined a squad.');
+                        } else {
+                            // BECOME FREE / INDEPENDENT
+                            // Act like a mini-leader (patrol/hunt)
+                            proactiveCombatScanner(ship);
+
+                            // Wander behavior
+                            if (!ship.patrolTarget) ship.patrolTarget = { x: ship.x, y: ship.y };
+                            const distToPatrol = Math.hypot(ship.x - ship.patrolTarget.x, ship.y - ship.patrolTarget.y);
+                            if (distToPatrol < 100) {
+                                ship.patrolTarget.x = (Math.random() - 0.5) * 1.5 * WORLD_BOUNDS;
+                                ship.patrolTarget.y = (Math.random() - 0.5) * 1.5 * WORLD_BOUNDS;
+                            }
+                            const tx = ship.patrolTarget.x;
+                            const ty = ship.patrolTarget.y;
+                            const ang = Math.atan2(ty - ship.y, tx - ship.x);
+
+                            ship.xv += Math.cos(ang) * 0.5;
+                            ship.yv += Math.sin(ang) * 0.5;
+
+                            // Rotation
+                            const moveAngle = Math.atan2(ship.yv, ship.xv);
+                            let angleDiff = moveAngle - ship.a;
+                            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                            ship.a += angleDiff * 0.1;
+
+                            ship.xv *= 0.95;
+                            ship.yv *= 0.95;
+                        }
                     }
                 }
             }

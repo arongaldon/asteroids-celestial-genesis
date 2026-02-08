@@ -508,6 +508,10 @@ function newPlayerShip() {
         structureHP: startingHP,
         thrusting: false,
         tier: 0,
+        // Weapon Properties (Default for Player)
+        bulletSpeed: 25,
+        bulletLife: 50,
+        bulletSize: 6,
         type: 'ship'
     };
 }
