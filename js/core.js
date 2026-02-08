@@ -442,11 +442,9 @@ function increaseShipScore(ship, reward) {
     if (ship === playerShip) {
         if (newTier > ship.tier) {
             addScreenMessage(`EVOLVED TO THE ${getShapeName(newTier)}`, "#00ff00");
-            console.log(`Player score: ${ship.score}, evolved tier: ${ship.tier}`);
         }
         else if (newTier < ship.tier) {
             addScreenMessage(`DEVOLVED TO THE ${getShapeName(newTier)}`, "#ff0000");
-            console.log(`Player score: ${ship.score}, devolved tier: ${ship.tier}`);
         }
         scoreDisplay.innerText = playerShip.score;
     }

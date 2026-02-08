@@ -272,7 +272,6 @@ function spawnStation(hostPlanet = null) {
         effectiveR: STATION_R // Use station radius for bullet spawn offset
     });
     stationSpawnTimer = STATIONS_SPAWN_TIMER + Math.random() * STATIONS_SPAWN_TIMER;
-    console.log(`New station at ${hostPlanet.name}.`);
 }
 
 function spawnShipsSquad(station) {
@@ -286,7 +285,6 @@ function spawnShipsSquad(station) {
         if (currentHostileShips >= SHIPS_LIMIT * 3) { return; } // Allowing more hostiles than friends for balance
     }
     const squadId = Math.random();
-    console.log(`New squad ${squadId} from ${station.isFriendly ? 'friendly' : 'hostile'} station at planet ${station.hostPlanet.name}.`);
 
     let formationData = [
         { role: 'leader', x: 0, y: 0 },
@@ -312,7 +310,6 @@ function spawnShipsSquad(station) {
             e = playerShip;
             e.squadId = squadId;
             e.bulletSpeed = 25; // Player stats are handled elsewhere usually, but good fallback
-            console.log(`Player ship becomes the leader of the squad ${squadId}.`);
         }
         else {
             e = {
@@ -407,29 +404,18 @@ function fireEntityWeapon(ship, bulletList, isEnemy = true) {
     const isPlayer = (ship === playerShip);
     const tier = isPlayer ? ship.tier : Math.floor(ship.score / SHIP_EVOLUTION_SCORE_STEP);
     const hue = ship.fleetHue !== undefined ? ship.fleetHue : 200;
-    const ySign = isPlayer ? -1 : 1;
     const a = isPlayer ? playerShip.a : ship.a;
 
     const pushBullet = (angleOffset, perpOffset, rOffset = 0, isPrimary = true) => {
         const shootAngle = a + angleOffset;
 
-        // Force bullet origin to be at the ship's nose (front vertex)
-        // We ignore perpOffset for the STARTING position to avoid lateral shooting
-        // rOffset can be used to slightly adjust forward/backward spawn point relative to nose
-        // Interpretation: "shot from their frontal vertix" means bullets should come from the nose, 
-        // even if they travel at angles. So perpOffset (lateral shift) should be 0 or very small for the POSITION.
-
-        // However, existing code uses perpOffset for multi-cannon visuals (wings). 
-        // IF the user wants ALL shots from the center nose, we zero out perpOffset in the position calc.
-
-        // Scale spawn radius by visual tier scale significantly to ensure it clears the nose
-        // The visual drawing uses rad = r * (1 + tier * 0.1).
-        // We add a small buffer (+5) to ensure it spawns just outside.
+        // Strictly force bullet origin to be at the ship's nose (front vertex)
+        // We ignore perpOffset and rOffset to ensure all bullets exit from the exact same nose point.
         const visualScale = 1 + (tier * 0.1);
-        const spawnRadius = ((ship.effectiveR || ship.r) * visualScale) + rOffset + 5;
+        const spawnRadius = ((ship.effectiveR || ship.r) * visualScale) + 20;
 
         const fwdX = Math.cos(a);
-        const fwdY = Math.sin(a) * ySign;
+        const fwdY = Math.sin(a);
 
         const startX = (isPlayer ? worldOffsetX : ship.x) + (fwdX * spawnRadius);
         const startY = (isPlayer ? worldOffsetY : ship.y) + (fwdY * spawnRadius);
@@ -441,7 +427,7 @@ function fireEntityWeapon(ship, bulletList, isEnemy = true) {
         const bSize = ship.bulletSize || 6;
 
         const velX = (Math.cos(shootAngle) * bSpeed) + (isPlayer ? velocity.x : ship.xv);
-        const velY = (Math.sin(shootAngle) * (isPlayer ? -bSpeed : bSpeed)) + (isPlayer ? velocity.y : ship.yv);
+        const velY = (Math.sin(shootAngle) * bSpeed) + (isPlayer ? velocity.y : ship.yv);
 
         const bullet = {
             x: startX,
@@ -995,6 +981,77 @@ function updatePhysics() {
         // Decrease asteroid invulnerability frames
         if (r1.blinkNum > 0) r1.blinkNum--;
 
+        // Decrease asteroid invulnerability frames
+        if (r1.blinkNum > 0) r1.blinkNum--;
+
+        // --- NEW: Asteroid Attraction to Nearest Planet & Orbit Logic ---
+        // Asteroids (r1) feel attraction to the nearest planet in the "default z" (approx z < 1.0)
+        // If they get too close, they start orbiting instead of crashing.
+        if (!r1.isPlanet) {
+            let nearestPlanet = null;
+            let minDistSq = Infinity;
+
+            // Find nearest planet with valid Z
+            for (const other of roids) {
+                if (other.isPlanet && Math.abs(other.z) < 1.0) {
+                    const dSq = (other.x - r1.x) ** 2 + (other.y - r1.y) ** 2;
+                    if (dSq < minDistSq) {
+                        minDistSq = dSq;
+                        nearestPlanet = other;
+                    }
+                }
+            }
+
+            if (nearestPlanet) {
+                const dist = Math.sqrt(minDistSq);
+                const dx = nearestPlanet.x - r1.x;
+                const dy = nearestPlanet.y - r1.y;
+
+                // Define Orbit Parameters
+                const orbitRadius = nearestPlanet.r * 1.5 + r1.r; // Distance to orbit at
+                const gravityRange = nearestPlanet.r * 8.0; // Range where gravity starts pulling
+
+                if (dist < gravityRange) {
+                    if (dist > orbitRadius) {
+                        // GRAVITY PULL: Pull towards planet
+                        // F = G * M / r^2
+                        const forceMagnitude = (G_CONST * nearestPlanet.mass * 8.0) / Math.max(minDistSq, 100);
+                        r1.xv += (dx / dist) * forceMagnitude;
+                        r1.yv += (dy / dist) * forceMagnitude;
+                    } else {
+                        // ORBIT CAPTURE: Force velocity to be tangential to create orbit
+                        // 1. Calculate tangent direction (perpendicular to radius vector)
+                        //    (dx, dy) -> (-dy, dx) is 90 deg rotation
+                        const angleToPlanet = Math.atan2(dy, dx);
+                        const tangentAngle = angleToPlanet + Math.PI / 2;
+
+                        // 2. Calculate desired orbital speed: v = sqrt(G*M / r)
+                        // Boosting G slightly for stability and visual effect
+                        const orbitSpeed = Math.sqrt((G_CONST * nearestPlanet.mass * 8.0) / dist);
+
+                        const targetXV = Math.cos(tangentAngle) * orbitSpeed;
+                        const targetYV = Math.sin(tangentAngle) * orbitSpeed;
+
+                        // 3. Smoothly blend current velocity towards target orbital velocity (Steering)
+                        //    0.1 blending factor gives it some inertia but strong guidance
+                        r1.xv += (targetXV - r1.xv) * 0.1;
+                        r1.yv += (targetYV - r1.yv) * 0.1;
+
+                        // 4. Distance Correction: Gently push/pull to maintain 'orbitRadius'
+                        //    This prevents spiraling in or drifting away too much
+                        const distError = dist - orbitRadius;
+                        // If dist < orbitRadius (too close), push out (negative error * factor) -> add to pos? No, add to vel away
+                        // We want to apply force along radius vector (dx, dy)
+                        // If too close (distError < 0), we want force AWAY (-dx, -dy)
+                        // If too far (distError > 0), we want force TOWARDS (dx, dy)
+                        const correctionForce = distError * 0.005;
+                        r1.xv += (dx / dist) * correctionForce;
+                        r1.yv += (dy / dist) * correctionForce;
+                    }
+                }
+            }
+        }
+
         // --- Gravity Check on Player (Feathering near center) ---
         if (r1.isPlanet && r1.z < 0.5) { // Solo si el planeta está en el plano cercano
             // dx, dy are the vector from the Planet to the Player (in World Units)
@@ -1104,6 +1161,33 @@ function updatePhysics() {
                             asteroidIndex = i;
                         }
 
+                        // NEW: "Small asteroids won't crash planets anymore"
+                        // Instead of merging, if it's a small asteroid effectively in orbit range, we ignore collision merge.
+                        // We define "small" as standard non-planet asteroid sizes.
+                        // Planets only consume if they are effectively "Planet Candidates" (huge asteroids)
+                        // Standard asteroids allow orbit logic (handled above) to dominate.
+                        // We use a safe overlap threshold: if they are DEEP inside, maybe pop them out?
+                        // For now, just skip merge.
+
+                        const isSmallAsteroid = asteroid.r < PLANET_THRESHOLD; // Standard asteroids are < 50-60 usually
+
+                        if (isSmallAsteroid) {
+                            // SKIP MERGE.
+                            // Optional: Push asteroid out if it's literally inside the planet to prevent visual glitching
+                            // but the orbit logic tries to keep them at r*1.5. 
+                            // If they slam in high speed, bounce them?
+                            const angle = Math.atan2(asteroid.y - planet.y, asteroid.x - planet.x);
+                            const minDist = planet.r + asteroid.r + 5;
+                            asteroid.x = planet.x + Math.cos(angle) * minDist;
+                            asteroid.y = planet.y + Math.sin(angle) * minDist;
+
+                            // Reflect velocity (Bounce) to save it from getting stuck
+                            asteroid.xv += Math.cos(angle) * 1.0;
+                            asteroid.yv += Math.sin(angle) * 1.0;
+
+                            continue; // Skip the rest of the merge block
+                        }
+
                         let area1 = Math.PI * planet.r * planet.r;
                         let area2 = Math.PI * asteroid.r * asteroid.r;
                         let totalArea = area1 + area2;
@@ -1185,48 +1269,14 @@ function updatePhysics() {
                 let G = G_CONST;
 
                 // SPECIAL: Planet acting on Asteroid
-                if ((r1.isPlanet && !r2.isPlanet && r1.z < 0.5) || (!r1.isPlanet && r2.isPlanet && r2.z < 0.5)) {
-                    // Identify Planet and Asteroid
-                    const planet = r1.isPlanet ? r1 : r2;
-                    const asteroid = r1.isPlanet ? r2 : r1;
-
-                    // Planets in default z attract near asteroids
-                    // Check range - slightly larger range for "near" asteroids
-                    const attractionRange = planet.r * 6; // 6 times radius
-
-                    if (dist < attractionRange) {
-                        // "the nearer, the faster they are atracted"
-                        // Standard gravity is F = G*M1*M2 / r^2. 
-                        // To make it noticeably "faster" as they get closer, we can use 1/r (linear falloff) or keep 1/r^2 with high constant.
-
-                        // Let's rely on standard physics but boost the mass/G effect significantly for this interaction
-                        const G_PLANET_ATTRACT = 5.0; // Stronger G for absorption
-
-                        force = (G_PLANET_ATTRACT * planet.mass * asteroid.mass) / Math.max(distSq, 100);
-
-                        let fx = (dx / dist) * force;
-                        let fy = (dy / dist) * force;
-
-                        if (!isNaN(fx) && !isNaN(fy)) {
-                            // Only affect the asteroid. The planet is on rails (orbit).
-                            if (r1 === asteroid) {
-                                r1.xv += fx / r1.mass;
-                                r1.yv += fy / r1.mass;
-                            } else {
-                                r2.xv -= fx / r2.mass;
-                                r2.yv -= fy / r2.mass;
-                            }
-                        }
-                    }
-                }
-                else if (r1.isPlanet || r2.isPlanet) {
+                if (r1.isPlanet || r2.isPlanet) {
                     // Generic planet-planet or deep-z gravity (weaker)
+                    // (Legacy code for distant planets)
                     force = (G * r1.mass * r2.mass) / Math.max(distSq, 500);
                     let fx = (dx / dist) * force;
                     let fy = (dy / dist) * force;
-                    // Planets are on rails, so this force likely won't move them effectively if we override x/y, 
-                    // but we calculate it for completeness or if one isn't orbiting.
-                    // Actually, since we override Planet X/Y in the loop, we shouldn't apply force TO the planet.
+                    // Planets are on rails, so we generally ignore this for them, 
+                    // but it might affect calculations if we ever un-rail them.
                 } else {
                     // Asteroid-Asteroid Gravity
                     // Gravedad más fuerte y rango cercano más agresivo (in previous turn, maintained)
@@ -1367,8 +1417,7 @@ function loop() {
         canvasContext.scale(viewScale, viewScale);
     }
 
-    // Win condition check
-    // USER REQUEST: Make this very robust. Directly check the roids array.
+    // Win condition check: make this very robust. Directly check the roids array.
     const activeAsteroids = roids.filter(r => !r.isPlanet).length;
     if (gameRunning && !victoryState && activeAsteroids === 0) {
         winGame();
@@ -1385,12 +1434,12 @@ function loop() {
 
     if (!playerShip.dead) {
         if (inputMode === 'mouse') { // Mouse/Pointer control: rotate towards cursor
-            const dx = mouse.x - width / 2; const dy = -(mouse.y - height / 2);
+            const dx = mouse.x - width / 2; const dy = mouse.y - height / 2;
             playerShip.a = Math.atan2(dy, dx);
         }
         else {
             // Keyboard/Touch swipe control: Arrow keys handle rotation
-            if (keys.ArrowLeft) playerShip.a += 0.1; if (keys.ArrowRight) playerShip.a -= 0.1;
+            if (keys.ArrowLeft) playerShip.a -= 0.1; if (keys.ArrowRight) playerShip.a += 0.1;
         }
         if (inputMode === 'touch') {
             playerShip.thrusting = isTouching && (Date.now() - touchStartTime >= MIN_DURATION_TAP_TO_MOVE);
@@ -1404,20 +1453,20 @@ function loop() {
 
         if (playerShip.thrusting) {
             deltaX += SHIP_THRUST * Math.cos(playerShip.a);
-            deltaY -= SHIP_THRUST * Math.sin(playerShip.a);
+            deltaY += SHIP_THRUST * Math.sin(playerShip.a);
             if (Math.random() < 0.2) AudioEngine.playThrust(worldOffsetX, worldOffsetY);
         }
 
         if (keys.KeyA) { // Strafe Left
-            const strafeAngle = playerShip.a + Math.PI / 2;
+            const strafeAngle = playerShip.a - Math.PI / 2;
             deltaX += SHIP_THRUST * strafeMultiplier * Math.cos(strafeAngle);
-            deltaY -= SHIP_THRUST * strafeMultiplier * Math.sin(strafeAngle);
+            deltaY += SHIP_THRUST * strafeMultiplier * Math.sin(strafeAngle);
             if (Math.random() < 0.2) AudioEngine.playThrust(worldOffsetX, worldOffsetY);
         }
         if (keys.KeyD) { // Strafe Right
-            const strafeAngle = playerShip.a - Math.PI / 2;
+            const strafeAngle = playerShip.a + Math.PI / 2;
             deltaX += SHIP_THRUST * strafeMultiplier * Math.cos(strafeAngle);
-            deltaY -= SHIP_THRUST * strafeMultiplier * Math.sin(strafeAngle);
+            deltaY += SHIP_THRUST * strafeMultiplier * Math.sin(strafeAngle);
             if (Math.random() < 0.2) AudioEngine.playThrust(worldOffsetX, worldOffsetY);
         }
 
@@ -1780,9 +1829,12 @@ function loop() {
                     const ly = worldOffsetY;
                     const la = playerShip.a;
 
+
                     const fwdX = Math.cos(la);
-                    const fwdY = -Math.sin(la); // Player uses Cartesian Up (Negative Screen Y)
-                    const rightX = -fwdY; // 90deg CW: (x,y) -> (-y,x)
+                    const fwdY = Math.sin(la); // Player uses Standard Canvas Coordinates (Y-Down)
+                    // Right Vector: Rotate Forward +90 degrees (CW)
+                    // in Y-Down: (x, y) -> (-y, x)
+                    const rightX = -fwdY;
                     const rightY = fwdX;
 
                     const targetX = lx + (rightX * ship.formationOffset.x) + (fwdX * ship.formationOffset.y);
@@ -2050,7 +2102,6 @@ function loop() {
                             // Only do this if not in visual slot (prevent breaking formation just for a bump)
                             // and if overcrowding is severe (e.g. > 2 neighbors pushing)
                             if (sepCount > 2 && !isInVisualSlot) {
-                                console.log("Squad too crowded, dissolving wingman: " + ship.squadId);
                                 if (ship.leaderRef) {
                                     // Find my slot and free it
                                     const slots = ship.leaderRef === playerShip ? playerShip.squadSlots : ship.leaderRef.squadSlots;
@@ -2116,7 +2167,6 @@ function loop() {
                             ship.leaderRef = foundLeader;
                             ship.formationOffset = { x: foundSlot.x, y: foundSlot.y };
                             foundSlot.occupant = ship;
-                            console.log('Ship joined a squad.');
                         } else {
                             // BECOME FREE / INDEPENDENT
                             // Act like a mini-leader (patrol/hunt)
@@ -2533,7 +2583,7 @@ function loop() {
         canvasContext.save();
         canvasContext.translate(vpX, vpY); // Translate to Viewport Position
         canvasContext.scale(depthScale, depthScale); // Apply depth scaling
-        canvasContext.rotate(-shipToDraw.a); // MATCH PLAYER: Invert Y-axis for rotation synchronization
+        canvasContext.rotate(shipToDraw.a); // Standard rotation (CW positive)
 
         if (shipToDraw.type === 'ship') {
 
@@ -2804,7 +2854,7 @@ function loop() {
 
             canvasContext.save();
             canvasContext.translate(centerX, centerY);
-            canvasContext.rotate(-playerShip.a);
+            canvasContext.rotate(playerShip.a);
 
             canvasContext.globalAlpha = 1;
 
@@ -3034,11 +3084,26 @@ function loop() {
                         enemyShipBullet.owner.score += ASTEROID_DESTROYED_REWARD;
                     }
 
-                    if (r.r > 100) {
-                        roids.push(createAsteroid(r.x, r.y, r.r / 2));
-                        roids.push(createAsteroid(r.x, r.y, r.r / 2));
+                    const newSize = r.r * 0.6;
+                    if (newSize > ASTEROID_MIN_SIZE) {
+                        const bulletAngle = Math.atan2(enemyShipBullet.yv, enemyShipBullet.xv);
+                        const perpAngle1 = bulletAngle + Math.PI / 2;
+                        const perpAngle2 = bulletAngle - Math.PI / 2;
+
+                        let frag1 = createAsteroid(r.x + Math.cos(perpAngle1) * ASTEROID_SPLIT_OFFSET, r.y + Math.sin(perpAngle1) * ASTEROID_SPLIT_OFFSET, newSize);
+                        frag1.xv = r.xv + Math.cos(perpAngle1) * ASTEROID_SPLIT_SPEED;
+                        frag1.yv = r.yv + Math.sin(perpAngle1) * ASTEROID_SPLIT_SPEED;
+                        frag1.blinkNum = 30;
+                        roids.push(frag1);
+
+                        let frag2 = createAsteroid(r.x + Math.cos(perpAngle2) * ASTEROID_SPLIT_OFFSET, r.y + Math.sin(perpAngle2) * ASTEROID_SPLIT_OFFSET, newSize);
+                        frag2.xv = r.xv + Math.cos(perpAngle2) * ASTEROID_SPLIT_SPEED;
+                        frag2.yv = r.yv + Math.sin(perpAngle2) * ASTEROID_SPLIT_SPEED;
+                        frag2.blinkNum = 30;
+                        roids.push(frag2);
+
                         updateAsteroidCounter();
-                    } // New asteroids get world coords
+                    }
                     roids.splice(j, 1);
                     updateAsteroidCounter();
                     AudioEngine.playExplosion('small', r.x, r.y, r.z); // Added for asteroid destruction by enemy
@@ -3171,20 +3236,22 @@ function loop() {
 
                     const newSize = r.r * 0.6;
                     if (newSize > ASTEROID_MIN_SIZE) {
+                        const bulletAngle = Math.atan2(playerShipBullet.yv, playerShipBullet.xv);
+                        const perpAngle1 = bulletAngle + Math.PI / 2;
+                        const perpAngle2 = bulletAngle - Math.PI / 2;
 
-                        // West asteroid
-                        let westAst = createAsteroid(r.x - ASTEROID_SPLIT_OFFSET, r.y, newSize);
-                        westAst.xv = r.xv - ASTEROID_SPLIT_SPEED;
-                        westAst.yv = r.yv;
-                        westAst.blinkNum = 30;
-                        roids.push(westAst);
+                        let frag1 = createAsteroid(r.x + Math.cos(perpAngle1) * ASTEROID_SPLIT_OFFSET, r.y + Math.sin(perpAngle1) * ASTEROID_SPLIT_OFFSET, newSize);
+                        frag1.xv = r.xv + Math.cos(perpAngle1) * ASTEROID_SPLIT_SPEED;
+                        frag1.yv = r.yv + Math.sin(perpAngle1) * ASTEROID_SPLIT_SPEED;
+                        frag1.blinkNum = 30;
+                        roids.push(frag1);
 
-                        // East asteroid
-                        let eastAst = createAsteroid(r.x + ASTEROID_SPLIT_OFFSET, r.y, newSize);
-                        eastAst.xv = r.xv + ASTEROID_SPLIT_SPEED;
-                        eastAst.yv = r.yv;
-                        eastAst.blinkNum = 30;
-                        roids.push(eastAst);
+                        let frag2 = createAsteroid(r.x + Math.cos(perpAngle2) * ASTEROID_SPLIT_OFFSET, r.y + Math.sin(perpAngle2) * ASTEROID_SPLIT_OFFSET, newSize);
+                        frag2.xv = r.xv + Math.cos(perpAngle2) * ASTEROID_SPLIT_SPEED;
+                        frag2.yv = r.yv + Math.sin(perpAngle2) * ASTEROID_SPLIT_SPEED;
+                        frag2.blinkNum = 30;
+                        roids.push(frag2);
+
                         updateAsteroidCounter();
                     }
 
