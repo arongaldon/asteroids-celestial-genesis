@@ -461,14 +461,21 @@ function increaseShipScore(ship, reward) {
         // Only show message if tier <= 12 OR if we are devolving
         if (newTier !== ship.tier) {
             if (newTier > ship.tier) {
-                if (newTier <= 12) addScreenMessage(`EVOLVED TO ${getShapeName(newTier)}`, "#00ff00");
-                // If > 12, silence
+                if (newTier === 12 && ship.tier < 12) {
+                    addScreenMessage("THE DIVINE METAMORPHOSIS BEGINS...", "#00ffff");
+                    addScreenMessage("ANY SHOT FROM NOW ON COULD BE DANGEROUS.", "#ffaa00");
+                    ship.transformationTimer = 600; // ~10 seconds at 60fps
+                } else if (newTier < 12) {
+                    addScreenMessage(`EVOLVED TO ${getShapeName(newTier)}`, "#00ff00");
+                }
             }
             else {
                 addScreenMessage(`DEVOLVED TO ${getShapeName(newTier)}`, "#ff0000");
+                if (ship.tier >= 12 && newTier < 12) {
+                    ship.transformationTimer = 0; // Cancel transformation if devolved
+                }
             }
         }
-        scoreDisplay.innerText = playerShip.score;
     }
 
     ship.tier = newTier;
@@ -519,7 +526,7 @@ function newPlayerShip() {
         effectiveR: SHIP_SIZE / 2,
         isFriendly: true,
         leaderRef: null,
-        lives: PLAYER_INITIAL_LIVES,
+        lives: 3,
         loneWolf: false,
         mass: 20,
         maxShield: SHIP_BASE_MAX_SHIELD,
@@ -535,7 +542,8 @@ function newPlayerShip() {
         bulletSpeed: 25,
         bulletLife: 50,
         bulletSize: 6,
-        type: 'ship'
+        type: 'ship',
+        transformationTimer: 0
     };
 }
 

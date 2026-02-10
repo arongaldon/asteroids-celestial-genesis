@@ -66,6 +66,19 @@ window.onload = function () {
     AudioEngine.init();
     AudioEngine.setTrack('menu');
 
+    // Initialize dummy playerShip for safety during early loops
+    playerShip = { dead: true, tier: 0, score: 0, a: 0 };
+
+    // Initialize background world immediately
+    initBackground();
+    createLevel();
+
+    // Start loop immediately so we see the world behind the intro
+    if (!loopStarted) {
+        loopStarted = true;
+        loop();
+    }
+
     // Add listener to start audio on the first interaction
     startScreen.addEventListener('click', audioStarter);
 
@@ -74,8 +87,6 @@ window.onload = function () {
 
 // Function to handle zoom change (used by Z key and Mouse Wheel)
 function changeRadarZoom(direction) {
-    if (!gameRunning) return;
-
     let newIndex = currentZoomIndex + direction;
 
     if (newIndex < 0) newIndex = 0;
@@ -92,11 +103,11 @@ document.addEventListener('keydown', (e) => {
 
     // NOTE: The logic for KeyE to create matter has been permanently removed.
 
-    if (e.code === 'KeyZ' && gameRunning) {
+    if (e.code === 'KeyZ') {
         changeRadarZoom(1); // Zoom Out (next level)
     }
 
-    if (e.code === 'KeyX' && gameRunning) {
+    if (e.code === 'KeyX') {
         changeRadarZoom(-1); // Zoom In (previous level)
     }
 
@@ -352,7 +363,7 @@ function spawnShipsSquad(station) {
                 isFriendly: station.isFriendly,
                 leaderRef: null,
                 mass: 30,
-                r: 35,
+                r: SHIP_SIZE / 2,
                 reloadTime: 100 + Math.random() * 100,
                 role: slot.role,
                 score: 0,
@@ -411,6 +422,11 @@ function addScreenMessage(text, color = "white") {
     // Avoid duplicate messages if they are the same
     if (screenMessages.length > 0 && screenMessages[screenMessages.length - 1].text === text) return;
     screenMessages.push({ text, color, life: 180 }); // 3 seconds at 60fps
+
+    // Limit to 2 most recent messages
+    if (screenMessages.length > 2) {
+        screenMessages.shift();
+    }
 }
 
 function triggerBetrayal() {
@@ -437,7 +453,7 @@ function fireGodWeapon(ship) {
     // Play Godly sound
     AudioEngine.playLaser(worldOffsetX, worldOffsetY, 12);
 
-    addScreenMessage("THE GODSHIP ACTIVATED", "#00ffff");
+    // One-time announcement handled in metamorphosis completion logic
 
     // Create the expanding ring
     shockwaves.push({
@@ -457,6 +473,14 @@ function fireEntityWeapon(ship, bulletList, isEnemy = true) {
     const tier = isPlayer ? ship.tier : Math.floor(ship.score / SHIP_EVOLUTION_SCORE_STEP);
 
     if (isPlayer && tier >= 12) {
+        if (ship.transformationTimer > 0) {
+            // Cannot fire while transforming to Godship
+            if (playerReloadTime <= 0) {
+                addScreenMessage("ENERGY UNSTABLE: TRANSFORMING...", "#ffaa00");
+                playerReloadTime = 30; // Brief internal cooldown for message
+            }
+            return;
+        }
         fireGodWeapon(ship);
         return;
     }
@@ -503,7 +527,8 @@ function fireEntityWeapon(ship, bulletList, isEnemy = true) {
         bulletList.push(bullet);
     };
 
-    if (tier >= 12) { // THE GODSHIP: Omni-Destruction
+    // Tier 12 has no bullets. THE GODSHIP: Omni-Destruction
+    if (tier === 11) { // THE HYPERION: Heavy Front + Rear Guard
         pushBullet(0, true);
         pushBullet(-0.05, true); pushBullet(0.05, true);
         pushBullet(-0.1, true); pushBullet(0.1, true);
@@ -513,26 +538,13 @@ function fireEntityWeapon(ship, bulletList, isEnemy = true) {
         pushBullet(-0.3, true); pushBullet(0.3, true);
         pushBullet(-0.4, true); pushBullet(0.4, true);
         pushBullet(-0.5, false); pushBullet(0.5, false);
-        // Rear guns
-        pushBullet(Math.PI, false);
-        pushBullet(Math.PI - 0.2, false); pushBullet(Math.PI + 0.2, false);
-        pushBullet(Math.PI - 0.1, false); pushBullet(Math.PI + 0.1, false);
-    } else if (tier >= 11) { // THE HYPERION: Heavy Front + Rear Guard
-        pushBullet(0, true);
-        pushBullet(-0.1, false); pushBullet(0.1, false);
-        pushBullet(-0.2, false); pushBullet(0.2, false);
-        pushBullet(-0.4, false); pushBullet(0.4, false);
-        // Rear guns
-        pushBullet(Math.PI, false);
-        pushBullet(Math.PI - 0.2, false);
-        pushBullet(Math.PI + 0.2, false);
-    } else if (tier >= 10) { // THE TITAN: Dense Frontal Barrage
+    } else if (tier === 10) { // THE TITAN: Dense Frontal Barrage
         pushBullet(0, true);
         pushBullet(-0.05, false); pushBullet(0.05, false);
         pushBullet(-0.15, false); pushBullet(0.15, false);
         pushBullet(-0.25, false); pushBullet(0.25, false);
         pushBullet(-0.35, false); pushBullet(0.35, false);
-    } else if (tier >= 9) { // THE CELESTIAL: Wide Scatter
+    } else if (tier === 9) { // THE CELESTIAL: Wide Scatter
         pushBullet(0, true);
         pushBullet(-0.1, false);
         pushBullet(0.1, false);
@@ -540,17 +552,17 @@ function fireEntityWeapon(ship, bulletList, isEnemy = true) {
         pushBullet(0.25, false);
         pushBullet(-0.4, false); // Even Wider
         pushBullet(0.4, false);
-    } else if (tier >= 8) { // THE SPHERE
+    } else if (tier === 8) { // THE SPHERE
         pushBullet(0, true);
         pushBullet(-0.1, false);
         pushBullet(0.1, false);
         pushBullet(-0.2, false);
         pushBullet(0.2, false);
-    } else if (tier >= 4) {
+    } else if (tier === 4) {
         pushBullet(0, true);
         pushBullet(-0.05, false);
         pushBullet(0.05, false);
-    } else if (tier >= 2) {
+    } else if (tier === 2) {
         pushBullet(0, true);
         pushBullet(0, true);
     } else {
@@ -779,6 +791,48 @@ function drawRadar() {
     canvasRadarContext.beginPath(); canvasRadarContext.moveTo(0, cY); canvasRadarContext.lineTo(rW, cY); canvasRadarContext.stroke();
     canvasRadarContext.beginPath(); canvasRadarContext.arc(cX, cY, rW / 2 - 1, 0, Math.PI * 2); canvasRadarContext.stroke();
     canvasRadarContext.fillStyle = '#0ff'; canvasRadarContext.beginPath(); canvasRadarContext.arc(cX, cY, 3, 0, Math.PI * 2); canvasRadarContext.fill();
+
+    // 4. HOME PLANET NAVIGATOR (Dotted path to home)
+    if (homePlanetId) {
+        const home = roids.find(r => r.id === homePlanetId);
+        if (home) {
+            let dx = home.x - worldOffsetX;
+            let dy = home.y - worldOffsetY;
+            let dist = Math.sqrt(dx * dx + dy * dy);
+            let angle = Math.atan2(dy, dx);
+
+            // Calculate radar position for home planet blip
+            let radarDist = dist * scale;
+            if (radarDist > radarRadius - 5) radarDist = radarRadius - 5;
+
+            let rx = cX + radarDist * Math.cos(angle);
+            let ry = cY + radarDist * Math.sin(angle);
+
+            // Draw dotted line
+            canvasRadarContext.setLineDash([3, 5]);
+            canvasRadarContext.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+            canvasRadarContext.lineWidth = 1;
+            canvasRadarContext.beginPath();
+            canvasRadarContext.moveTo(cX, cY);
+            canvasRadarContext.lineTo(rx, ry);
+            canvasRadarContext.stroke();
+            canvasRadarContext.setLineDash([]); // Reset dash
+
+            // Ensure home blip is always visible on radar edge if far away
+            canvasRadarContext.fillStyle = '#00ffaa';
+            canvasRadarContext.beginPath();
+            canvasRadarContext.arc(rx, ry, 4, 0, Math.PI * 2);
+            canvasRadarContext.fill();
+
+            // Pulse effect for home planet
+            if (Date.now() % 1000 < 500) {
+                canvasRadarContext.strokeStyle = '#00ffaa';
+                canvasRadarContext.beginPath();
+                canvasRadarContext.arc(rx, ry, 7, 0, Math.PI * 2);
+                canvasRadarContext.stroke();
+            }
+        }
+    }
 }
 
 function drawHeart(ctx, x, y, size) {
@@ -799,11 +853,18 @@ function drawLives() {
     livesDisplay.style.marginTop = '5px';
 }
 
-function updateAsteroidCounter() {
-    asteroidCount = roids.filter(r => !r.isPlanet).length;
-    if (asteroidCountDisplay) {
-        asteroidCountDisplay.innerText = asteroidCount;
+function updateHUD() {
+    if (scoreDisplay && playerShip) {
+        const currentScore = playerShip.score || 0;
+        scoreDisplay.innerText = isNaN(currentScore) ? 0 : currentScore;
     }
+    if (asteroidCountDisplay) {
+        asteroidCountDisplay.innerText = roids.filter(r => !r.isPlanet).length;
+    }
+}
+
+function updateAsteroidCounter() {
+    updateHUD();
 }
 
 function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
@@ -851,7 +912,7 @@ function createLevel() {
         planetSpawned = true;
     }
 
-    createAsteroidBelt(0, 0, ASTEROID_BELT_INNER_RADIUS, ASTEROID_BELT_OUTER_RADIUS, ASTEROIDS_PER_BELT);
+    createAsteroidBelt(0, 0, ASTEROIDS_INIT_INNER, ASTEROIDS_INIT_OUTER, ASTEROIDS);
 
     roids.filter(r => r.isPlanet).forEach(planet => {
         const stationCount = Math.floor(Math.random() * STATIONS_PER_PLANET) + 1;
@@ -900,17 +961,24 @@ function killPlayerShip(reason = 'normal') {
         playerShip.dead = false;
         playerShip.structureHP = SHIP_RESISTANCE;
         drawLives();
-    }, 1500);
+    }, 3000);
     else {
+        // MOVE PLANETS TO Z (Far background)
+        roids.forEach(r => {
+            if (r.isPlanet && r.id !== homePlanetId) {
+                r.z = MAX_Z_DEPTH;
+            }
+        });
+
         // HIDE HUD DURING GAME OVER
         const uiLayer = document.getElementById('ui-layer');
         if (uiLayer) uiLayer.style.display = 'none';
 
         setTimeout(() => {
-            fadeOverlay.style.background = 'rgba(0, 0, 0, 1)'; // Trigger fade to black
-            startScreen.style.display = 'flex';
+            fadeOverlay.style.background = 'rgba(0, 0, 0, 0.4)'; // Trigger semi-transparent fade
             startScreen.classList.remove('fade-out'); // Reset before fade
             startScreen.classList.add('game-over');
+            startScreen.style.display = 'flex';
 
             gameRunning = false;
 
@@ -933,7 +1001,7 @@ function killPlayerShip(reason = 'normal') {
                 startBtn.innerText = 'RESTART JOURNEY';
                 startScreen.classList.add('fade-out');
             }, 3000);
-        }, 2000);
+        }, 5000);
     }
 }
 
@@ -951,11 +1019,12 @@ function handleVictoryInteraction() {
     addScreenMessage("MISSION ACCOMPLISHED!", "#00ff00");
     addScreenMessage("YOU HAVE CLEANED THE SYSTEM.", "#ffff00");
 
-    startScreen.style.display = 'flex';
+    startScreen.classList.remove('fade-out');
     startScreen.classList.add('victory');
+    startScreen.style.display = 'flex';
     startScreen.addEventListener('click', audioStopper); // Allow stopping music
     startBtn.style.display = 'block';
-    startBtn.innerText = 'PLAY AGAIN';
+    startBtn.innerText = 'RESTART JOURNEY';
     startBtn.onclick = () => {
         victoryState = false;
         startScreen.removeEventListener('click', audioStopper);
@@ -972,6 +1041,23 @@ function winGame() {
 
     // Play Victory Music
     AudioEngine.playVictoryMusic();
+
+    // ALL ENEMIES BECOME FRIENDS
+    ships.forEach(s => {
+        if (!s.isFriendly) {
+            s.isFriendly = true;
+            s.aiState = 'FORMATION';
+            s.leaderRef = playerShip;
+            addScreenMessage("THE SYSTEM IS PURIFIED. ENEMIES JOIN THE CAUSE.", "#00ffff");
+        }
+    });
+
+    // MOVE PLANETS TO Z (Far background) to avoid further collisions
+    roids.forEach(r => {
+        if (r.isPlanet && r.id !== homePlanetId) {
+            r.z = MAX_Z_DEPTH;
+        }
+    });
 
     // No text or buttons until click/tap
     // Wait a short bit to avoid capturing the click that destroyed the last asteroid
@@ -1227,7 +1313,7 @@ function updatePhysics() {
                         }
 
                         // many asteroids created
-                        const manyAsteroids = ASTEROIDS_PER_BELT; // 1500 asteroids!
+                        const manyAsteroids = ASTEROIDS; // 1500 asteroids!
                         createExplosionDebris(midX, midY, manyAsteroids);
                         createShockwave(midX, midY);
                         updateAsteroidCounter(); // New asteroids created!
@@ -1467,13 +1553,41 @@ function drawRings(ctx, rings, planetRadius, depthScale) {
 
 function loop() {
     requestAnimationFrame(loop);
-    if (!gameRunning) return;
+
+    // Reset global transformation to prevent accumulation of effects like screen shake
+    canvasContext.resetTransform();
+
+    // Sync HUD with game state
+    updateHUD();
+
+    // Removed 'if (!gameRunning) return' to keep the background world visible even when not playing.
 
     // killPlayerShip is handled in hitShip and collision logic.
     // Calling it here every frame causes a recursion bug during Game Over.
 
     // Decrement player reload timer
     if (playerReloadTime > 0) playerReloadTime--;
+
+    // Handle Tier 12 transformation
+    if (playerShip && playerShip.transformationTimer > 0) {
+        playerShip.transformationTimer--;
+
+
+
+        if (playerShip.transformationTimer % 60 === 0 && playerShip.transformationTimer > 0) {
+            const secondsLeft = Math.ceil(playerShip.transformationTimer / 60);
+            addScreenMessage(`METAMORPHOSIS: ${secondsLeft} SECONDS REMAINING...`, "#00ffff");
+        }
+
+        // COMPLETION
+        if (playerShip.transformationTimer === 0) {
+            addScreenMessage("THE GODSHIP ACTIVATED", "#00ffff");
+            AudioEngine.playExplosion('large', worldOffsetX, worldOffsetY);
+            // Flash effect
+            canvasContext.fillStyle = "white";
+            canvasContext.fillRect(0, 0, width, height);
+        }
+    }
 
     // Safety check against NaN/Infinity in velocity/world calculation
     if (isNaN(velocity.x) || isNaN(velocity.y) || !isFinite(velocity.x) || !isFinite(velocity.y)) {
@@ -1521,14 +1635,42 @@ function loop() {
             }
         }
 
-        if (warningNeeded && Date.now() % 1000 < 500) {
-            addScreenMessage("WARNING: LETHAL RADIUS OVERLAPS FRIENDS/HOME", "#ffaa00");
+        if (!victoryState && !playerShip.dead) {
+            if (warningNeeded && Date.now() % 1000 < 500) {
+                addScreenMessage("WARNING: LETHAL RADIUS OVERLAPS FRIENDS/HOME", "#ffaa00");
+            }
         }
     }
 
     // Clear canvas
+    canvasContext.save(); // PUSH 0: Global Frame State
     canvasContext.fillStyle = '#010103'; canvasContext.fillRect(0, 0, width, height);
-    canvasContext.save();
+
+    // Handle Tier 12 metamorphosis EPIC VISUALS
+    if (playerShip && playerShip.transformationTimer > 0) {
+        const progress = 1 - (playerShip.transformationTimer / 600);
+
+        // Intensity increases as timer goes down
+        if (playerShip.transformationTimer < 300) {
+            // Screen shake intensifies
+            const shake = 15 * progress;
+            canvasContext.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+        }
+
+        // Background strobe / flashes
+        if (playerShip.transformationTimer < 180 && Math.random() < 0.15) {
+            const jitterX = (Math.random() - 0.5) * 800;
+            const jitterY = (Math.random() - 0.5) * 800;
+            createExplosion(width / 2 + jitterX, height / 2 + jitterY, 30, '#0ff', 5, 'spark');
+        }
+
+        // Pulsing white overlay
+        if (playerShip.transformationTimer < 120) {
+            const flashAlpha = (Math.sin(Date.now() / 50) + 1) * 0.1 * progress;
+            canvasContext.fillStyle = `rgba(255, 255, 255, ${flashAlpha})`;
+            canvasContext.fillRect(0, 0, width, height);
+        }
+    }
 
     // In touch mode, zoom out to see more of the world
     // Also zoom out during game over and victory to show ~50% of map
@@ -1750,16 +1892,25 @@ function loop() {
                     if (obj.r !== undefined && !obj.type) { // Asteroid or Planet
                         obj.r = 0; // Marked for instant removal (no split)
                         obj.vaporized = true;
+
+                        // AWARD SCORE for Godship destruction
                         if (obj.isPlanet) {
                             addScreenMessage("PLANET VAPORIZED", "#ff00ff");
                             createExplosion((obj.x - worldOffsetX + width / 2), (obj.y - worldOffsetY + height / 2), 200, '#00ffff', 10, 'spark');
+                            increaseShipScore(playerShip, 1000); // 1000 for planet
 
                             // Check if player destroyed their own home
                             if (obj.id === homePlanetId) {
                                 triggerHomePlanetLost('player');
                             }
+                        } else {
+                            increaseShipScore(playerShip, ASTEROID_DESTROYED_REWARD);
                         }
                     } else if (obj.type === 'ship' || obj.type === 'station') {
+                        // Reward score before killing
+                        if (obj.isFriendly === false) {
+                            increaseShipScore(playerShip, obj.type === 'station' ? STATION_KILLED_REWARD : SHIP_KILLED_REWARD);
+                        }
                         obj.structureHP = -1; // Force death
                         obj.vaporized = true;
                     }
@@ -2043,6 +2194,7 @@ function loop() {
 
             // 2. BEHAVIOR EXECUTION
             if (ship.aiState === 'FORMATION') {
+                let isRetreating = false;
                 if (ship.isFriendly && playerShip.tier >= 12 && homePlanetId) {
                     // WINGMAN RETREAT: Run to home when the player is a Godship to avoid the ring
                     const home = roids.find(r => r.id === homePlanetId);
@@ -2056,12 +2208,12 @@ function loop() {
                             ship.a = Math.atan2(ship.yv, ship.xv);
                         }
                         ship.xv *= 0.95; ship.yv *= 0.95;
-                        continue; // Skip normal formation logic
+                        isRetreating = true;
                     }
                 }
                 proactiveCombatScanner(ship);
 
-                if (ship.isFriendly && !playerShip.dead && ship.leaderRef === playerShip) {
+                if (!isRetreating && ship.isFriendly && !playerShip.dead && ship.leaderRef === playerShip) {
                     // FRIENDLY: Follow Player in V-Formation
                     const lx = worldOffsetX;
                     const ly = worldOffsetY;
@@ -2168,7 +2320,7 @@ function loop() {
                         ship.yv = (ship.yv / speed) * maxFormationSpeed;
                     }
                     ship.xv *= (ship.arrivalDamping || 0.85); ship.yv *= (ship.arrivalDamping || 0.85); // Stronger damping for formation
-                } else if (ship.role === 'leader') {
+                } else if (!isRetreating && ship.role === 'leader') {
                     // Update Squad Slots (Clean dead occupants)
                     // Update Squad Slots (Compact and Clean)
                     if (ship.squadSlots) {
@@ -2275,7 +2427,7 @@ function loop() {
                         ship.xv = (ship.xv / speed) * CRUISE_SPEED;
                         ship.yv = (ship.yv / speed) * CRUISE_SPEED;
                     }
-                } else if (ship.role === 'wingman') {
+                } else if (!isRetreating && ship.role === 'wingman') {
                     if (ship.leaderRef && (ship.leaderRef.dead || (!ships.includes(ship.leaderRef) && ship.leaderRef !== playerShip))) {
                         ship.leaderRef = null;
                         ship.squadId = null;
@@ -2349,19 +2501,6 @@ function loop() {
                         if (sepCount > 0) {
                             ship.xv += sepX;
                             ship.yv += sepY;
-
-                            // DISSOLVE SQUAD LOGIC:
-                            // DISABLED per user request: "Only too near asteroids... would make necessary to leave a squad."
-                            // We still keep the separation force to prevent total overlapping, but we don't break the squad link.
-                            /*
-                            if (sepCount > 2 && !isInVisualSlot) {
-                                if (ship.leaderRef) { ... }
-                                ship.leaderRef = null;
-                                ship.role = 'free';
-                                ship.xv += (Math.random() - 0.5) * 5;
-                                ship.yv += (Math.random() - 0.5) * 5;
-                            }
-                            */
                         }
 
                         // Rotation logic: friendly ships only match rotation when following player
@@ -2573,7 +2712,8 @@ function loop() {
 
                 // Shoot if lined up (slightly wider angle for smoother shooting feel)
                 if (ship.reloadTime <= 0 && Math.abs(angleDiff) < 0.4) {
-                    fireEntityWeapon(ship, enemyShipBullets, true);
+                    const bullets = ship.isFriendly ? playerShipBullets : enemyShipBullets;
+                    fireEntityWeapon(ship, bullets, !ship.isFriendly);
                     ship.reloadTime = 30 + Math.random() * 50;
                 }
 
@@ -2588,7 +2728,8 @@ function loop() {
                             while (roidAngleDiff > Math.PI) roidAngleDiff -= 2 * Math.PI;
                             while (roidAngleDiff <= -Math.PI) roidAngleDiff += 2 * Math.PI;
                             if (Math.abs(roidAngleDiff) < 0.5) {
-                                fireEntityWeapon(ship, enemyShipBullets, true);
+                                const bullets = ship.isFriendly ? playerShipBullets : enemyShipBullets;
+                                fireEntityWeapon(ship, bullets, !ship.isFriendly);
                                 ship.reloadTime = 30 + Math.random() * 50;
                                 break;
                             }
@@ -2689,21 +2830,6 @@ function loop() {
             vpX = r.x - worldOffsetX + width / 2;
             vpY = r.y - worldOffsetY + height / 2;
         }
-
-        // CULLING LOGIC: Remove object if far from player
-        // REMOVED: Asteroids and planets won't disappear from the map.
-        /*
-        const cullRange = Math.max(width, height) * WORLD_SCALE / 2 + r.r;
-        if (!r.isPlanet) {
-            if (Math.hypot(r.x - worldOffsetX, r.y - worldOffsetY) > cullRange) {
-                // Solo eliminar asteroides si están fuera de los límites del mundo
-                if (Math.abs(r.x) > WORLD_BOUNDS * 1.2 || Math.abs(r.y) > WORLD_BOUNDS * 1.2) {
-                    roids.splice(i, 1);
-                    continue;
-                }
-            }
-        }
-        */
 
         // Apply transformations for depth
         canvasContext.save();
@@ -3136,7 +3262,33 @@ function loop() {
             // --- Drawing logic for Ship Tiers ---
             if (tier >= 12) {
                 // THE GODSHIP: Massive, glowing, advanced
-                const norm = 1.5; // Adjusted size for better screen fit but still massive
+                let norm = 1.2; // Adjusted target size (Reduced from 1.5)
+                let transformationProgress = 1.0;
+
+                // Gradually grow during transformation
+                if (playerShip && playerShip.transformationTimer > 0) {
+                    transformationProgress = 1 - (playerShip.transformationTimer / 600);
+                    norm = 1.0 + (norm - 1.0) * transformationProgress;
+
+                    // DRAW TIER 11 FORM (Fading out)
+                    canvasContext.save();
+                    canvasContext.globalAlpha = 1 - transformationProgress;
+                    let sides = 3 + 11; // Tier 11
+                    canvasContext.beginPath();
+                    for (let i = 0; i <= sides; i++) {
+                        let ang = i * (2 * Math.PI / sides);
+                        if (i === 0) canvasContext.moveTo(r * Math.cos(ang), -r * Math.sin(ang));
+                        else canvasContext.lineTo(r * Math.cos(ang), -r * Math.sin(ang));
+                    }
+                    canvasContext.closePath();
+                    let chassisGrad = canvasContext.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
+                    chassisGrad.addColorStop(0, '#0055aa'); chassisGrad.addColorStop(1, '#002244');
+                    canvasContext.fillStyle = chassisGrad; canvasContext.fill();
+                    canvasContext.lineWidth = 2; canvasContext.strokeStyle = '#0088ff'; canvasContext.stroke();
+                    canvasContext.restore();
+                }
+
+                canvasContext.globalAlpha = transformationProgress;
                 const HULL_COLOR = '#050505';
                 const BORDER_COLOR = '#00FFFF';
                 const CORE_COLOR = '#FFFFFF';
@@ -3608,7 +3760,7 @@ function loop() {
             let ship = ships[j];
 
             // If we are NOT a lone wolf, hitting friends triggers a warning
-            if (ship.isFriendly && !playerShip.loneWolf) {
+            if (ship.isFriendly && !playerShip.loneWolf && !victoryState && !playerShip.dead) {
                 if (Math.hypot(playerShipBullet.x - ship.x, playerShipBullet.y - ship.y) < ship.r + playerShipBullet.size) {
                     addScreenMessage("⚠ WARNING: CEASE FIRE ON ALLIES!", "#ffcc00");
                     ship.structureHP -= 1.0;
