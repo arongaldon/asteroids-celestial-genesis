@@ -216,7 +216,25 @@ const AudioEngine = {
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
 
-        if (tier >= 8) { // Ultimate
+        if (tier >= 12) { // GODSHIP PULSE
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(40, this.ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(1200, this.ctx.currentTime + 0.4);
+            gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.5);
+
+            // Sub-harmonic for "massive" feel
+            const osc2 = this.ctx.createOscillator();
+            osc2.type = 'square';
+            osc2.frequency.setValueAtTime(20, this.ctx.currentTime);
+            osc2.frequency.linearRampToValueAtTime(5, this.ctx.currentTime + 0.6);
+            const gain2 = this.ctx.createGain();
+            gain2.gain.setValueAtTime(0.4, this.ctx.currentTime);
+            gain2.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.6);
+            osc2.connect(gain2); gain2.connect(this.masterGain);
+            osc2.start(); osc2.stop(this.ctx.currentTime + 0.6);
+
+        } else if (tier >= 8) { // Ultimate
             osc.type = 'square';
             osc.frequency.setValueAtTime(150, this.ctx.currentTime);
             osc.frequency.linearRampToValueAtTime(800, this.ctx.currentTime + 0.1); // Sweeping up "Beam" sound
@@ -237,7 +255,7 @@ const AudioEngine = {
         }
 
         osc.connect(gain); gain.connect(this.masterGain);
-        osc.start(); osc.stop(this.ctx.currentTime + 0.4);
+        osc.start(); osc.stop(this.ctx.currentTime + 0.5);
     },
 
     playExplosion: function (size = 'small', worldX, worldY, z = 0) {

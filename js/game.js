@@ -431,9 +431,36 @@ function triggerBetrayal() {
     });
 }
 
+function fireGodWeapon(ship) {
+    playerReloadTime = PLAYER_RELOAD_TIME_MAX * 5; // Long cooldown for massive power
+
+    // Play Godly sound
+    AudioEngine.playLaser(worldOffsetX, worldOffsetY, 12);
+
+    addScreenMessage("THE GODSHIP ACTIVATED", "#00ffff");
+
+    // Create the expanding ring
+    shockwaves.push({
+        x: worldOffsetX,
+        y: worldOffsetY,
+        r: 100,
+        maxR: Math.max(width, height) * 2, // Reach 2 times the visible viewport (~4000 units)
+        strength: 2000,
+        alpha: 3.0,
+        isGodRing: true,
+        type: 'lightning'
+    });
+}
+
 function fireEntityWeapon(ship, bulletList, isEnemy = true) {
     const isPlayer = (ship === playerShip);
     const tier = isPlayer ? ship.tier : Math.floor(ship.score / SHIP_EVOLUTION_SCORE_STEP);
+
+    if (isPlayer && tier >= 12) {
+        fireGodWeapon(ship);
+        return;
+    }
+
     const hue = ship.fleetHue !== undefined ? ship.fleetHue : 200;
     const a = isPlayer ? playerShip.a : ship.a;
 
@@ -854,7 +881,7 @@ function hitPlayerShip(damageAmount, sourceIsNearPlanet = false) {
     }
 }
 
-function killPlayerShip() {
+function killPlayerShip(reason = 'normal') {
     const vpX = width / 2; const vpY = height / 2;
     createExplosion(vpX, vpY, 60, '#0ff', 3);
     AudioEngine.playExplosion('large', worldOffsetX, worldOffsetY);
@@ -880,34 +907,43 @@ function killPlayerShip() {
         if (uiLayer) uiLayer.style.display = 'none';
 
         setTimeout(() => {
+            fadeOverlay.style.background = 'rgba(0, 0, 0, 1)'; // Trigger fade to black
             startScreen.style.display = 'flex';
-            showInfoLEDText("Rest in eternity.");
+            startScreen.classList.remove('fade-out'); // Reset before fade
+            startScreen.classList.add('game-over');
+
+            gameRunning = false;
+
+            // Audio: Game Over Sequence
             AudioEngine.playGameOverMusic();
             startScreen.addEventListener('click', audioStopper);
 
-            // Reset opacity before fading out during game over
-            startScreen.classList.remove('fade-out');
-            startScreen.classList.add('game-over');
+            // Philosophical Game Over Messages
+            if (reason === 'player') {
+                showInfoLEDText("The universe trembles at your power, but who are you now without a home? You reached for divinity and crushed the cradle that once held you.");
+            } else if (reason === 'collision') {
+                showInfoLEDText("A cosmic dance turned into tragedy. Two worlds collided in the cold silence of space, and your history was erased in an instant flash of light.");
+            } else {
+                showInfoLEDText("Your journey ends here. The stars remain indifferent to your passing, yet your echo lingers in the void.");
+            }
 
+            // Bring up the button and initiate the slow fade of the BG image
             setTimeout(() => {
-                startScreen.classList.add('fade-out');
                 startBtn.style.display = 'block';
-                startBtn.innerText = 'RESTART';
-                startBtn.onclick = () => {
-                    // SHOW HUD FOR RESTART
-                    const uiLayer = document.getElementById('ui-layer');
-                    if (uiLayer) uiLayer.style.display = 'flex';
-                    startScreen.removeEventListener('click', audioStopper);
-                    startGame();
-                };
+                startBtn.innerText = 'RESTART JOURNEY';
+                startScreen.classList.add('fade-out');
             }, 3000);
-        }, 3000);
-
-        // Reset loopStarted to allow startGame to re-call loop() if it somehow stopped.
+        }, 2000);
     }
 }
 
-const handleVictoryInteraction = () => {
+function triggerHomePlanetLost(reason) {
+    addScreenMessage("CRITICAL FAILURE: HOME PLANET DESTROYED", "#ff0000");
+    playerShip.lives = 0; // Force game over
+    killPlayerShip(reason);
+}
+
+function handleVictoryInteraction() {
     if (!victoryState) return;
 
     // Show Congratulations
@@ -1185,6 +1221,11 @@ function updatePhysics() {
                         createExplosion(midVpX, midVpY, 40, '#ff0000', 8, 'debris');
                         AudioEngine.playPlanetExplosion(midX, midY, r1.z); // Strong sound if visible
 
+                        // Check if home planet was lost
+                        if (r1.id === homePlanetId || r2.id === homePlanetId) {
+                            triggerHomePlanetLost('collision');
+                        }
+
                         // many asteroids created
                         const manyAsteroids = ASTEROIDS_PER_BELT; // 1500 asteroids!
                         createExplosionDebris(midX, midY, manyAsteroids);
@@ -1453,6 +1494,38 @@ function loop() {
     playerShipBullets = playerShipBullets.filter(isSafe);
     enemyShipBullets = enemyShipBullets.filter(isSafe);
 
+    // --- Tier 12 Godship Warning System ---
+    if (!playerShip.dead && playerShip.tier >= 12) {
+        let warningNeeded = false;
+        const lethalRange = Math.max(width, height) * 2;
+
+        // Check Home Planet
+        if (homePlanetId) {
+            const home = roids.find(r => r.id === homePlanetId);
+            if (home) {
+                const d = Math.hypot(home.x - worldOffsetX, home.y - worldOffsetY);
+                if (d < lethalRange + home.r) warningNeeded = true;
+            }
+        }
+
+        // Check Allies
+        if (!warningNeeded) {
+            for (let s of ships) {
+                if (s.isFriendly && s !== playerShip) {
+                    const d = Math.hypot(s.x - worldOffsetX, s.y - worldOffsetY);
+                    if (d < lethalRange + 100) {
+                        warningNeeded = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (warningNeeded && Date.now() % 1000 < 500) {
+            addScreenMessage("WARNING: LETHAL RADIUS OVERLAPS FRIENDS/HOME", "#ffaa00");
+        }
+    }
+
     // Clear canvas
     canvasContext.fillStyle = '#010103'; canvasContext.fillRect(0, 0, width, height);
     canvasContext.save();
@@ -1595,37 +1668,120 @@ function loop() {
 
     // --- Shockwave Update (All in World Coords) ---
     shockwaves.forEach((sw, index) => {
-        sw.r += 15; sw.alpha -= 0.01;
+        if (sw.isGodRing) {
+            sw.r += 120; // Fast expansion
+            sw.alpha -= 0.003;
+
+            // TERMINATE at maxR to prevent global sweep
+            if (sw.maxR && sw.r > sw.maxR) {
+                shockwaves.splice(index, 1);
+                return;
+            }
+        } else {
+            sw.r += 15; sw.alpha -= 0.01;
+        }
+
         if (sw.alpha <= 0) { shockwaves.splice(index, 1); return; }
 
         // Calculate Viewport Position for drawing
         const vpX = sw.x - worldOffsetX + width / 2;
         const vpY = sw.y - worldOffsetY + height / 2;
 
-        canvasContext.beginPath(); canvasContext.arc(vpX, vpY, sw.r, 0, Math.PI * 2);
-        canvasContext.strokeStyle = `rgba(255, 200, 50, ${sw.alpha})`; canvasContext.lineWidth = 5; canvasContext.stroke();
+        if (sw.isGodRing) {
+            // God Ring Visuals (Force Lightning & Sparkles)
+            canvasContext.save();
+            canvasContext.strokeStyle = `rgba(0, 255, 255, ${Math.min(1, sw.alpha)})`;
+            canvasContext.lineWidth = 15;
+            canvasContext.shadowBlur = 40;
+            canvasContext.shadowColor = '#00FFFF';
 
-        // Apply force to asteroids, ships, and player (Force is World Units)
-        const applyShockwaveForce = (obj) => {
+            // Neon core ring
+            canvasContext.beginPath();
+            canvasContext.arc(vpX, vpY, sw.r, 0, Math.PI * 2);
+            canvasContext.stroke();
+
+            // Force Lightning Tendrils
+            canvasContext.lineWidth = 3;
+            canvasContext.strokeStyle = `rgba(200, 255, 255, ${Math.min(1, sw.alpha)})`;
+            for (let i = 0; i < 60; i++) {
+                const ang = Math.random() * Math.PI * 2;
+                const jitter = (Math.random() - 0.5) * 150;
+                const lx1 = vpX + Math.cos(ang) * (sw.r - 30);
+                const ly1 = vpY + Math.sin(ang) * (sw.r - 30);
+                const lx2 = vpX + Math.cos(ang) * (sw.r + 100) + jitter;
+                const ly2 = vpY + Math.sin(ang) * (sw.r + 100) + jitter;
+
+                canvasContext.beginPath();
+                canvasContext.moveTo(lx1, ly1);
+                // Multi-segment jittery lightning path
+                let curX = lx1, curY = ly1;
+                for (let j = 0; j < 3; j++) {
+                    curX += (lx2 - lx1) / 3 + (Math.random() - 0.5) * 80;
+                    curY += (ly2 - ly1) / 3 + (Math.random() - 0.5) * 80;
+                    canvasContext.lineTo(curX, curY);
+                }
+                canvasContext.stroke();
+
+                // Static Sparkles
+                if (Math.random() < 0.4) {
+                    canvasContext.fillStyle = '#FFFFFF';
+                    canvasContext.fillRect(lx2 + (Math.random() - 0.5) * 40, ly2 + (Math.random() - 0.5) * 40, 5, 5);
+                }
+            }
+            canvasContext.restore();
+        } else {
+            canvasContext.beginPath(); canvasContext.arc(vpX, vpY, sw.r, 0, Math.PI * 2);
+            canvasContext.strokeStyle = `rgba(255, 200, 50, ${sw.alpha})`; canvasContext.lineWidth = 5; canvasContext.stroke();
+        }
+
+        // Apply force/destruction to asteroids, ships, and player (Force is World Units)
+        const applyShockwaveEffect = (obj) => {
             let dx = obj.x - sw.x; let dy = obj.y - sw.y; // World Distance Vector
             let dist = Math.sqrt(dx * dx + dy * dy);
-            // Check if object is within the shockwave's radius band
+
+            // Detection band
+            const bandWidth = sw.isGodRing ? 600 : 30;
+
+            if (Math.abs(dist - sw.r) < bandWidth) {
+                if (sw.isGodRing) {
+                    // Massive destruction: Indiscriminate except for the dealer
+                    if (obj === playerShip) return;
+
+                    if (obj.r !== undefined && !obj.type) { // Asteroid or Planet
+                        obj.r = 0; // Marked for instant removal (no split)
+                        obj.vaporized = true;
+                        if (obj.isPlanet) {
+                            addScreenMessage("PLANET VAPORIZED", "#ff00ff");
+                            createExplosion((obj.x - worldOffsetX + width / 2), (obj.y - worldOffsetY + height / 2), 200, '#00ffff', 10, 'spark');
+
+                            // Check if player destroyed their own home
+                            if (obj.id === homePlanetId) {
+                                triggerHomePlanetLost('player');
+                            }
+                        }
+                    } else if (obj.type === 'ship' || obj.type === 'station') {
+                        obj.structureHP = -1; // Force death
+                        obj.vaporized = true;
+                    }
+                } else {
+                    let angle = Math.atan2(dy, dx);
+                    let force = sw.strength * (1 - dist / sw.maxR);
+                    if (force > 0) { obj.xv += Math.cos(angle) * force * 0.1; obj.yv += Math.sin(angle) * force * 0.1; }
+                }
+            }
+        }
+        roids.forEach(applyShockwaveEffect);
+        ships.forEach(applyShockwaveEffect);
+
+        // Player knockback (Regular shockwaves only)
+        if (!sw.isGodRing) {
+            let dx = worldOffsetX - sw.x; let dy = worldOffsetY - sw.y;
+            let dist = Math.sqrt(dx * dx + dy * dy);
             if (Math.abs(dist - sw.r) < 30) {
                 let angle = Math.atan2(dy, dx);
                 let force = sw.strength * (1 - dist / sw.maxR);
-                if (force > 0) { obj.xv += Math.cos(angle) * force * 0.1; obj.yv += Math.sin(angle) * force * 0.1; }
+                if (force > 0) { velocity.x += Math.cos(angle) * force * 0.05; velocity.y += Math.sin(angle) * force * 0.05; }
             }
-        }
-        roids.forEach(applyShockwaveForce);
-        ships.forEach(applyShockwaveForce);
-
-        // Player knockback from shockwave
-        let dx = worldOffsetX - sw.x; let dy = worldOffsetY - sw.y; // World Distance Vector
-        let dist = Math.sqrt(dx * dx + dy * dy);
-        if (Math.abs(dist - sw.r) < 30) {
-            let angle = Math.atan2(dy, dx);
-            let force = sw.strength * (1 - dist / sw.maxR);
-            if (force > 0) { velocity.x += Math.cos(angle) * force * 0.05; velocity.y += Math.sin(angle) * force * 0.05; }
         }
     });
 
@@ -1692,12 +1848,19 @@ function loop() {
     for (let i = ships.length - 1; i >= 0; i--) {
         let ship = ships[i];
 
-        const cullRange = WORLD_BOUNDS * 1.5;
-        // CULLING: Only cull ships, NOT stations
-        if (ship.type !== 'station' && Math.hypot(ship.x - worldOffsetX, ship.y - worldOffsetY) > cullRange) {
+        // GOD RING VAPORIZATION
+        if (ship.vaporized || ship.structureHP <= -1) {
+            let vpX = (ship.x - worldOffsetX) + width / 2;
+            let vpY = (ship.y - worldOffsetY) + height / 2;
+            createExplosion(vpX, vpY, 60, '#00ffff', 5, 'spark');
+            if (ship.type === 'station') onStationDestroyed(ship);
+            else onShipDestroyed(ship);
             ships.splice(i, 1);
+            AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
             continue;
         }
+
+        const cullRange = WORLD_BOUNDS * 1.5;
 
         if (ship.blinkNum > 0) ship.blinkNum--;
 
@@ -1880,6 +2043,22 @@ function loop() {
 
             // 2. BEHAVIOR EXECUTION
             if (ship.aiState === 'FORMATION') {
+                if (ship.isFriendly && playerShip.tier >= 12 && homePlanetId) {
+                    // WINGMAN RETREAT: Run to home when the player is a Godship to avoid the ring
+                    const home = roids.find(r => r.id === homePlanetId);
+                    if (home) {
+                        const dx = home.x - ship.x;
+                        const dy = home.y - ship.y;
+                        const dist = Math.hypot(dx, dy);
+                        if (dist > 500) {
+                            ship.xv += (dx / dist) * 1.5;
+                            ship.yv += (dy / dist) * 1.5;
+                            ship.a = Math.atan2(ship.yv, ship.xv);
+                        }
+                        ship.xv *= 0.95; ship.yv *= 0.95;
+                        continue; // Skip normal formation logic
+                    }
+                }
                 proactiveCombatScanner(ship);
 
                 if (ship.isFriendly && !playerShip.dead && ship.leaderRef === playerShip) {
@@ -2472,6 +2651,17 @@ function loop() {
     for (let i = roids.length - 1; i >= 0; i--) {
         let r = roids[i];
 
+        // GOD RING VAPORIZATION
+        if (r.r <= 0 || r.vaporized) {
+            let vpX = (r.x - worldOffsetX) + width / 2;
+            let vpY = (r.y - worldOffsetY) + height / 2;
+            createExplosion(vpX, vpY, r.isPlanet ? 200 : 40, '#00ffff', r.isPlanet ? 15 : 4, 'spark');
+            roids.splice(i, 1);
+            if (!r.isPlanet) updateAsteroidCounter();
+            AudioEngine.playExplosion(r.isPlanet ? 'large' : 'small', r.x, r.y, r.z);
+            continue;
+        }
+
         if (r.isPlanet) {
             if (r.isPlanet) {
                 // Steering and Max Speed logic REMOVED to allow smooth orbital movement
@@ -2694,8 +2884,8 @@ function loop() {
                 const HULL_BORDER_D = `hsl(${shipToDraw.fleetHue}, 40%, 40%)`;
                 const DETAIL_GRAY_D = `hsl(${shipToDraw.fleetHue}, 10%, 40%)`;
 
-                // Normalization scale to match hit radius
-                const norm = 0.6;
+                // Normalization scale to match Tier 7 visual radius
+                const norm = 1.1;
 
                 canvasContext.shadowBlur = 20; canvasContext.shadowColor = THRUST_COLOR;
                 canvasContext.beginPath();
@@ -2943,15 +3133,76 @@ function loop() {
 
             canvasContext.globalAlpha = 1;
 
-            // --- Drawing logic for Ship Tiers (unchanged) ---
-            if (tier >= 8) {
+            // --- Drawing logic for Ship Tiers ---
+            if (tier >= 12) {
+                // THE GODSHIP: Massive, glowing, advanced
+                const norm = 1.5; // Adjusted size for better screen fit but still massive
+                const HULL_COLOR = '#050505';
+                const BORDER_COLOR = '#00FFFF';
+                const CORE_COLOR = '#FFFFFF';
+
+                canvasContext.shadowBlur = 40;
+                canvasContext.shadowColor = BORDER_COLOR;
+
+                // Advanced Chassis Design - Wide and multi-segmented
+                canvasContext.beginPath();
+                canvasContext.moveTo(r * 2.5 * norm, 0); // Front
+                canvasContext.lineTo(r * 1.5 * norm, r * 1.2 * norm);
+                canvasContext.lineTo(0, r * 1.8 * norm);
+                canvasContext.lineTo(-r * 1.5 * norm, r * 1.2 * norm);
+                canvasContext.lineTo(-r * 2.5 * norm, r * 1.5 * norm);
+                canvasContext.lineTo(-r * 3 * norm, r * 0.5 * norm);
+                canvasContext.lineTo(-r * 3 * norm, -r * 0.5 * norm);
+                canvasContext.lineTo(-r * 2.5 * norm, -r * 1.5 * norm);
+                canvasContext.lineTo(-r * 1.5 * norm, -r * 1.2 * norm);
+                canvasContext.lineTo(0, -r * 1.8 * norm);
+                canvasContext.lineTo(r * 1.5 * norm, -r * 1.2 * norm);
+                canvasContext.closePath();
+
+                canvasContext.fillStyle = HULL_COLOR;
+                canvasContext.fill();
+                canvasContext.lineWidth = 4;
+                canvasContext.strokeStyle = BORDER_COLOR;
+                canvasContext.stroke();
+
+                // Tech Overlay (Inner hull patterns)
+                canvasContext.shadowBlur = 15;
+                canvasContext.beginPath();
+                canvasContext.moveTo(r * 2 * norm, 0);
+                canvasContext.lineTo(-r * 1.5 * norm, r * 0.8 * norm);
+                canvasContext.moveTo(r * 2 * norm, 0);
+                canvasContext.lineTo(-r * 1.5 * norm, -r * 0.8 * norm);
+                canvasContext.stroke();
+
+                // Pulsing Energy Core
+                const pulse = 0.7 + Math.sin(Date.now() / 200) * 0.3;
+                canvasContext.shadowBlur = 50 * pulse;
+                canvasContext.fillStyle = CORE_COLOR;
+                canvasContext.beginPath();
+                canvasContext.arc(0, 0, r * norm * 0.6 * pulse, 0, Math.PI * 2);
+                canvasContext.fill();
+
+                // Heavy Thrusters
+                const EXHAUST_X = -r * 3 * norm;
+                if (playerShip.thrusting) {
+                    canvasContext.shadowBlur = 80;
+                    canvasContext.fillStyle = `rgba(0, 255, 255, ${0.4 + Math.random() * 0.6})`;
+                    canvasContext.beginPath();
+                    canvasContext.moveTo(EXHAUST_X, -r * 1.2 * norm);
+                    canvasContext.lineTo(EXHAUST_X, r * 1.2 * norm);
+                    canvasContext.lineTo(EXHAUST_X - r * 12 * norm * (0.8 + Math.random() * 0.4), 0);
+                    canvasContext.closePath();
+                    canvasContext.fill();
+                }
+                canvasContext.shadowBlur = 0;
+
+            } else if (tier >= 8) {
                 const HULL_COLOR = '#1A1A1A'; const HULL_BORDER = '#333333';
                 const DETAIL_GRAY = '#666666'; const ACCENT_RED = '#FF4444';
                 const THRUST_COLOR = '#0088FF';
 
-                // Normalization scale to match Tier 7 visual radius (approx 1/1.7)
-                const norm = 0.6;
-
+                // Normalization scale to match Tier 7 visual radius
+                const norm = 1.1;
                 canvasContext.shadowBlur = 20; canvasContext.shadowColor = THRUST_COLOR;
                 canvasContext.beginPath();
                 canvasContext.moveTo(r * 1.6 * norm, 0);
@@ -3630,9 +3881,20 @@ function startGame() {
     // Hide start/restart button in order to gradually show it again in the game over screen.
     startBtn.style.display = 'none';
 
-    startScreen.style.display = 'none'; level = 0; homePlanetId = null; screenMessages = [];
+    // RESTORE HUD
+    const uiLayer = document.getElementById('ui-layer');
+    if (uiLayer) uiLayer.style.display = 'flex';
 
-    // startScreen.classList.remove('game-over-bg');
+    startScreen.style.display = 'none';
+    startScreen.classList.remove('game-over', 'game-over-bg', 'victory', 'fade-out');
+    startScreen.removeEventListener('click', audioStopper);
+
+    level = 0;
+    homePlanetId = null;
+    screenMessages = [];
+    victoryState = false;
+    viewScale = 1.0;
+
     fadeOverlay.style.background = 'rgba(0, 0, 0, 0)';
 
     velocity = { x: 0, y: 0 };
@@ -3661,7 +3923,8 @@ function startGame() {
     initBackground();
     createLevel();
 
-    drawLives(); // NEW: Initial draw
+    drawLives();
+    updateAsteroidCounter(); // Sync score/count immediately
     gameRunning = true;
 
     // Reset radar zoom to default (2500)
