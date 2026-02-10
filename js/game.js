@@ -142,6 +142,8 @@ let touchStartX = 0;
 let touchStartY = 0;
 let isTouching = false;
 let touchStartTime = 0;
+let initialPinchDistance = 0;
+let wasPinching = false;
 
 document.addEventListener('touchstart', (e) => {
     if (!gameRunning) return; // Allow interaction with start screen
@@ -150,15 +152,24 @@ document.addEventListener('touchstart', (e) => {
     inputMode = 'touch';
     isTouching = true;
 
-    // Joystick Anchor
-    touchStartX = e.touches[0].clientX;
-    touchStartY = e.touches[0].clientY;
-    touchStartTime = Date.now();
+    if (e.touches.length === 1) {
+        // Joystick Anchor
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        touchStartTime = Date.now();
 
-    // Rotate ship to face the tap immediately
-    const dx = touchStartX - width / 2;
-    const dy = touchStartY - height / 2;
-    playerShip.a = Math.atan2(-dy, dx);
+        // Rotate ship to face the tap immediately
+        const dx = touchStartX - width / 2;
+        const dy = touchStartY - height / 2;
+        playerShip.a = Math.atan2(dy, dx);
+    } else if (e.touches.length === 2) {
+        // Prepare for pinch zoom
+        wasPinching = true;
+        initialPinchDistance = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+        );
+    }
 
     e.preventDefault();
 }, { passive: false });
@@ -167,41 +178,61 @@ document.addEventListener('touchmove', (e) => {
     if (!isTouching || !gameRunning || playerShip.dead) return;
     e.preventDefault();
 
-    const duration = Date.now() - touchStartTime;
-    if (duration < MIN_DURATION_TAP_TO_MOVE) {
-        return;
-    }
+    if (e.touches.length === 1) {
+        const duration = Date.now() - touchStartTime;
+        if (duration < MIN_DURATION_TAP_TO_MOVE) {
+            return;
+        }
 
-    const currentX = e.touches[0].clientX;
-    const currentY = e.touches[0].clientY;
+        const currentX = e.touches[0].clientX;
+        const currentY = e.touches[0].clientY;
 
-    const dx = currentX - touchStartX;
-    const dy = currentY - touchStartY;
+        const dx = currentX - touchStartX;
+        const dy = currentY - touchStartY;
 
-    // Deadzone to prevent jitter
-    if (Math.hypot(dx, dy) > 10) {
-        // Steer towards the drag vector
-        // Note: dy is screen coordinates (down is positive), but ship angle 0 is Right.
-        // We negate dy to match the mathematical atan2 (positive y is up).
-        let targetAngle = Math.atan2(-dy, dx);
+        // Deadzone to prevent jitter
+        if (Math.hypot(dx, dy) > 10) {
+            // Steer towards the drag vector
+            // Note: dy is screen coordinates (down is positive).
+            let targetAngle = Math.atan2(dy, dx);
 
-        // Smooth rotate towards target
-        let angleDiff = targetAngle - playerShip.a;
-        while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-        while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+            // Smooth rotate towards target
+            let angleDiff = targetAngle - playerShip.a;
+            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
 
-        playerShip.a += angleDiff * 0.2; // Responsiveness
+            playerShip.a += angleDiff * 0.2; // Responsiveness
+        }
+    } else if (e.touches.length === 2) {
+        const currentDistance = Math.hypot(
+            e.touches[0].clientX - e.touches[1].clientX,
+            e.touches[0].clientY - e.touches[1].clientY
+        );
+        const diff = currentDistance - initialPinchDistance;
+
+        // Sensivity threshold for zoom change
+        if (Math.abs(diff) > 40) {
+            const direction = diff > 0 ? -1 : 1; // Pinch out (diff > 0) -> Zoom In (-1 index)
+            changeRadarZoom(direction);
+            initialPinchDistance = currentDistance;
+        }
     }
 }, { passive: false });
 
 document.addEventListener('touchend', (e) => {
     if (!gameRunning) return;
     if (e.target.closest('.btn') || e.target.closest('.start-btn')) return;
-    isTouching = false;
 
-    // Short tap => shoot still
+    if (e.touches.length === 0) {
+        isTouching = false;
+        initialPinchDistance = 0;
+        // Reset wasPinching after a short delay to allow the last touchend to check it
+        setTimeout(() => { wasPinching = false; }, 0);
+    }
+
+    // Short tap => shoot still (only if it was a single touch interaction and no pinch occurred)
     const duration = Date.now() - touchStartTime;
-    if (duration < MIN_DURATION_TAP_TO_MOVE) {
+    if (duration < MIN_DURATION_TAP_TO_MOVE && e.changedTouches.length === 1 && !wasPinching) {
         shootLaser();
     }
     e.preventDefault();
