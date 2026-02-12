@@ -2518,22 +2518,116 @@ function loop() {
                             ship.yv += sepY;
                         }
 
-                        // Rotation logic: friendly ships only match rotation when following player
-                        // Enemy ships and independent friendly ships rotate toward movement
-                        if (isInVisualSlot) {
-                            // Match leader rotation EXACTLY (Imitate)
-                            let angleDiff = la - ship.a;
-                            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-                            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
-                            if (Math.abs(angleDiff) < 0.05) ship.a = la;
-                            else ship.a += angleDiff * 0.4;
+                        // === ASTEROID DANGER DETECTION & EVASION ===
+                        // Wingmen scan for nearby asteroids and respond to threats
+                        let dangerousAsteroid = null;
+                        let minDangerDist = Infinity;
+                        const DANGER_SCAN_RANGE = 400; // How far to scan for asteroids
+                        const CRITICAL_DANGER_RANGE = 200; // Distance at which to consider abandoning squad
+                        const SHOOT_RANGE = 600; // Distance at which to start shooting
+
+                        // Scan for nearby asteroids
+                        for (let r of roids) {
+                            if (r.isPlanet || r.z > 0.5) continue; // Skip planets and distant asteroids
+
+                            const distToAsteroid = Math.hypot(r.x - ship.x, r.y - ship.y);
+
+                            if (distToAsteroid < DANGER_SCAN_RANGE && distToAsteroid < minDangerDist) {
+                                // Calculate if asteroid is on collision course
+                                // Project asteroid's future position
+                                const relVelX = r.xv - ship.xv;
+                                const relVelY = r.yv - ship.yv;
+                                const relPosX = r.x - ship.x;
+                                const relPosY = r.y - ship.y;
+
+                                // Time to closest approach
+                                const relSpeed = Math.hypot(relVelX, relVelY);
+                                if (relSpeed > 0.1) {
+                                    const timeToClosest = -(relPosX * relVelX + relPosY * relVelY) / (relSpeed * relSpeed);
+
+                                    if (timeToClosest > 0 && timeToClosest < 60) { // Within next 60 frames (~1 second)
+                                        const closestDist = Math.hypot(
+                                            relPosX + relVelX * timeToClosest,
+                                            relPosY + relVelY * timeToClosest
+                                        );
+
+                                        if (closestDist < ship.r + r.r + 50) { // Collision predicted
+                                            dangerousAsteroid = r;
+                                            minDangerDist = distToAsteroid;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Initialize danger tracking if not present
+                        if (!ship.asteroidDangerTimer) ship.asteroidDangerTimer = 0;
+                        if (!ship.lastDangerousAsteroid) ship.lastDangerousAsteroid = null;
+
+                        if (dangerousAsteroid) {
+                            // Track if this is the same asteroid as before
+                            if (ship.lastDangerousAsteroid === dangerousAsteroid) {
+                                ship.asteroidDangerTimer++;
+                            } else {
+                                ship.lastDangerousAsteroid = dangerousAsteroid;
+                                ship.asteroidDangerTimer = 1;
+                            }
+
+                            const asteroidAngle = Math.atan2(dangerousAsteroid.y - ship.y, dangerousAsteroid.x - ship.x);
+
+                            // CRITICAL DANGER: Abandon squad if threat persists
+                            if (minDangerDist < CRITICAL_DANGER_RANGE && ship.asteroidDangerTimer > 30) {
+                                // Shooting failed to neutralize threat - ABANDON SQUAD
+                                ship.leaderRef = null;
+                                ship.squadId = null;
+                                ship.asteroidDangerTimer = 0;
+                                ship.lastDangerousAsteroid = null;
+
+                                // Evasive maneuver - move perpendicular to asteroid approach
+                                const evadeAngle = asteroidAngle + Math.PI / 2;
+                                ship.xv += Math.cos(evadeAngle) * 3;
+                                ship.yv += Math.sin(evadeAngle) * 3;
+
+                            } else if (minDangerDist < SHOOT_RANGE) {
+                                // MODERATE DANGER: Try to shoot the asteroid while maintaining formation
+
+                                // Temporarily override rotation to face the asteroid
+                                let angleDiff = asteroidAngle - ship.a;
+                                while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                                while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+
+                                // Rotate toward asteroid (faster rotation for danger response)
+                                ship.a += angleDiff * 0.3;
+
+                                // Shoot if lined up with the asteroid
+                                if (ship.reloadTime <= 0 && Math.abs(angleDiff) < 0.3) {
+                                    const bullets = ship.isFriendly ? playerShipBullets : enemyShipBullets;
+                                    fireEntityWeapon(ship, bullets, !ship.isFriendly);
+                                    ship.reloadTime = 20 + Math.random() * 30;
+                                }
+                            }
                         } else {
-                            // Independent rotation - rotate toward movement direction or threat
-                            const moveAngle = Math.atan2(ship.yv, ship.xv);
-                            let angleDiff = moveAngle - ship.a;
-                            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-                            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
-                            ship.a += angleDiff * 0.1; // Slower rotation for smoother movement
+                            // No danger - reset tracking
+                            ship.asteroidDangerTimer = 0;
+                            ship.lastDangerousAsteroid = null;
+
+                            // Normal rotation logic: friendly ships only match rotation when following player
+                            // Enemy ships and independent friendly ships rotate toward movement
+                            if (isInVisualSlot) {
+                                // Match leader rotation EXACTLY (Imitate)
+                                let angleDiff = la - ship.a;
+                                while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                                while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                                if (Math.abs(angleDiff) < 0.05) ship.a = la;
+                                else ship.a += angleDiff * 0.4;
+                            } else {
+                                // Independent rotation - rotate toward movement direction or threat
+                                const moveAngle = Math.atan2(ship.yv, ship.xv);
+                                let angleDiff = moveAngle - ship.a;
+                                while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                                while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                                ship.a += angleDiff * 0.1; // Slower rotation for smoother movement
+                            }
                         }
 
                         ship.xv *= damping;
