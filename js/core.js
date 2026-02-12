@@ -584,19 +584,38 @@ function initializePlanetAttributes(roid, forcedHue = null) {
     roid.isPlanet = true;
     roid.name = generatePlanetName();
 
-    // ORBITAL INITIALIZATION
-    // Calculate distance from center to determine orbit radius
-    roid.orbitRadius = Math.hypot(roid.x, roid.y);
-    if (roid.orbitRadius < 1000) roid.orbitRadius = 1000; // Minimum orbit size
+    // ELLIPTICAL ORBITAL INITIALIZATION
+    // Each planet has its own unique center of gravity (not all orbiting 0,0)
+    // Generate a random offset for this planet's orbital center
+    const maxCenterOffset = WORLD_BOUNDS * 0.3; // Centers can be up to 30% of world bounds from origin
+    roid.orbitCenterX = (rng() - 0.5) * 2 * maxCenterOffset;
+    roid.orbitCenterY = (rng() - 0.5) * 2 * maxCenterOffset;
 
-    // Initial angle based on position
-    roid.orbitAngle = Math.atan2(roid.y, roid.x);
+    // Calculate distance from this planet's orbital center
+    const dx = roid.x - roid.orbitCenterX;
+    const dy = roid.y - roid.orbitCenterY;
+    const distFromCenter = Math.hypot(dx, dy);
 
-    // Orbital Speed (The farther, the slower, naturally, but we can tune this)
-    // Using a base speed divided by radius for angular velocity
-    // Random direction (CW or CCW)
-    const baseOrbitSpeed = 5; // Reduced from 10 to 5
-    roid.orbitSpeed = (baseOrbitSpeed / roid.orbitRadius) * (rng() < 0.5 ? 1 : -1);
+    // Semi-major axis (a) - the longest radius of the ellipse
+    roid.semiMajorAxis = Math.max(1000, distFromCenter * (0.8 + rng() * 0.4));
+
+    // Eccentricity determines how "elliptical" the orbit is (0 = circle, close to 1 = very elongated)
+    // Range from 0.1 to 0.7 for variety
+    roid.eccentricity = 0.1 + rng() * 0.6;
+
+    // Semi-minor axis (b) calculated from eccentricity: b = a * sqrt(1 - e^2)
+    roid.semiMinorAxis = roid.semiMajorAxis * Math.sqrt(1 - roid.eccentricity * roid.eccentricity);
+
+    // Initial angle (eccentric anomaly) based on current position
+    roid.orbitAngle = Math.atan2(dy, dx);
+
+    // Random rotation of the ellipse itself (orientation in space)
+    roid.ellipseRotation = rng() * Math.PI * 2;
+
+    // Orbital Speed - angular velocity (radians per frame)
+    // Slower for larger orbits (Kepler's third law approximation)
+    const baseOrbitSpeed = 3;
+    roid.orbitSpeed = (baseOrbitSpeed / roid.semiMajorAxis) * (rng() < 0.5 ? 1 : -1);
 
     roid.zSpeed = (rng() * 0.001) + 0.0005;
 

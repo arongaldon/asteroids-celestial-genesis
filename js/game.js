@@ -1137,24 +1137,39 @@ function updatePhysics() {
             }
 
             // The farthest they are in z, the slower they move.
+            // Additionally, speed varies based on position in elliptical orbit (faster at periapsis, slower at apoapsis)
 
-            if (r1.orbitRadius && r1.orbitSpeed) {
+            if (r1.semiMajorAxis && r1.orbitSpeed) {
                 // Calculate speed modifier based on Z depth
-                // 1.0 at Z=0, smaller as Z increases. e.g. at Z=4, speed is 1/5.
+                // 1.0 at Z=0, progressively slower as Z increases
+                // At Z=4, speed is 1/5 (20% of normal speed)
                 const zSpeedModifier = 1 / (1 + r1.z);
 
-                const effectiveSpeed = r1.orbitSpeed * zSpeedModifier;
+                // Update the orbital angle (mean anomaly)
+                const nextAngle = r1.orbitAngle + (r1.orbitSpeed * zSpeedModifier);
 
-                // Calculate new position relative to center (0,0)
-                const nextAngle = r1.orbitAngle + effectiveSpeed;
-                const newX = Math.cos(nextAngle) * r1.orbitRadius;
-                const newY = Math.sin(nextAngle) * r1.orbitRadius;
+                // Calculate position on the ellipse
+                // Using parametric equations for an ellipse:
+                // x = a * cos(θ) (before rotation)
+                // y = b * sin(θ) (before rotation)
+                const xEllipse = r1.semiMajorAxis * Math.cos(nextAngle);
+                const yEllipse = r1.semiMinorAxis * Math.sin(nextAngle);
 
-                // Update velocity to take us exactly to newX/newY in the next step
+                // Rotate the ellipse by its orientation angle
+                const cosRot = Math.cos(r1.ellipseRotation);
+                const sinRot = Math.sin(r1.ellipseRotation);
+                const xRotated = xEllipse * cosRot - yEllipse * sinRot;
+                const yRotated = xEllipse * sinRot + yEllipse * cosRot;
+
+                // Translate to the planet's orbital center
+                const newX = r1.orbitCenterX + xRotated;
+                const newY = r1.orbitCenterY + yRotated;
+
+                // Update velocity to smoothly move to the new position
                 r1.xv = newX - r1.x;
                 r1.yv = newY - r1.y;
 
-                // We update the angle for the next frame
+                // Update the angle for the next frame
                 r1.orbitAngle = nextAngle;
             }
         }
