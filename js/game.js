@@ -39,7 +39,6 @@ function onStationDestroyed(station, killerShip = null) {
 }
 
 
-
 function resize() {
     width = Math.max(window.innerWidth, 100);
     height = Math.max(window.innerHeight, 100);
@@ -1910,7 +1909,7 @@ function loop() {
 
                         // AWARD SCORE for Godship destruction
                         if (obj.isPlanet) {
-                            addScreenMessage("PLANET VAPORIZED", "#ff00ff");
+                            addScreenMessage("PLANET " + obj.name.toUpperCase() + " VAPORIZED", "#ff00ff");
                             createExplosion((obj.x - worldOffsetX + width / 2), (obj.y - worldOffsetY + height / 2), 200, '#00ffff', 10, 'spark');
                             increaseShipScore(playerShip, 1000); // 1000 for planet
 
@@ -3152,56 +3151,157 @@ function loop() {
                 canvasContext.lineTo(EXHAUST_X - 25 * norm * (0.8 + Math.random() * 0.4), 0); canvasContext.closePath(); canvasContext.fill();
                 canvasContext.shadowBlur = 0;
 
+
             } else {
-                // STANDARD EVOLVING SHIP (Tiers 0-7)
-                // Shape evolves with individual score (Triangle -> Square -> ...)
-                let sides = 3 + tier;
+                // MODERN TRIANGULAR SHIP DESIGN (Tiers 0-7)
+                // Sleek, sharp geometry with glowing edges inspired by tactical diagram
+
+                // Base triangle size scales with tier
+                const baseSize = r * (1 + tier * 0.08);
+
+                // === MAIN HULL (Sharp Triangle) ===
+                canvasContext.shadowBlur = 25;
+                canvasContext.shadowColor = DETAIL_COLOR;
+
+                // Main triangle body
                 canvasContext.beginPath();
-                for (let i = 0; i <= sides; i++) {
-                    let ang = i * (2 * Math.PI / sides);
-                    let rad = r * (1 + tier * 0.1);
-                    if (i === 0) canvasContext.moveTo(rad * Math.cos(ang), -rad * Math.sin(ang));
-                    else canvasContext.lineTo(rad * Math.cos(ang), -rad * Math.sin(ang));
-                }
+                canvasContext.moveTo(baseSize * 1.2, 0);  // Nose (front)
+                canvasContext.lineTo(-baseSize * 0.6, baseSize * 0.8);  // Bottom left
+                canvasContext.lineTo(-baseSize * 0.6, -baseSize * 0.8); // Top left
                 canvasContext.closePath();
 
-                let chassisGrad = canvasContext.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
-                chassisGrad.addColorStop(0, DETAIL_COLOR);
-                chassisGrad.addColorStop(1, HULL_COLOR);
+                // Gradient fill from bright center to darker edges
+                let hullGrad = canvasContext.createLinearGradient(baseSize * 0.6, 0, -baseSize * 0.6, 0);
+                hullGrad.addColorStop(0, DETAIL_COLOR);
+                hullGrad.addColorStop(0.5, HULL_COLOR);
+                hullGrad.addColorStop(1, `hsl(${shipToDraw.fleetHue}, 40%, 15%)`);
 
-                canvasContext.fillStyle = chassisGrad; canvasContext.fill();
-                canvasContext.lineWidth = 2; canvasContext.strokeStyle = HULL_BORDER; canvasContext.stroke();
+                canvasContext.fillStyle = hullGrad;
+                canvasContext.fill();
 
-                // Side Detail
-                canvasContext.fillStyle = `hsl(${shipToDraw.fleetHue}, 60%, 20%)`; // Darker detail
-                canvasContext.fillRect(-r * 0.5, -r * 0.2, r * 0.3, r * 0.4);
-
-                // Wing/Stripe
-                canvasContext.strokeStyle = DETAIL_COLOR; canvasContext.lineWidth = 1.5;
-                canvasContext.beginPath();
-                canvasContext.moveTo(-r * 0.6, -r * 0.3); canvasContext.bezierCurveTo(-r * 0.2, 0, 0, r * 0.2, r * 0.4, r * 0.3); canvasContext.stroke();
-
-                // Engine Node
-                canvasContext.beginPath();
-                canvasContext.arc(-r * 0.2, r * 0.3, r * 0.1, 0, Math.PI * 2);
-                canvasContext.fillStyle = `hsl(${shipToDraw.fleetHue}, 40%, 20%)`; canvasContext.fill(); canvasContext.strokeStyle = HULL_BORDER; canvasContext.stroke();
-
-                // Cockpit
-                let cockpitGrad = canvasContext.createRadialGradient(r * 0.4, 0, 2, r * 0.4, 0, r * 0.25);
-                cockpitGrad.addColorStop(0, COCKPIT_GRAD_1); cockpitGrad.addColorStop(1, COCKPIT_GRAD_2);
-                canvasContext.fillStyle = cockpitGrad;
-                canvasContext.beginPath(); canvasContext.ellipse(r * 0.4, 0, r * 0.2, r * 0.12, 0, 0, Math.PI * 2); canvasContext.fill();
-
-                // Thrust
-                canvasContext.shadowColor = THRUST_COLOR; canvasContext.strokeStyle = THRUST_COLOR; canvasContext.lineWidth = 2;
-                canvasContext.beginPath();
-                const rX = -r; const rY = 0;
-                canvasContext.moveTo(rX, rY);
-                // Engine flicker
-                canvasContext.lineTo(rX - 20 * Math.cos((Math.random() - 0.5) * 0.5), rY + 20 * Math.sin((Math.random() - 0.5) * 0.5));
+                // Bright glowing outline
+                canvasContext.lineWidth = 3;
+                canvasContext.strokeStyle = DETAIL_COLOR;
                 canvasContext.stroke();
-                canvasContext.fillStyle = THRUST_COLOR;
-                canvasContext.beginPath(); canvasContext.arc(rX - 5, 0, 5, 0, Math.PI * 2); canvasContext.fill();
+
+                // === INTERNAL DETAIL LINES ===
+                canvasContext.shadowBlur = 10;
+                canvasContext.lineWidth = 1.5;
+                canvasContext.strokeStyle = `hsl(${shipToDraw.fleetHue}, 100%, 70%)`;
+
+                // Center line
+                canvasContext.beginPath();
+                canvasContext.moveTo(baseSize * 0.8, 0);
+                canvasContext.lineTo(-baseSize * 0.4, 0);
+                canvasContext.stroke();
+
+                // Diagonal detail lines
+                canvasContext.beginPath();
+                canvasContext.moveTo(baseSize * 0.4, 0);
+                canvasContext.lineTo(-baseSize * 0.2, baseSize * 0.4);
+                canvasContext.moveTo(baseSize * 0.4, 0);
+                canvasContext.lineTo(-baseSize * 0.2, -baseSize * 0.4);
+                canvasContext.stroke();
+
+                // === WING ACCENTS ===
+                canvasContext.shadowBlur = 15;
+                canvasContext.fillStyle = `hsl(${shipToDraw.fleetHue}, 80%, 40%)`;
+
+                // Top wing accent
+                canvasContext.beginPath();
+                canvasContext.moveTo(baseSize * 0.2, -baseSize * 0.3);
+                canvasContext.lineTo(-baseSize * 0.3, -baseSize * 0.6);
+                canvasContext.lineTo(-baseSize * 0.4, -baseSize * 0.5);
+                canvasContext.lineTo(baseSize * 0.1, -baseSize * 0.25);
+                canvasContext.closePath();
+                canvasContext.fill();
+
+                // Bottom wing accent
+                canvasContext.beginPath();
+                canvasContext.moveTo(baseSize * 0.2, baseSize * 0.3);
+                canvasContext.lineTo(-baseSize * 0.3, baseSize * 0.6);
+                canvasContext.lineTo(-baseSize * 0.4, baseSize * 0.5);
+                canvasContext.lineTo(baseSize * 0.1, baseSize * 0.25);
+                canvasContext.closePath();
+                canvasContext.fill();
+
+                // === COCKPIT (Glowing center) ===
+                canvasContext.shadowBlur = 20;
+                canvasContext.shadowColor = COCKPIT_GRAD_1;
+
+                let cockpitGrad = canvasContext.createRadialGradient(baseSize * 0.5, 0, 0, baseSize * 0.5, 0, baseSize * 0.15);
+                cockpitGrad.addColorStop(0, COCKPIT_GRAD_1);
+                cockpitGrad.addColorStop(0.7, COCKPIT_GRAD_2);
+                cockpitGrad.addColorStop(1, HULL_COLOR);
+
+                canvasContext.fillStyle = cockpitGrad;
+                canvasContext.beginPath();
+                canvasContext.arc(baseSize * 0.5, 0, baseSize * 0.15, 0, Math.PI * 2);
+                canvasContext.fill();
+
+                // Cockpit bright rim
+                canvasContext.strokeStyle = COCKPIT_GRAD_1;
+                canvasContext.lineWidth = 2;
+                canvasContext.stroke();
+
+                // === ENGINE PORTS ===
+                canvasContext.shadowBlur = 15;
+                canvasContext.shadowColor = ACCENT_COLOR;
+
+                // Top engine
+                canvasContext.fillStyle = ACCENT_COLOR;
+                canvasContext.beginPath();
+                canvasContext.arc(-baseSize * 0.45, -baseSize * 0.35, baseSize * 0.08, 0, Math.PI * 2);
+                canvasContext.fill();
+
+                // Bottom engine
+                canvasContext.beginPath();
+                canvasContext.arc(-baseSize * 0.45, baseSize * 0.35, baseSize * 0.08, 0, Math.PI * 2);
+                canvasContext.fill();
+
+                // === ENGINE THRUST (Animated) ===
+                canvasContext.shadowBlur = 30;
+                canvasContext.shadowColor = THRUST_COLOR;
+
+                const thrustLength = 20 + Math.random() * 15;
+                const thrustFlicker = 0.6 + Math.random() * 0.4;
+
+                // Top thrust
+                canvasContext.fillStyle = `hsla(${shipToDraw.fleetHue}, 100%, 70%, ${thrustFlicker})`;
+                canvasContext.beginPath();
+                canvasContext.moveTo(-baseSize * 0.5, -baseSize * 0.35);
+                canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, -baseSize * 0.4);
+                canvasContext.lineTo(-baseSize * 0.5 - thrustLength, -baseSize * 0.35);
+                canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, -baseSize * 0.3);
+                canvasContext.closePath();
+                canvasContext.fill();
+
+                // Bottom thrust
+                canvasContext.fillStyle = `hsla(${shipToDraw.fleetHue}, 100%, 70%, ${thrustFlicker})`;
+                canvasContext.beginPath();
+                canvasContext.moveTo(-baseSize * 0.5, baseSize * 0.35);
+                canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, baseSize * 0.4);
+                canvasContext.lineTo(-baseSize * 0.5 - thrustLength, baseSize * 0.35);
+                canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, baseSize * 0.3);
+                canvasContext.closePath();
+                canvasContext.fill();
+
+                // === TIER INDICATORS (Small dots along the hull) ===
+                if (tier > 0) {
+                    canvasContext.shadowBlur = 8;
+                    canvasContext.fillStyle = `hsl(${shipToDraw.fleetHue}, 100%, 80%)`;
+
+                    for (let t = 0; t < Math.min(tier, 7); t++) {
+                        const dotX = baseSize * 0.3 - (t * baseSize * 0.12);
+                        const dotY = (t % 2 === 0) ? baseSize * 0.15 : -baseSize * 0.15;
+
+                        canvasContext.beginPath();
+                        canvasContext.arc(dotX, dotY, baseSize * 0.04, 0, Math.PI * 2);
+                        canvasContext.fill();
+                    }
+                }
+
+                canvasContext.shadowBlur = 0;
             }
             // DRAW HEART FOR FRIENDS
             if (shipToDraw.isFriendly) {
@@ -3209,48 +3309,127 @@ function loop() {
             }
         }
         else {
+            // MODERN HEXAGONAL STATION DESIGN
+            // Sleek geometric station with glowing energy rings and pulsing core
+
             const haloColor = `hsl(${shipToDraw.fleetHue}, 100%, 70%)`;
             const bodyColor = `hsl(${shipToDraw.fleetHue}, 80%, 50%)`;
             const coreColor = `hsl(${(shipToDraw.fleetHue + 120) % 360}, 100%, 60%)`;
+            const accentColor = `hsl(${shipToDraw.fleetHue}, 90%, 65%)`;
 
+            const stationR = shipToDraw.r;
+
+            // === OUTER HEXAGONAL STRUCTURE ===
+            canvasContext.shadowBlur = 25;
             canvasContext.shadowColor = haloColor;
-            canvasContext.lineWidth = 3;
 
-            // Outer Ring (Halo)
-            canvasContext.strokeStyle = haloColor;
+            // Draw hexagon
             canvasContext.beginPath();
-            canvasContext.arc(0, 0, shipToDraw.r * 1.1, 0, Math.PI * 2);
+            for (let i = 0; i < 6; i++) {
+                const angle = (i * Math.PI / 3) + shipToDraw.a;
+                const x = Math.cos(angle) * stationR * 1.1;
+                const y = Math.sin(angle) * stationR * 1.1;
+                if (i === 0) canvasContext.moveTo(x, y);
+                else canvasContext.lineTo(x, y);
+            }
+            canvasContext.closePath();
+
+            // Hexagon fill with gradient
+            let hexGrad = canvasContext.createRadialGradient(0, 0, 0, 0, 0, stationR * 1.1);
+            hexGrad.addColorStop(0, `hsl(${shipToDraw.fleetHue}, 60%, 40%)`);
+            hexGrad.addColorStop(0.7, `hsl(${shipToDraw.fleetHue}, 70%, 25%)`);
+            hexGrad.addColorStop(1, `hsl(${shipToDraw.fleetHue}, 50%, 15%)`);
+
+            canvasContext.fillStyle = hexGrad;
+            canvasContext.fill();
+
+            // Glowing hexagon outline
+            canvasContext.lineWidth = 4;
+            canvasContext.strokeStyle = haloColor;
             canvasContext.stroke();
 
-            // Inner Ring (Torus Body)
-            canvasContext.lineWidth = 5;
+            // === ROTATING ENERGY RINGS ===
+            canvasContext.shadowBlur = 20;
+
+            // Outer ring
+            canvasContext.lineWidth = 3;
+            canvasContext.strokeStyle = accentColor;
+            canvasContext.beginPath();
+            canvasContext.arc(0, 0, stationR * 0.9, 0, Math.PI * 2);
+            canvasContext.stroke();
+
+            // Middle ring (slightly rotated)
+            canvasContext.lineWidth = 2;
             canvasContext.strokeStyle = bodyColor;
             canvasContext.beginPath();
-            canvasContext.arc(0, 0, shipToDraw.r * 0.8, 0, Math.PI * 2);
+            canvasContext.arc(0, 0, stationR * 0.7, 0, Math.PI * 2);
             canvasContext.stroke();
 
-            // Center Core/Hub
-            canvasContext.fillStyle = coreColor;
+            // === CONNECTING SPOKES (6 spokes to match hexagon) ===
+            canvasContext.shadowBlur = 15;
+            canvasContext.lineWidth = 2;
+            canvasContext.strokeStyle = accentColor;
+
+            for (let k = 0; k < 6; k++) {
+                const angle = (k * Math.PI / 3) + shipToDraw.a;
+                const rInner = stationR * 0.4;
+                const rOuter = stationR * 0.95;
+
+                canvasContext.beginPath();
+                canvasContext.moveTo(Math.cos(angle) * rInner, Math.sin(angle) * rInner);
+                canvasContext.lineTo(Math.cos(angle) * rOuter, Math.sin(angle) * rOuter);
+                canvasContext.stroke();
+
+                // Small nodes at spoke ends
+                canvasContext.fillStyle = haloColor;
+                canvasContext.beginPath();
+                canvasContext.arc(Math.cos(angle) * rOuter, Math.sin(angle) * rOuter, stationR * 0.06, 0, Math.PI * 2);
+                canvasContext.fill();
+            }
+
+            // === PULSING CORE ===
+            canvasContext.shadowBlur = 30;
+            canvasContext.shadowColor = coreColor;
+
+            // Pulsing effect
+            const pulsePhase = (Date.now() % 2000) / 2000; // 0 to 1 over 2 seconds
+            const pulseSize = 0.3 + Math.sin(pulsePhase * Math.PI * 2) * 0.05;
+
+            // Core gradient
+            let coreGrad = canvasContext.createRadialGradient(0, 0, 0, 0, 0, stationR * pulseSize);
+            coreGrad.addColorStop(0, '#ffffff');
+            coreGrad.addColorStop(0.3, coreColor);
+            coreGrad.addColorStop(1, bodyColor);
+
+            canvasContext.fillStyle = coreGrad;
             canvasContext.beginPath();
-            canvasContext.arc(0, 0, shipToDraw.r * 0.3, 0, Math.PI * 2);
+            canvasContext.arc(0, 0, stationR * pulseSize, 0, Math.PI * 2);
             canvasContext.fill();
+
+            // Core bright outline
+            canvasContext.strokeStyle = '#ffffff';
+            canvasContext.lineWidth = 2;
+            canvasContext.stroke();
+
+            // === ENERGY PARTICLES (Small glowing dots around the station) ===
+            canvasContext.shadowBlur = 10;
+            for (let p = 0; p < 8; p++) {
+                const particleAngle = (p * Math.PI / 4) + (Date.now() / 1000) + shipToDraw.a;
+                const particleR = stationR * (0.8 + Math.sin((Date.now() / 500) + p) * 0.1);
+                const px = Math.cos(particleAngle) * particleR;
+                const py = Math.sin(particleAngle) * particleR;
+
+                canvasContext.fillStyle = `hsla(${shipToDraw.fleetHue}, 100%, 80%, ${0.6 + Math.random() * 0.4})`;
+                canvasContext.beginPath();
+                canvasContext.arc(px, py, stationR * 0.03, 0, Math.PI * 2);
+                canvasContext.fill();
+            }
+
+            canvasContext.shadowBlur = 0;
 
             // DRAW HEART FOR FRIENDLY STATIONS
             if (shipToDraw.isFriendly) {
                 drawHeart(canvasContext, 0, -shipToDraw.r * 0.1, shipToDraw.r * 0.2);
-            }
-
-            // Connecting Spokes
-            canvasContext.lineWidth = 1;
-            canvasContext.strokeStyle = '#00ffff';
-            for (let k = 0; k < 4; k++) {
-                const angle = k * (Math.PI / 2) + shipToDraw.a;
-                const rInner = shipToDraw.r * 0.35;
-                const rOuter = shipToDraw.r * 0.75;
-                canvasContext.beginPath();
-                canvasContext.moveTo(rInner * Math.cos(angle), rInner * Math.sin(angle));
-                canvasContext.lineTo(rOuter * Math.cos(angle), rOuter * Math.sin(angle));
-                canvasContext.stroke();
             }
         }
 
@@ -3488,48 +3667,262 @@ function loop() {
                 }
                 canvasContext.shadowBlur = 0;
             } else {
-                let sides = 3 + tier;
+                // MODERN PLAYER SHIP DESIGN (Tiers 0-7)
+                // Progressive evolution: each tier gets larger, more complex, and more powerful
+
+                const PLAYER_HUE = SHIP_FRIENDLY_BLUE_HUE; // 210 (cyan/blue)
+
+                // Size scales significantly with tier
+                const baseSize = r * (1 + tier * 0.15); // More dramatic size increase per tier
+
+                // Color palette
+                const HULL_COLOR = `hsl(${PLAYER_HUE}, 60%, 30%)`;
+                const HULL_BORDER = `hsl(${PLAYER_HUE}, 80%, 60%)`;
+                const DETAIL_COLOR = `hsl(${PLAYER_HUE}, 100%, 70%)`;
+                const ACCENT_COLOR = `hsl(${(PLAYER_HUE + 180) % 360}, 90%, 60%)`; // Orange accent
+                const COCKPIT_BRIGHT = '#aaffff';
+                const COCKPIT_MID = '#00ffff';
+                const THRUST_COLOR = playerShip.thrusting ? '#ffaa00' : `hsl(${PLAYER_HUE}, 100%, 70%)`;
+
+                // === MAIN HULL (Sharp Triangle) ===
+                canvasContext.shadowBlur = 25 + (tier * 3); // More glow as tier increases
+                canvasContext.shadowColor = DETAIL_COLOR;
+
+                // Main triangle body - gets more elongated with tier
+                const noseLength = 1.2 + (tier * 0.1);
+                const wingSpan = 0.8 + (tier * 0.05);
+
                 canvasContext.beginPath();
-                for (let i = 0; i <= sides; i++) {
-                    let ang = i * (2 * Math.PI / sides);
-                    let rad = r;
-                    if (i === 0) canvasContext.moveTo(rad * Math.cos(ang), -rad * Math.sin(ang));
-                    else canvasContext.lineTo(rad * Math.cos(ang), -rad * Math.sin(ang));
-                }
+                canvasContext.moveTo(baseSize * noseLength, 0);  // Nose (front)
+                canvasContext.lineTo(-baseSize * 0.6, baseSize * wingSpan);  // Bottom left
+                canvasContext.lineTo(-baseSize * 0.6, -baseSize * wingSpan); // Top left
                 canvasContext.closePath();
-                let chassisGrad = canvasContext.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
-                chassisGrad.addColorStop(0, '#0055aa');
-                chassisGrad.addColorStop(1, '#002244');
-                canvasContext.fillStyle = chassisGrad; canvasContext.fill();
-                canvasContext.lineWidth = 2; canvasContext.strokeStyle = '#0088ff'; canvasContext.stroke();
-                canvasContext.fillStyle = '#003366';
-                canvasContext.fillRect(-r * 0.5, -r * 0.2, r * 0.3, r * 0.4);
-                canvasContext.strokeStyle = '#004488'; canvasContext.lineWidth = 1.5;
+
+                // Gradient fill
+                let hullGrad = canvasContext.createLinearGradient(baseSize * 0.6, 0, -baseSize * 0.6, 0);
+                hullGrad.addColorStop(0, DETAIL_COLOR);
+                hullGrad.addColorStop(0.5, HULL_COLOR);
+                hullGrad.addColorStop(1, `hsl(${PLAYER_HUE}, 40%, 15%)`);
+
+                canvasContext.fillStyle = hullGrad;
+                canvasContext.fill();
+
+                // Bright glowing outline
+                canvasContext.lineWidth = 3 + (tier * 0.3);
+                canvasContext.strokeStyle = HULL_BORDER;
+                canvasContext.stroke();
+
+                // === INTERNAL DETAIL LINES ===
+                canvasContext.shadowBlur = 10;
+                canvasContext.lineWidth = 2;
+                canvasContext.strokeStyle = DETAIL_COLOR;
+
+                // Center line
                 canvasContext.beginPath();
-                canvasContext.moveTo(-r * 0.6, -r * 0.3); canvasContext.bezierCurveTo(-r * 0.2, 0, 0, r * 0.2, r * 0.4, r * 0.3); canvasContext.stroke();
+                canvasContext.moveTo(baseSize * 0.9, 0);
+                canvasContext.lineTo(-baseSize * 0.4, 0);
+                canvasContext.stroke();
+
+                // Diagonal detail lines (more complex at higher tiers)
                 canvasContext.beginPath();
-                canvasContext.arc(-r * 0.2, r * 0.3, r * 0.1, 0, Math.PI * 2);
-                canvasContext.fillStyle = '#002233'; canvasContext.fill(); canvasContext.strokeStyle = '#005577'; canvasContext.stroke();
-                let cockpitGrad = canvasContext.createRadialGradient(r * 0.4, 0, 2, r * 0.4, 0, r * 0.25);
-                cockpitGrad.addColorStop(0, '#aaffff'); cockpitGrad.addColorStop(1, '#00ffff');
-                canvasContext.fillStyle = cockpitGrad;
-                canvasContext.beginPath(); canvasContext.ellipse(r * 0.4, 0, r * 0.2, r * 0.12, 0, 0, Math.PI * 2); canvasContext.fill();
-                if (playerShip.thrusting) {
-                    canvasContext.shadowColor = '#ffaa00'; canvasContext.strokeStyle = '#ffaa00'; canvasContext.lineWidth = 2;
+                canvasContext.moveTo(baseSize * 0.5, 0);
+                canvasContext.lineTo(-baseSize * 0.2, baseSize * 0.4);
+                canvasContext.moveTo(baseSize * 0.5, 0);
+                canvasContext.lineTo(-baseSize * 0.2, -baseSize * 0.4);
+
+                if (tier >= 3) {
+                    // Additional detail lines for mid-tier ships
+                    canvasContext.moveTo(baseSize * 0.3, baseSize * 0.2);
+                    canvasContext.lineTo(-baseSize * 0.3, baseSize * 0.6);
+                    canvasContext.moveTo(baseSize * 0.3, -baseSize * 0.2);
+                    canvasContext.lineTo(-baseSize * 0.3, -baseSize * 0.6);
+                }
+                canvasContext.stroke();
+
+                // === WING ACCENTS (More wings at higher tiers) ===
+                canvasContext.shadowBlur = 15;
+                canvasContext.fillStyle = `hsl(${PLAYER_HUE}, 80%, 40%)`;
+
+                // Primary wings
+                canvasContext.beginPath();
+                canvasContext.moveTo(baseSize * 0.3, -baseSize * 0.35);
+                canvasContext.lineTo(-baseSize * 0.3, -baseSize * (0.6 + tier * 0.03));
+                canvasContext.lineTo(-baseSize * 0.45, -baseSize * (0.5 + tier * 0.03));
+                canvasContext.lineTo(baseSize * 0.2, -baseSize * 0.3);
+                canvasContext.closePath();
+                canvasContext.fill();
+
+                canvasContext.beginPath();
+                canvasContext.moveTo(baseSize * 0.3, baseSize * 0.35);
+                canvasContext.lineTo(-baseSize * 0.3, baseSize * (0.6 + tier * 0.03));
+                canvasContext.lineTo(-baseSize * 0.45, baseSize * (0.5 + tier * 0.03));
+                canvasContext.lineTo(baseSize * 0.2, baseSize * 0.3);
+                canvasContext.closePath();
+                canvasContext.fill();
+
+                // Secondary wings for tier 4+
+                if (tier >= 4) {
+                    canvasContext.fillStyle = `hsl(${PLAYER_HUE}, 70%, 35%)`;
+
                     canvasContext.beginPath();
-                    const rX = -r; const rY = 0;
-                    canvasContext.moveTo(rX, rY);
-                    canvasContext.lineTo(rX - 20 * Math.cos((Math.random() - 0.5) * 0.5), rY + 20 * Math.sin((Math.random() - 0.5) * 0.5));
+                    canvasContext.moveTo(baseSize * 0.1, -baseSize * 0.2);
+                    canvasContext.lineTo(-baseSize * 0.4, -baseSize * 0.45);
+                    canvasContext.lineTo(-baseSize * 0.5, -baseSize * 0.35);
+                    canvasContext.lineTo(baseSize * 0.05, -baseSize * 0.15);
+                    canvasContext.closePath();
+                    canvasContext.fill();
+
+                    canvasContext.beginPath();
+                    canvasContext.moveTo(baseSize * 0.1, baseSize * 0.2);
+                    canvasContext.lineTo(-baseSize * 0.4, baseSize * 0.45);
+                    canvasContext.lineTo(-baseSize * 0.5, baseSize * 0.35);
+                    canvasContext.lineTo(baseSize * 0.05, baseSize * 0.15);
+                    canvasContext.closePath();
+                    canvasContext.fill();
+                }
+
+                // === COCKPIT (Glowing center) ===
+                canvasContext.shadowBlur = 25;
+                canvasContext.shadowColor = COCKPIT_BRIGHT;
+
+                const cockpitSize = 0.18 + (tier * 0.01);
+                let cockpitGrad = canvasContext.createRadialGradient(baseSize * 0.6, 0, 0, baseSize * 0.6, 0, baseSize * cockpitSize);
+                cockpitGrad.addColorStop(0, COCKPIT_BRIGHT);
+                cockpitGrad.addColorStop(0.6, COCKPIT_MID);
+                cockpitGrad.addColorStop(1, HULL_COLOR);
+
+                canvasContext.fillStyle = cockpitGrad;
+                canvasContext.beginPath();
+                canvasContext.arc(baseSize * 0.6, 0, baseSize * cockpitSize, 0, Math.PI * 2);
+                canvasContext.fill();
+
+                // Cockpit rim
+                canvasContext.strokeStyle = COCKPIT_BRIGHT;
+                canvasContext.lineWidth = 2;
+                canvasContext.stroke();
+
+                // === ENGINE PORTS (More engines at higher tiers) ===
+                canvasContext.shadowBlur = 20;
+                canvasContext.shadowColor = ACCENT_COLOR;
+
+                const engineCount = tier >= 5 ? 3 : 2; // 3 engines for tier 5+
+                const engineSize = 0.09 + (tier * 0.005);
+
+                if (engineCount === 2) {
+                    // Top and bottom engines
+                    canvasContext.fillStyle = ACCENT_COLOR;
+                    canvasContext.beginPath();
+                    canvasContext.arc(-baseSize * 0.45, -baseSize * 0.4, baseSize * engineSize, 0, Math.PI * 2);
+                    canvasContext.fill();
+
+                    canvasContext.beginPath();
+                    canvasContext.arc(-baseSize * 0.45, baseSize * 0.4, baseSize * engineSize, 0, Math.PI * 2);
+                    canvasContext.fill();
+                } else {
+                    // Three engines for advanced ships
+                    canvasContext.fillStyle = ACCENT_COLOR;
+                    canvasContext.beginPath();
+                    canvasContext.arc(-baseSize * 0.45, -baseSize * 0.45, baseSize * engineSize, 0, Math.PI * 2);
+                    canvasContext.fill();
+
+                    canvasContext.beginPath();
+                    canvasContext.arc(-baseSize * 0.45, 0, baseSize * engineSize, 0, Math.PI * 2);
+                    canvasContext.fill();
+
+                    canvasContext.beginPath();
+                    canvasContext.arc(-baseSize * 0.45, baseSize * 0.45, baseSize * engineSize, 0, Math.PI * 2);
+                    canvasContext.fill();
+                }
+
+                // === ENGINE THRUST (Animated) ===
+                if (playerShip.thrusting) {
+                    canvasContext.shadowBlur = 35 + (tier * 5);
+                    canvasContext.shadowColor = THRUST_COLOR;
+
+                    const thrustLength = (25 + tier * 5) + Math.random() * 15;
+                    const thrustFlicker = 0.6 + Math.random() * 0.4;
+
+                    if (engineCount === 2) {
+                        // Top thrust
+                        canvasContext.fillStyle = `rgba(255, 170, 0, ${thrustFlicker})`;
+                        canvasContext.beginPath();
+                        canvasContext.moveTo(-baseSize * 0.5, -baseSize * 0.4);
+                        canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, -baseSize * 0.45);
+                        canvasContext.lineTo(-baseSize * 0.5 - thrustLength, -baseSize * 0.4);
+                        canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, -baseSize * 0.35);
+                        canvasContext.closePath();
+                        canvasContext.fill();
+
+                        // Bottom thrust
+                        canvasContext.fillStyle = `rgba(255, 170, 0, ${thrustFlicker})`;
+                        canvasContext.beginPath();
+                        canvasContext.moveTo(-baseSize * 0.5, baseSize * 0.4);
+                        canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, baseSize * 0.45);
+                        canvasContext.lineTo(-baseSize * 0.5 - thrustLength, baseSize * 0.4);
+                        canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, baseSize * 0.35);
+                        canvasContext.closePath();
+                        canvasContext.fill();
+                    } else {
+                        // Three thrust flames
+                        const positions = [-0.45, 0, 0.45];
+                        positions.forEach(yPos => {
+                            canvasContext.fillStyle = `rgba(255, 170, 0, ${thrustFlicker})`;
+                            canvasContext.beginPath();
+                            canvasContext.moveTo(-baseSize * 0.5, baseSize * yPos);
+                            canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, baseSize * (yPos + 0.05));
+                            canvasContext.lineTo(-baseSize * 0.5 - thrustLength, baseSize * yPos);
+                            canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, baseSize * (yPos - 0.05));
+                            canvasContext.closePath();
+                            canvasContext.fill();
+                        });
+                    }
+                }
+
+                // === TIER INDICATORS (Power level dots) ===
+                if (tier > 0) {
+                    canvasContext.shadowBlur = 10;
+                    canvasContext.fillStyle = DETAIL_COLOR;
+
+                    for (let t = 0; t < tier; t++) {
+                        const dotX = baseSize * 0.4 - (t * baseSize * 0.13);
+                        const dotY = (t % 2 === 0) ? baseSize * 0.12 : -baseSize * 0.12;
+
+                        canvasContext.beginPath();
+                        canvasContext.arc(dotX, dotY, baseSize * 0.045, 0, Math.PI * 2);
+                        canvasContext.fill();
+                    }
+                }
+
+                // === TIER 6-7 SPECIAL: Additional armor plating ===
+                if (tier >= 6) {
+                    canvasContext.shadowBlur = 12;
+                    canvasContext.fillStyle = `hsl(${PLAYER_HUE}, 60%, 35%)`;
+                    canvasContext.strokeStyle = HULL_BORDER;
+                    canvasContext.lineWidth = 1.5;
+
+                    // Front armor plates
+                    canvasContext.beginPath();
+                    canvasContext.moveTo(baseSize * 0.8, -baseSize * 0.15);
+                    canvasContext.lineTo(baseSize * 0.6, -baseSize * 0.25);
+                    canvasContext.lineTo(baseSize * 0.5, -baseSize * 0.15);
+                    canvasContext.closePath();
+                    canvasContext.fill();
                     canvasContext.stroke();
-                    canvasContext.fillStyle = '#ff5500';
-                    canvasContext.beginPath(); canvasContext.arc(rX - 5, 0, 5, 0, Math.PI * 2); canvasContext.fill();
+
+                    canvasContext.beginPath();
+                    canvasContext.moveTo(baseSize * 0.8, baseSize * 0.15);
+                    canvasContext.lineTo(baseSize * 0.6, baseSize * 0.25);
+                    canvasContext.lineTo(baseSize * 0.5, baseSize * 0.15);
+                    canvasContext.closePath();
+                    canvasContext.fill();
+                    canvasContext.stroke();
                 }
             }
-            canvasContext.restore();
         }
-        if (playerShip.blinkNum > 0) playerShip.blinkNum--;
-        canvasContext.restore(); // POP 1: Restore state after ship block
+        canvasContext.restore();
     }
+    if (playerShip.blinkNum > 0) playerShip.blinkNum--;
+    canvasContext.restore(); // POP 1: Restore state after ship block
 
     canvasContext.shadowColor = '#ff0000'; canvasContext.fillStyle = '#ff0000';
     for (let i = enemyShipBullets.length - 1; i >= 0; i--) {

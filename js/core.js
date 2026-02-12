@@ -469,11 +469,10 @@ function increaseShipScore(ship, reward) {
                     addScreenMessage(`EVOLVED TO ${getShapeName(newTier)}`, "#00ff00");
                 }
             }
-            else {
+            else if (ship.tier < 12) {
                 addScreenMessage(`DEVOLVED TO ${getShapeName(newTier)}`, "#ff0000");
-                if (ship.tier >= 12 && newTier < 12) {
-                    ship.transformationTimer = 0; // Cancel transformation if devolved
-                }
+            } else {
+                ship.transformationTimer = 0; // Cancel transformation if devolved
             }
         }
     }
