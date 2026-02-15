@@ -459,7 +459,7 @@ function fireGodWeapon(ship) {
         x: worldOffsetX,
         y: worldOffsetY,
         r: 100,
-        maxR: Math.max(width, height) * 2, // Reach 2 times the visible viewport (~4000 units)
+        maxR: Math.max(width, height) * 4, // Reach 4 times the visible viewport (~4000 units)
         strength: 2000,
         alpha: 3.0,
         isGodRing: true,
@@ -1005,9 +1005,15 @@ function killPlayerShip(reason = 'normal') {
 }
 
 function triggerHomePlanetLost(reason) {
-    addScreenMessage("CRITICAL FAILURE: HOME PLANET DESTROYED", "#ff0000");
     playerShip.lives = 0; // Force game over
     killPlayerShip(reason);
+
+    if (reason === 'player') {
+        screenMessages = [];
+        addScreenMessage("Oh, no, you destroyed your own home!", "#ff0000");
+    } else {
+        addScreenMessage("CRITICAL FAILURE: HOME PLANET DESTROYED", "#ff0000");
+    }
 }
 
 function handleVictoryInteraction() {
@@ -1688,10 +1694,10 @@ function loop() {
 
     // In touch mode, zoom out to see more of the world
     // Also zoom out during game over and victory to show ~50% of map
-    let targetScale = SCALE_IN_MOUSE_MODE;
+    let targetScale = (playerShip.tier >= 12 ? SCALE_IN_MOUSE_MODE / 2 : SCALE_IN_MOUSE_MODE);
 
     if (inputMode === 'touch') {
-        targetScale = SCALE_IN_TOUCH_MODE;
+        targetScale = (playerShip.tier >= 12 ? SCALE_IN_TOUCH_MODE / 2 : SCALE_IN_TOUCH_MODE);
     } else if ((playerShip.dead && playerShip.lives <= 0) || victoryState) {
         // Zoom out to show ~75% of the map during game over/victory
         targetScale = Math.max(0.08, Math.min(width, height) / (WORLD_BOUNDS * 0.75));
@@ -1767,7 +1773,7 @@ function loop() {
 
         // Limit max speed
         const currentSpeed = Math.sqrt(velocity.x ** 2 + velocity.y ** 2);
-        if (currentSpeed > SHIP_MAX_SPEED) { const ratio = SHIP_MAX_SPEED / currentSpeed; velocity.x *= ratio; velocity.y *= ratio; }
+        if (currentSpeed > (playerShip.tier >= 12 ? SHIP_MAX_SPEED * 2 : SHIP_MAX_SPEED)) { const ratio = SHIP_MAX_SPEED / currentSpeed; velocity.x *= ratio; velocity.y *= ratio; }
 
         // 3. Update Player's World Position (worldOffsetX/Y)
         let nextWorldX = worldOffsetX + velocity.x;
@@ -1908,7 +1914,7 @@ function loop() {
                         obj.vaporized = true;
 
                         // AWARD SCORE for Godship destruction
-                        if (obj.isPlanet) {
+                        if (obj.isPlanet && homePlanetId === null) {
                             addScreenMessage("PLANET " + obj.name.toUpperCase() + " VAPORIZED", "#ff00ff");
                             createExplosion((obj.x - worldOffsetX + width / 2), (obj.y - worldOffsetY + height / 2), 200, '#00ffff', 10, 'spark');
                             increaseShipScore(playerShip, 1000); // 1000 for planet
@@ -1921,10 +1927,6 @@ function loop() {
                             increaseShipScore(playerShip, ASTEROID_DESTROYED_REWARD);
                         }
                     } else if (obj.type === 'ship' || obj.type === 'station') {
-                        // Reward score before killing
-                        if (obj.isFriendly === false) {
-                            increaseShipScore(playerShip, obj.type === 'station' ? STATION_KILLED_REWARD : SHIP_KILLED_REWARD);
-                        }
                         obj.structureHP = -1; // Force death
                         obj.vaporized = true;
                     }
@@ -2013,13 +2015,16 @@ function loop() {
     for (let i = ships.length - 1; i >= 0; i--) {
         let ship = ships[i];
 
-        // GOD RING VAPORIZATION
         if (ship.vaporized || ship.structureHP <= -1) {
             let vpX = (ship.x - worldOffsetX) + width / 2;
             let vpY = (ship.y - worldOffsetY) + height / 2;
             createExplosion(vpX, vpY, 60, '#00ffff', 5, 'spark');
-            if (ship.type === 'station') onStationDestroyed(ship);
-            else onShipDestroyed(ship);
+
+            // If vaporized, it was the player's God Ring
+            const killer = ship.vaporized ? playerShip : null;
+
+            if (ship.type === 'station') onStationDestroyed(ship, killer);
+            else onShipDestroyed(ship, killer);
             ships.splice(i, 1);
             AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
             continue;
@@ -2812,8 +2817,8 @@ function loop() {
                 ship.yv *= 0.96;
 
                 let currentSpeed = Math.hypot(ship.xv, ship.yv);
-                if (currentSpeed > SHIP_MAX_SPEED) {
-                    let scale = SHIP_MAX_SPEED / currentSpeed;
+                if (currentSpeed > (ship.tier >= 12 ? SHIP_MAX_SPEED * 2 : SHIP_MAX_SPEED)) {
+                    let scale = (ship.tier >= 12 ? SHIP_MAX_SPEED * 2 : SHIP_MAX_SPEED) / currentSpeed;
                     ship.xv *= scale;
                     ship.yv *= scale;
                 }
@@ -3548,6 +3553,7 @@ function loop() {
             canvasContext.globalAlpha = 1;
 
             // --- Drawing logic for Ship Tiers ---
+            const PLAYER_HUE = SHIP_FRIENDLY_BLUE_HUE; // 210 (cyan/blue)
             if (tier >= 12) {
                 // THE GODSHIP: Massive, glowing, advanced
                 let norm = 1.2; // Adjusted target size (Reduced from 1.5)
@@ -3636,287 +3642,177 @@ function loop() {
                 }
                 canvasContext.shadowBlur = 0;
 
-            } else if (tier >= 8) {
-                const HULL_COLOR = '#1A1A1A'; const HULL_BORDER = '#333333';
-                const DETAIL_GRAY = '#666666'; const ACCENT_RED = '#FF4444';
-                const THRUST_COLOR = '#0088FF';
 
-                // Normalization scale to match Tier 7 visual radius
-                const norm = 1.1;
-                canvasContext.shadowBlur = 20; canvasContext.shadowColor = THRUST_COLOR;
+
+            } else if (tier === 11) { // THE HYPERION - Advanced Energy Form
+                const sides = 3;
+                canvasContext.shadowBlur = 30; canvasContext.shadowColor = '#00ffff';
+                canvasContext.fillStyle = `rgba(0, 20, 40, 0.9)`;
+                canvasContext.strokeStyle = '#00ffff'; canvasContext.lineWidth = 3;
+
+                // Main sleek body
                 canvasContext.beginPath();
-                canvasContext.moveTo(r * 1.6 * norm, 0);
-                canvasContext.lineTo(r * 0.5 * norm, r * 1.5 * norm); canvasContext.lineTo(-r * 1.2 * norm, r * 0.8 * norm);
-                canvasContext.lineTo(-r * 1.8 * norm, r * 0.4 * norm); canvasContext.lineTo(-r * 1.8 * norm, -r * 0.4 * norm);
-                canvasContext.lineTo(-r * 1.2 * norm, -r * 0.8 * norm); canvasContext.lineTo(r * 0.5 * norm, -r * 1.5 * norm);
-                canvasContext.closePath();
-                canvasContext.fillStyle = HULL_COLOR; canvasContext.fill();
-                canvasContext.lineWidth = 2; canvasContext.strokeStyle = HULL_BORDER; canvasContext.stroke();
-                canvasContext.shadowBlur = 0; canvasContext.fillStyle = DETAIL_GRAY;
-                canvasContext.beginPath(); canvasContext.moveTo(r * 1.6 * norm, 0); canvasContext.lineTo(r * 1.4 * norm, r * 0.1 * norm); canvasContext.lineTo(r * 1.4 * norm, -r * 0.1 * norm); canvasContext.closePath(); canvasContext.fill();
-                canvasContext.fillStyle = DETAIL_GRAY;
-                canvasContext.fillRect(r * 0.2 * norm, r * 0.5 * norm, r * 0.3 * norm, r * 0.2 * norm); canvasContext.fillRect(r * 0.2 * norm, -r * 0.7 * norm, r * 0.3 * norm, r * 0.2 * norm);
-                canvasContext.fillStyle = ACCENT_RED; canvasContext.beginPath(); canvasContext.arc(-r * 0.5 * norm, 0, r * 0.2 * norm, 0, Math.PI * 2); canvasContext.fill();
-                canvasContext.shadowBlur = 30; canvasContext.shadowColor = THRUST_COLOR;
-                const EXHAUST_H = r * 0.7 * norm; const EXHAUST_X = -r * 1.8 * norm;
-                canvasContext.fillStyle = HULL_BORDER; canvasContext.fillRect(EXHAUST_X, -EXHAUST_H / 2, 5, EXHAUST_H);
-                if (playerShip.thrusting) {
-                    canvasContext.fillStyle = `rgba(0, 136, 255, ${0.5 + Math.random() * 0.5})`;
-                    canvasContext.beginPath(); canvasContext.moveTo(EXHAUST_X + 5, -EXHAUST_H / 2); canvasContext.lineTo(EXHAUST_X + 5, EXHAUST_H / 2);
-                    canvasContext.lineTo(EXHAUST_X - 25 * norm * (0.8 + Math.random() * 0.4), 0); canvasContext.closePath(); canvasContext.fill();
+                canvasContext.ellipse(0, 0, r * 0.4, r * 1.8, 0, 0, Math.PI * 2);
+                canvasContext.fill(); canvasContext.stroke();
+
+                // Floating Wings
+                canvasContext.beginPath();
+                canvasContext.moveTo(r * 0.5, r * 0.2); canvasContext.lineTo(r * 1.5, r * 0.8); canvasContext.lineTo(r * 0.5, r * -0.5);
+                canvasContext.moveTo(-r * 0.5, r * 0.2); canvasContext.lineTo(-r * 1.5, r * 0.8); canvasContext.lineTo(-r * 0.5, r * -0.5);
+                canvasContext.fillStyle = `rgba(0, 100, 255, 0.5)`;
+                canvasContext.fill(); canvasContext.stroke();
+
+                // Energy Core
+                canvasContext.fillStyle = '#fff';
+                canvasContext.beginPath(); canvasContext.arc(0, -r * 0.5, r * 0.3, 0, Math.PI * 2); canvasContext.fill();
+
+            } else if (tier === 10) { // THE TITAN - Heavy Dreadnought
+                canvasContext.shadowBlur = 20; canvasContext.shadowColor = '#ff5500';
+                canvasContext.fillStyle = '#221100'; canvasContext.strokeStyle = '#ffaa00'; canvasContext.lineWidth = 4;
+
+                // Main Block
+                canvasContext.fillRect(-r * 0.6, -r, r * 1.2, r * 2);
+                canvasContext.strokeRect(-r * 0.6, -r, r * 1.2, r * 2);
+
+                // Side Armor
+                canvasContext.fillStyle = '#331100';
+                canvasContext.fillRect(-r * 1.2, -r * 0.5, r * 0.6, r * 1.5);
+                canvasContext.strokeRect(-r * 1.2, -r * 0.5, r * 0.6, r * 1.5);
+                canvasContext.fillRect(r * 0.6, -r * 0.5, r * 0.6, r * 1.5);
+                canvasContext.strokeRect(r * 0.6, -r * 0.5, r * 0.6, r * 1.5);
+
+            } else if (tier === 9) { // THE CELESTIAL - Radiant Star
+                canvasContext.shadowBlur = 25; canvasContext.shadowColor = '#ffffaa';
+                canvasContext.fillStyle = '#ffffcc'; canvasContext.strokeStyle = '#ffffff'; canvasContext.lineWidth = 2;
+
+                // 4-Pointed Star
+                canvasContext.beginPath();
+                for (let i = 0; i < 8; i++) {
+                    const angle = i * Math.PI / 4;
+                    const rad = (i % 2 === 0) ? r * 1.5 : r * 0.4;
+                    const px = Math.cos(angle) * rad; const py = Math.sin(angle) * rad;
+                    if (i === 0) canvasContext.moveTo(px, py); else canvasContext.lineTo(px, py);
                 }
-                canvasContext.shadowBlur = 0;
-            } else {
-                // MODERN PLAYER SHIP DESIGN (Tiers 0-7)
-                // Progressive evolution: each tier gets larger, more complex, and more powerful
+                canvasContext.closePath();
+                canvasContext.fill(); canvasContext.stroke();
 
-                const PLAYER_HUE = SHIP_FRIENDLY_BLUE_HUE; // 210 (cyan/blue)
+                // Inner Spin
+                canvasContext.strokeStyle = '#ffaa00';
+                canvasContext.beginPath(); canvasContext.arc(0, 0, r * 0.5, 0, Math.PI * 2); canvasContext.stroke();
 
-                // Size scales significantly with tier
-                const baseSize = r * (1 + tier * 0.15); // More dramatic size increase per tier
+            } else if (tier === 8) { // THE SPHERE - Energy Orb
+                canvasContext.shadowBlur = 20; canvasContext.shadowColor = '#00ff88';
+                let grad = canvasContext.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
+                grad.addColorStop(0, '#fff'); grad.addColorStop(0.5, '#00ff88'); grad.addColorStop(1, '#004422');
+                canvasContext.fillStyle = grad;
+                canvasContext.strokeStyle = '#00ff88'; canvasContext.lineWidth = 2;
 
-                // Color palette
-                const HULL_COLOR = `hsl(${PLAYER_HUE}, 60%, 30%)`;
-                const HULL_BORDER = `hsl(${PLAYER_HUE}, 80%, 60%)`;
-                const DETAIL_COLOR = `hsl(${PLAYER_HUE}, 100%, 70%)`;
-                const ACCENT_COLOR = `hsl(${(PLAYER_HUE + 180) % 360}, 90%, 60%)`; // Orange accent
-                const COCKPIT_BRIGHT = '#aaffff';
-                const COCKPIT_MID = '#00ffff';
-                const THRUST_COLOR = playerShip.thrusting ? '#ffaa00' : `hsl(${PLAYER_HUE}, 100%, 70%)`;
+                canvasContext.beginPath(); canvasContext.arc(0, 0, r, 0, Math.PI * 2); canvasContext.fill(); canvasContext.stroke();
 
-                // === MAIN HULL (Sharp Triangle) ===
-                canvasContext.shadowBlur = 25 + (tier * 3); // More glow as tier increases
-                canvasContext.shadowColor = DETAIL_COLOR;
+                // Rotating Ring
+                canvasContext.save(); canvasContext.rotate(Date.now() / 500);
+                canvasContext.strokeStyle = '#fff'; canvasContext.lineWidth = 1;
+                canvasContext.beginPath(); canvasContext.ellipse(0, 0, r * 1.4, r * 0.3, 0, 0, Math.PI * 2); canvasContext.stroke();
+                canvasContext.restore();
 
-                // Main triangle body - gets more elongated with tier
-                const noseLength = 1.2 + (tier * 0.1);
-                const wingSpan = 0.8 + (tier * 0.05);
+            } else if (tier >= 1 && tier <= 7) {
+                // GEOMETRIC SHAPES (1-7)
+                const sides = tier + 3; // 1=Square(4), 2=Pent(5)...
+                canvasContext.shadowBlur = 15; canvasContext.shadowColor = `hsl(${PLAYER_HUE}, 100%, 60%)`;
+                canvasContext.fillStyle = `hsla(${PLAYER_HUE}, 60%, 20%, 0.8)`;
+                canvasContext.strokeStyle = `hsl(${PLAYER_HUE}, 100%, 70%)`; canvasContext.lineWidth = 3;
 
+                // Polygon Body
                 canvasContext.beginPath();
-                canvasContext.moveTo(baseSize * noseLength, 0);  // Nose (front)
-                canvasContext.lineTo(-baseSize * 0.6, baseSize * wingSpan);  // Bottom left
-                canvasContext.lineTo(-baseSize * 0.6, -baseSize * wingSpan); // Top left
+                for (let i = 0; i < sides; i++) {
+                    // Rotate so flat side is usually at bottom or point at top depending on preference.
+                    // -Math.PI/2 puts a vertex at the top.
+                    const angle = i * (Math.PI * 2 / sides) - Math.PI / 2;
+                    const px = Math.cos(angle) * r; const py = Math.sin(angle) * r;
+                    if (i === 0) canvasContext.moveTo(px, py); else canvasContext.lineTo(px, py);
+                }
+                canvasContext.closePath();
+                canvasContext.fill(); canvasContext.stroke();
+
+                // Internal "Cool" Details based on shape
+                canvasContext.lineWidth = 1.5; canvasContext.strokeStyle = `hsl(${PLAYER_HUE}, 100%, 90%)`;
+                canvasContext.beginPath();
+                if (tier === 1) { // SQUARE: Cross Bracing
+                    canvasContext.moveTo(-r * 0.7, -r * 0.7); canvasContext.lineTo(r * 0.7, r * 0.7);
+                    canvasContext.moveTo(r * 0.7, -r * 0.7); canvasContext.lineTo(-r * 0.7, r * 0.7);
+                } else if (tier === 2) { // PENTAGON: Star
+                    for (let i = 0; i < 5; i++) {
+                        const a1 = i * (Math.PI * 2 / 5) - Math.PI / 2;
+                        const a2 = (i + 2) * (Math.PI * 2 / 5) - Math.PI / 2;
+                        canvasContext.moveTo(Math.cos(a1) * r, Math.sin(a1) * r);
+                        canvasContext.lineTo(Math.cos(a2) * r, Math.sin(a2) * r);
+                    }
+                } else if (tier === 3) { // HEXAGON: Cube/Tri-split
+                    canvasContext.moveTo(0, 0); canvasContext.lineTo(0, -r);
+                    canvasContext.moveTo(0, 0); canvasContext.lineTo(Math.cos(Math.PI / 6) * r, Math.sin(Math.PI / 6) * r);
+                    canvasContext.moveTo(0, 0); canvasContext.lineTo(Math.cos(Math.PI * 5 / 6) * r, Math.sin(Math.PI * 5 / 6) * r);
+                } else { // HEPTAGON+ : Concentric shapes
+                    const innerR = r * 0.5;
+                    for (let i = 0; i < sides; i++) {
+                        const angle = i * (Math.PI * 2 / sides) - Math.PI / 2;
+                        const px = Math.cos(angle) * innerR; const py = Math.sin(angle) * innerR;
+                        if (i === 0) canvasContext.moveTo(px, py); else canvasContext.lineTo(px, py);
+                    }
+                    canvasContext.closePath();
+                }
+                canvasContext.stroke();
+
+            } else {
+                // TIER 0: TRIANGLE (Classic Modern)
+                // Base size logic
+                const baseSize = r;
+                const noseLength = 1.3;
+                const wingSpan = 0.8;
+
+                canvasContext.shadowBlur = 15; canvasContext.shadowColor = `hsl(${PLAYER_HUE}, 100%, 70%)`;
+
+                // Triangle
+                canvasContext.beginPath();
+                canvasContext.moveTo(baseSize * noseLength, 0);
+                canvasContext.lineTo(-baseSize * 0.6, baseSize * wingSpan);
+                canvasContext.lineTo(-baseSize * 0.6, -baseSize * wingSpan);
                 canvasContext.closePath();
 
-                // Gradient fill
                 let hullGrad = canvasContext.createLinearGradient(baseSize * 0.6, 0, -baseSize * 0.6, 0);
-                hullGrad.addColorStop(0, DETAIL_COLOR);
-                hullGrad.addColorStop(0.5, HULL_COLOR);
+                hullGrad.addColorStop(0, `hsl(${PLAYER_HUE}, 100%, 70%)`);
                 hullGrad.addColorStop(1, `hsl(${PLAYER_HUE}, 40%, 15%)`);
-
                 canvasContext.fillStyle = hullGrad;
                 canvasContext.fill();
 
-                // Bright glowing outline
-                canvasContext.lineWidth = 3 + (tier * 0.3);
-                canvasContext.strokeStyle = HULL_BORDER;
-                canvasContext.stroke();
-
-                // === INTERNAL DETAIL LINES ===
-                canvasContext.shadowBlur = 10;
                 canvasContext.lineWidth = 2;
-                canvasContext.strokeStyle = DETAIL_COLOR;
-
-                // Center line
-                canvasContext.beginPath();
-                canvasContext.moveTo(baseSize * 0.9, 0);
-                canvasContext.lineTo(-baseSize * 0.4, 0);
+                canvasContext.strokeStyle = `hsl(${PLAYER_HUE}, 80%, 60%)`;
                 canvasContext.stroke();
 
-                // Diagonal detail lines (more complex at higher tiers)
-                canvasContext.beginPath();
-                canvasContext.moveTo(baseSize * 0.5, 0);
-                canvasContext.lineTo(-baseSize * 0.2, baseSize * 0.4);
-                canvasContext.moveTo(baseSize * 0.5, 0);
-                canvasContext.lineTo(-baseSize * 0.2, -baseSize * 0.4);
+                // Detail
+                canvasContext.beginPath(); canvasContext.moveTo(r * 0.5, 0); canvasContext.lineTo(-r * 0.2, 0); canvasContext.stroke();
+            }
 
-                if (tier >= 3) {
-                    // Additional detail lines for mid-tier ships
-                    canvasContext.moveTo(baseSize * 0.3, baseSize * 0.2);
-                    canvasContext.lineTo(-baseSize * 0.3, baseSize * 0.6);
-                    canvasContext.moveTo(baseSize * 0.3, -baseSize * 0.2);
-                    canvasContext.lineTo(-baseSize * 0.3, -baseSize * 0.6);
-                }
-                canvasContext.stroke();
+            // === COMMON THRUSTER LOGIC (Adapted for all models) ===
+            if (playerShip.thrusting) {
+                canvasContext.shadowBlur = 25; canvasContext.shadowColor = '#ffaa00';
+                canvasContext.fillStyle = `rgba(255, 170, 0, ${0.5 + Math.random() * 0.5})`;
+                const thrustL = 30 + Math.random() * 10;
 
-                // === WING ACCENTS (More wings at higher tiers) ===
-                canvasContext.shadowBlur = 15;
-                canvasContext.fillStyle = `hsl(${PLAYER_HUE}, 80%, 40%)`;
-
-                // Primary wings
-                canvasContext.beginPath();
-                canvasContext.moveTo(baseSize * 0.3, -baseSize * 0.35);
-                canvasContext.lineTo(-baseSize * 0.3, -baseSize * (0.6 + tier * 0.03));
-                canvasContext.lineTo(-baseSize * 0.45, -baseSize * (0.5 + tier * 0.03));
-                canvasContext.lineTo(baseSize * 0.2, -baseSize * 0.3);
-                canvasContext.closePath();
-                canvasContext.fill();
-
-                canvasContext.beginPath();
-                canvasContext.moveTo(baseSize * 0.3, baseSize * 0.35);
-                canvasContext.lineTo(-baseSize * 0.3, baseSize * (0.6 + tier * 0.03));
-                canvasContext.lineTo(-baseSize * 0.45, baseSize * (0.5 + tier * 0.03));
-                canvasContext.lineTo(baseSize * 0.2, baseSize * 0.3);
-                canvasContext.closePath();
-                canvasContext.fill();
-
-                // Secondary wings for tier 4+
-                if (tier >= 4) {
-                    canvasContext.fillStyle = `hsl(${PLAYER_HUE}, 70%, 35%)`;
-
-                    canvasContext.beginPath();
-                    canvasContext.moveTo(baseSize * 0.1, -baseSize * 0.2);
-                    canvasContext.lineTo(-baseSize * 0.4, -baseSize * 0.45);
-                    canvasContext.lineTo(-baseSize * 0.5, -baseSize * 0.35);
-                    canvasContext.lineTo(baseSize * 0.05, -baseSize * 0.15);
-                    canvasContext.closePath();
-                    canvasContext.fill();
-
-                    canvasContext.beginPath();
-                    canvasContext.moveTo(baseSize * 0.1, baseSize * 0.2);
-                    canvasContext.lineTo(-baseSize * 0.4, baseSize * 0.45);
-                    canvasContext.lineTo(-baseSize * 0.5, baseSize * 0.35);
-                    canvasContext.lineTo(baseSize * 0.05, baseSize * 0.15);
-                    canvasContext.closePath();
-                    canvasContext.fill();
-                }
-
-                // === COCKPIT (Glowing center) ===
-                canvasContext.shadowBlur = 25;
-                canvasContext.shadowColor = COCKPIT_BRIGHT;
-
-                const cockpitSize = 0.18 + (tier * 0.01);
-                let cockpitGrad = canvasContext.createRadialGradient(baseSize * 0.6, 0, 0, baseSize * 0.6, 0, baseSize * cockpitSize);
-                cockpitGrad.addColorStop(0, COCKPIT_BRIGHT);
-                cockpitGrad.addColorStop(0.6, COCKPIT_MID);
-                cockpitGrad.addColorStop(1, HULL_COLOR);
-
-                canvasContext.fillStyle = cockpitGrad;
-                canvasContext.beginPath();
-                canvasContext.arc(baseSize * 0.6, 0, baseSize * cockpitSize, 0, Math.PI * 2);
-                canvasContext.fill();
-
-                // Cockpit rim
-                canvasContext.strokeStyle = COCKPIT_BRIGHT;
-                canvasContext.lineWidth = 2;
-                canvasContext.stroke();
-
-                // === ENGINE PORTS (More engines at higher tiers) ===
-                canvasContext.shadowBlur = 20;
-                canvasContext.shadowColor = ACCENT_COLOR;
-
-                const engineCount = tier >= 5 ? 3 : 2; // 3 engines for tier 5+
-                const engineSize = 0.09 + (tier * 0.005);
-
-                if (engineCount === 2) {
-                    // Top and bottom engines
-                    canvasContext.fillStyle = ACCENT_COLOR;
-                    canvasContext.beginPath();
-                    canvasContext.arc(-baseSize * 0.45, -baseSize * 0.4, baseSize * engineSize, 0, Math.PI * 2);
-                    canvasContext.fill();
-
-                    canvasContext.beginPath();
-                    canvasContext.arc(-baseSize * 0.45, baseSize * 0.4, baseSize * engineSize, 0, Math.PI * 2);
-                    canvasContext.fill();
+                // Single central thrust for most, dual for some
+                if (tier === 10) { // Titan: Dual/Quad
+                    [-r * 0.9, r * 0.9].forEach(yPos => {
+                        canvasContext.beginPath();
+                        canvasContext.moveTo(-r * 1.2, yPos - 5); canvasContext.lineTo(-r * 1.2 - thrustL, yPos); canvasContext.lineTo(-r * 1.2, yPos + 5);
+                        canvasContext.fill();
+                    });
                 } else {
-                    // Three engines for advanced ships
-                    canvasContext.fillStyle = ACCENT_COLOR;
                     canvasContext.beginPath();
-                    canvasContext.arc(-baseSize * 0.45, -baseSize * 0.45, baseSize * engineSize, 0, Math.PI * 2);
-                    canvasContext.fill();
-
-                    canvasContext.beginPath();
-                    canvasContext.arc(-baseSize * 0.45, 0, baseSize * engineSize, 0, Math.PI * 2);
-                    canvasContext.fill();
-
-                    canvasContext.beginPath();
-                    canvasContext.arc(-baseSize * 0.45, baseSize * 0.45, baseSize * engineSize, 0, Math.PI * 2);
+                    canvasContext.moveTo(-r * 0.7, -r * 0.2);
+                    canvasContext.lineTo(-r * 0.7 - thrustL, 0);
+                    canvasContext.lineTo(-r * 0.7, r * 0.2);
                     canvasContext.fill();
                 }
-
-                // === ENGINE THRUST (Animated) ===
-                if (playerShip.thrusting) {
-                    canvasContext.shadowBlur = 35 + (tier * 5);
-                    canvasContext.shadowColor = THRUST_COLOR;
-
-                    const thrustLength = (25 + tier * 5) + Math.random() * 15;
-                    const thrustFlicker = 0.6 + Math.random() * 0.4;
-
-                    if (engineCount === 2) {
-                        // Top thrust
-                        canvasContext.fillStyle = `rgba(255, 170, 0, ${thrustFlicker})`;
-                        canvasContext.beginPath();
-                        canvasContext.moveTo(-baseSize * 0.5, -baseSize * 0.4);
-                        canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, -baseSize * 0.45);
-                        canvasContext.lineTo(-baseSize * 0.5 - thrustLength, -baseSize * 0.4);
-                        canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, -baseSize * 0.35);
-                        canvasContext.closePath();
-                        canvasContext.fill();
-
-                        // Bottom thrust
-                        canvasContext.fillStyle = `rgba(255, 170, 0, ${thrustFlicker})`;
-                        canvasContext.beginPath();
-                        canvasContext.moveTo(-baseSize * 0.5, baseSize * 0.4);
-                        canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, baseSize * 0.45);
-                        canvasContext.lineTo(-baseSize * 0.5 - thrustLength, baseSize * 0.4);
-                        canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, baseSize * 0.35);
-                        canvasContext.closePath();
-                        canvasContext.fill();
-                    } else {
-                        // Three thrust flames
-                        const positions = [-0.45, 0, 0.45];
-                        positions.forEach(yPos => {
-                            canvasContext.fillStyle = `rgba(255, 170, 0, ${thrustFlicker})`;
-                            canvasContext.beginPath();
-                            canvasContext.moveTo(-baseSize * 0.5, baseSize * yPos);
-                            canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, baseSize * (yPos + 0.05));
-                            canvasContext.lineTo(-baseSize * 0.5 - thrustLength, baseSize * yPos);
-                            canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, baseSize * (yPos - 0.05));
-                            canvasContext.closePath();
-                            canvasContext.fill();
-                        });
-                    }
-                }
-
-                // === TIER INDICATORS (Power level dots) ===
-                if (tier > 0) {
-                    canvasContext.shadowBlur = 10;
-                    canvasContext.fillStyle = DETAIL_COLOR;
-
-                    for (let t = 0; t < tier; t++) {
-                        const dotX = baseSize * 0.4 - (t * baseSize * 0.13);
-                        const dotY = (t % 2 === 0) ? baseSize * 0.12 : -baseSize * 0.12;
-
-                        canvasContext.beginPath();
-                        canvasContext.arc(dotX, dotY, baseSize * 0.045, 0, Math.PI * 2);
-                        canvasContext.fill();
-                    }
-                }
-
-                // === TIER 6-7 SPECIAL: Additional armor plating ===
-                if (tier >= 6) {
-                    canvasContext.shadowBlur = 12;
-                    canvasContext.fillStyle = `hsl(${PLAYER_HUE}, 60%, 35%)`;
-                    canvasContext.strokeStyle = HULL_BORDER;
-                    canvasContext.lineWidth = 1.5;
-
-                    // Front armor plates
-                    canvasContext.beginPath();
-                    canvasContext.moveTo(baseSize * 0.8, -baseSize * 0.15);
-                    canvasContext.lineTo(baseSize * 0.6, -baseSize * 0.25);
-                    canvasContext.lineTo(baseSize * 0.5, -baseSize * 0.15);
-                    canvasContext.closePath();
-                    canvasContext.fill();
-                    canvasContext.stroke();
-
-                    canvasContext.beginPath();
-                    canvasContext.moveTo(baseSize * 0.8, baseSize * 0.15);
-                    canvasContext.lineTo(baseSize * 0.6, baseSize * 0.25);
-                    canvasContext.lineTo(baseSize * 0.5, baseSize * 0.15);
-                    canvasContext.closePath();
-                    canvasContext.fill();
-                    canvasContext.stroke();
-                }
+                canvasContext.shadowBlur = 0;
             }
         }
         canvasContext.restore();
