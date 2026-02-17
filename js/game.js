@@ -654,13 +654,31 @@ function proactiveCombatScanner(e) {
         }
     }
 
-    // 2. SCAN FOR ASTEROIDS
+    // 2. SCAN FOR ASTEROIDS (Defend Home Station)
+    // Priority: Asteroids near the home station
+    if (e.homeStation) {
+        for (let r of roids) {
+            if (r.z > 0.5 || r.isPlanet) continue;
+            const distToStation = Math.hypot(r.x - e.homeStation.x, r.y - e.homeStation.y);
+            const dangerRange = e.homeStation.r * 8.0;
+
+            if (distToStation < dangerRange) {
+                const distToShip = Math.hypot(r.x - e.x, r.y - e.y);
+                if (distToShip < 2000) { // Within firing range
+                    enemyShoot(e, r.x, r.y);
+                    if (e.reloadTime > 0) return;
+                }
+            }
+        }
+    }
+
+    // Generic asteroid clearing
     for (let r of roids) {
-        if (r.z > 0.5 || r.isPlanet) continue; // Skip distant roids and planets
+        if (r.z > 0.5 || r.isPlanet) continue;
         const dist = Math.hypot(r.x - e.x, r.y - e.y);
         if (dist < 1500) {
             enemyShoot(e, r.x, r.y);
-            if (e.reloadTime > 0) return; // Shot fired
+            if (e.reloadTime > 0) return;
         }
     }
 
@@ -1223,38 +1241,36 @@ function updatePhysics() {
                 const gravityRange = nearestPlanet.r * 8.0; // Range where gravity starts pulling
 
                 if (dist < gravityRange) {
-                    if (dist > orbitRadius) {
-                        // GRAVITY PULL: Pull towards planet
-                        // F = G * M / r^2
+                    const isOrbitCandidate = (r1.r <= ASTEROID_MIN_SIZE * 1.1);
+
+                    if (dist > orbitRadius || !isOrbitCandidate) {
+                        // GRAVITY PULL: Always pull towards planet
                         const forceMagnitude = (G_CONST * nearestPlanet.mass * 8.0) / Math.max(minDistSq, 100);
                         r1.xv += (dx / dist) * forceMagnitude;
                         r1.yv += (dy / dist) * forceMagnitude;
-                    } else {
-                        // ORBIT CAPTURE: Force velocity to be tangential to create orbit
-                        // 1. Calculate tangent direction (perpendicular to radius vector)
-                        //    (dx, dy) -> (-dy, dx) is 90 deg rotation
+                    }
+
+                    if (dist <= orbitRadius && isOrbitCandidate) {
+                        // ORBIT CAPTURE: Only for the smallest asteroids
+                        if (!r1.orbitRadiusFactor) {
+                            r1.orbitRadiusFactor = 1.3 + Math.random() * 2.5;
+                        }
+                        const dynamicOrbitRadius = nearestPlanet.r * r1.orbitRadiusFactor + r1.r;
+
                         const angleToPlanet = Math.atan2(dy, dx);
                         const tangentAngle = angleToPlanet + Math.PI / 2;
 
-                        // 2. Calculate desired orbital speed: v = sqrt(G*M / r)
-                        // Boosting G slightly for stability and visual effect
                         const orbitSpeed = Math.sqrt((G_CONST * nearestPlanet.mass * 8.0) / dist);
 
                         const targetXV = Math.cos(tangentAngle) * orbitSpeed;
                         const targetYV = Math.sin(tangentAngle) * orbitSpeed;
 
-                        // 3. Smoothly blend current velocity towards target orbital velocity (Steering)
-                        //    0.1 blending factor gives it some inertia but strong guidance
+                        // Smoothly blend current velocity towards target orbital velocity
                         r1.xv += (targetXV - r1.xv) * 0.1;
                         r1.yv += (targetYV - r1.yv) * 0.1;
 
-                        // 4. Distance Correction: Gently push/pull to maintain 'orbitRadius'
-                        //    This prevents spiraling in or drifting away too much
-                        const distError = dist - orbitRadius;
-                        // If dist < orbitRadius (too close), push out (negative error * factor) -> add to pos? No, add to vel away
-                        // We want to apply force along radius vector (dx, dy)
-                        // If too close (distError < 0), we want force AWAY (-dx, -dy)
-                        // If too far (distError > 0), we want force TOWARDS (dx, dy)
+                        // Distance Correction: Maintain dynamicOrbitRadius
+                        const distError = dist - dynamicOrbitRadius;
                         const correctionForce = distError * 0.005;
                         r1.xv += (dx / dist) * correctionForce;
                         r1.yv += (dy / dist) * correctionForce;
@@ -1377,21 +1393,14 @@ function updatePhysics() {
                             asteroidIndex = i;
                         }
 
-                        // NEW: "Small asteroids won't crash planets anymore"
-                        // Instead of merging, if it's a small asteroid effectively in orbit range, we ignore collision merge.
-                        // We define "small" as standard non-planet asteroid sizes.
-                        // Planets only consume if they are effectively "Planet Candidates" (huge asteroids)
-                        // Standard asteroids allow orbit logic (handled above) to dominate.
-                        // We use a safe overlap threshold: if they are DEEP inside, maybe pop them out?
-                        // For now, just skip merge.
+                        // NEW: Size-based merging logic
+                        // Only asteroids larger than MIN_SIZE merge and grow the planet.
+                        // Smallest asteroids (MIN_SIZE) bounce/stay in orbit.
+                        const isOrbitingSize = asteroid.r <= ASTEROID_MIN_SIZE * 1.2;
 
-                        const isSmallAsteroid = asteroid.r < PLANET_THRESHOLD; // Standard asteroids are < 50-60 usually
-
-                        if (isSmallAsteroid) {
-                            // SKIP MERGE.
-                            // Optional: Push asteroid out if it's literally inside the planet to prevent visual glitching
-                            // but the orbit logic tries to keep them at r*1.5. 
-                            // If they slam in high speed, bounce them?
+                        if (isOrbitingSize) {
+                            // SKIP MERGE for orbiting sizes.
+                            // Push asteroid out if it's literally inside the planet to prevent visual glitching
                             const angle = Math.atan2(asteroid.y - planet.y, asteroid.x - planet.x);
                             const minDist = planet.r + asteroid.r + 5;
                             asteroid.x = planet.x + Math.cos(angle) * minDist;
@@ -1782,6 +1791,50 @@ function loop() {
         velocity.x += deltaX;
         velocity.y += deltaY;
 
+        // --- NEW: Orbital Capture for Player ---
+        // If the player is near a planet and not actively thrusting, they are captured into orbit
+        if (!playerShip.thrusting && !keys.ArrowDown && !keys.KeyA && !keys.KeyD && !playerShip.dead && !victoryState) {
+            let nearestPlanet = null;
+            let minDistSq = Infinity;
+            for (const r of roids) {
+                if (r.isPlanet && Math.abs(r.z) < 0.5) {
+                    const dSq = (r.x - worldOffsetX) ** 2 + (r.y - worldOffsetY) ** 2;
+                    if (dSq < minDistSq) {
+                        minDistSq = dSq;
+                        nearestPlanet = r;
+                    }
+                }
+            }
+
+            if (nearestPlanet) {
+                const dist = Math.sqrt(minDistSq);
+                const orbitRadius = nearestPlanet.r * 1.8 + playerShip.r;
+                const gravityRange = nearestPlanet.r * 8.0;
+
+                if (dist < gravityRange) {
+                    const dx = nearestPlanet.x - worldOffsetX;
+                    const dy = nearestPlanet.y - worldOffsetY;
+                    const angleToPlanet = Math.atan2(dy, dx);
+                    const tangentAngle = angleToPlanet + Math.PI / 2;
+
+                    // Desired orbital speed + planet's own movement
+                    const theoreticalOrbitSpeed = Math.sqrt((G_CONST * nearestPlanet.mass * 8.0) / Math.max(dist, 10));
+                    const targetXV = Math.cos(tangentAngle) * theoreticalOrbitSpeed + (nearestPlanet.xv || 0);
+                    const targetYV = Math.sin(tangentAngle) * theoreticalOrbitSpeed + (nearestPlanet.yv || 0);
+
+                    // Blend velocity towards orbital target
+                    velocity.x += (targetXV - velocity.x) * 0.05;
+                    velocity.y += (targetYV - velocity.y) * 0.05;
+
+                    // Distance correction: maintain orbit height
+                    const distError = dist - orbitRadius;
+                    const correction = distError * 0.005;
+                    velocity.x += (dx / Math.max(dist, 1)) * correction;
+                    velocity.y += (dy / Math.max(dist, 1)) * correction;
+                }
+            }
+        }
+
         // Apply braking/friction
         if (keys.ArrowDown) { velocity.x *= 0.92; velocity.y *= 0.92; }
         else { velocity.x *= FRICTION; velocity.y *= FRICTION; }
@@ -2117,6 +2170,97 @@ function loop() {
                 // Recover shield and make station effectively "gone" if far away
                 if (ship.z >= 0.5) {
                     ship.structureHP = STATION_RESISTANCE;
+                }
+            }
+        }
+
+        // --- NEW: Role Assignment and Formation Joining ---
+        if (ship.type === 'ship' && !ship.dead && !victoryState) {
+            // 1. Assign Defender vs Stray role based on station capacity
+            if (ship.homeStation) {
+                const alliedShips = ships.filter(s => s.type === 'ship' && s.homeStation === ship.homeStation && !s.dead);
+                // Sort by distance to home station to keep the closest ones as defenders
+                alliedShips.sort((a, b) => {
+                    const da = Math.hypot(a.x - ship.homeStation.x, a.y - ship.homeStation.y);
+                    const db = Math.hypot(b.x - ship.homeStation.x, b.y - ship.homeStation.y);
+                    return da - db;
+                });
+
+                const myIndex = alliedShips.indexOf(ship);
+                if (myIndex < 7) {
+                    ship.assignment = 'DEFENDER';
+                    ship.leaderRef = null; // Defenders don't follow leaders away
+                } else {
+                    ship.assignment = 'STRAY';
+                }
+            }
+
+            // 2. Friendly Strays can join Player's formation
+            if (ship.isFriendly && ship.assignment === 'STRAY' && !ship.leaderRef && !playerShip.dead && playerShip.squadSlots) {
+                const distToPlayer = Math.hypot(ship.x - worldOffsetX, ship.y - worldOffsetY);
+                if (distToPlayer < 800) {
+                    // Look for an empty slot in player's squad
+                    const emptySlot = playerShip.squadSlots.find(slot => !slot.occupant || slot.occupant.dead);
+                    if (emptySlot) {
+                        ship.leaderRef = playerShip;
+                        ship.aiState = 'FORMATION';
+                        ship.squadId = playerShip.squadId;
+                        emptySlot.occupant = ship;
+                    }
+                }
+            }
+        }
+
+        // --- NEW: Orbital Capture for Defenders ---
+        // Defenders follow planets specifically, Strays only orbit if they happen to be near one and idling
+        let shouldOrbit = false;
+        if (ship.aiState !== 'COMBAT' && !ship.dead && ship.type !== 'station' && !victoryState) {
+            if (ship.assignment === 'DEFENDER') {
+                shouldOrbit = true;
+            } else if (ship.assignment === 'STRAY' && !ship.leaderRef) {
+                const shipSpeed = Math.hypot(ship.xv, ship.yv);
+                if (shipSpeed < 10.0) shouldOrbit = true;
+            }
+        }
+
+        if (shouldOrbit) {
+            let nearestPlanet = null;
+            let minDistSq = Infinity;
+
+            // Defenders prioritize their home planet, strays use nearest
+            if (ship.assignment === 'DEFENDER' && ship.homeStation && ship.homeStation.hostPlanetId) {
+                nearestPlanet = roids.find(r => r.id === ship.homeStation.hostPlanetId);
+                if (nearestPlanet) minDistSq = (nearestPlanet.x - ship.x) ** 2 + (nearestPlanet.y - ship.y) ** 2;
+            } else {
+                for (const r of roids) {
+                    if (r.isPlanet && Math.abs(r.z) < 0.5) {
+                        const dSq = (r.x - ship.x) ** 2 + (r.y - ship.y) ** 2;
+                        if (dSq < minDistSq) {
+                            minDistSq = dSq;
+                            nearestPlanet = r;
+                        }
+                    }
+                }
+            }
+
+            if (nearestPlanet) {
+                const dist = Math.sqrt(minDistSq);
+                const orbitRadius = nearestPlanet.r * 1.8 + ship.r;
+                const gravityRange = nearestPlanet.r * 8.0;
+
+                if (dist < gravityRange) {
+                    const dx = nearestPlanet.x - ship.x;
+                    const dy = nearestPlanet.y - ship.y;
+                    const angleToPlanet = Math.atan2(dy, dx);
+                    const tangentAngle = angleToPlanet + Math.PI / 2;
+
+                    const theoreticalOrbitSpeed = Math.sqrt((G_CONST * nearestPlanet.mass * 8.0) / Math.max(dist, 10));
+                    const targetXV = Math.cos(tangentAngle) * theoreticalOrbitSpeed + (nearestPlanet.xv || 0);
+                    const targetYV = Math.sin(tangentAngle) * theoreticalOrbitSpeed + (nearestPlanet.yv || 0);
+
+                    ship.xv += (targetXV - ship.xv) * 0.05;
+                    ship.yv += (targetYV - ship.yv) * 0.05;
+
                 }
             }
         }
@@ -4570,3 +4714,5 @@ function createExplosionDebris(cx, cy, count) {
         roids.push(roid);
     }
 }
+
+
