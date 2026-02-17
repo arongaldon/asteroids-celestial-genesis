@@ -490,6 +490,10 @@ function fireEntityWeapon(ship, bulletList, isEnemy = true) {
     const pushBullet = (angleOffset, isPrimary = true) => {
         const shootAngle = a + angleOffset;
 
+        // Systematic scaling for power feel
+        const speedScale = 1 + (tier * 0.08); // +8% speed per tier
+        const sizeScale = 1 + (tier * 0.12);  // +12% size per tier
+
         // Strictly force bullet origin to be at the ship's nose (front vertex)
         const visualScale = 1 + (tier * 0.1);
         const spawnRadius = ((ship.effectiveR || ship.r) * visualScale) + 20;
@@ -500,11 +504,9 @@ function fireEntityWeapon(ship, bulletList, isEnemy = true) {
         const startX = (isPlayer ? worldOffsetX : ship.x) + (fwdX * spawnRadius);
         const startY = (isPlayer ? worldOffsetY : ship.y) + (fwdY * spawnRadius);
 
-        // Velocity dictates the spread direction
-        // Ensure defaults if properties are missing (e.g. legacy saves or weird states)
-        const bSpeed = ship.bulletSpeed || 20;
+        const bSpeed = (ship.bulletSpeed || 18) * speedScale;
         const bLife = ship.bulletLife || (isPrimary ? SHIP_BULLET1_LIFETIME : SHIP_BULLET2_LIFETIME);
-        const bSize = ship.bulletSize || 6;
+        const bSize = (ship.bulletSize || 5) * sizeScale;
 
         const velX = (Math.cos(shootAngle) * bSpeed) + (isPlayer ? velocity.x : ship.xv);
         const velY = (Math.sin(shootAngle) * bSpeed) + (isPlayer ? velocity.y : ship.yv);
@@ -526,45 +528,53 @@ function fireEntityWeapon(ship, bulletList, isEnemy = true) {
         bulletList.push(bullet);
     };
 
-    // Tier 12 has no bullets. THE GODSHIP: Omni-Destruction
-    if (tier === 11) { // THE HYPERION: Heavy Front + Rear Guard
+    // --- TIER PATTERNS (Clearly more powerful with each step) ---
+    if (tier === 11) { // THE HYPERION: Massive Arc & Defense
         pushBullet(0, true);
-        pushBullet(-0.05, true); pushBullet(0.05, true);
-        pushBullet(-0.1, true); pushBullet(0.1, true);
-        pushBullet(-0.15, true); pushBullet(0.15, true);
-        pushBullet(-0.2, true); pushBullet(0.2, true);
-        pushBullet(-0.25, true); pushBullet(0.25, true);
-        pushBullet(-0.3, true); pushBullet(0.3, true);
-        pushBullet(-0.4, true); pushBullet(0.4, true);
-        pushBullet(-0.5, false); pushBullet(0.5, false);
-    } else if (tier === 10) { // THE TITAN: Dense Frontal Barrage
+        for (let i = 1; i <= 6; i++) {
+            pushBullet(i * 0.1, true); pushBullet(-i * 0.1, true);
+        }
+        pushBullet(Math.PI, false); // Rear guard
+    } else if (tier === 10) { // THE TITAN: Heavy Frontal Wall
         pushBullet(0, true);
-        pushBullet(-0.05, false); pushBullet(0.05, false);
-        pushBullet(-0.15, false); pushBullet(0.15, false);
-        pushBullet(-0.25, false); pushBullet(0.25, false);
-        pushBullet(-0.35, false); pushBullet(0.35, false);
-    } else if (tier === 9) { // THE CELESTIAL: Wide Scatter
+        for (let i = 1; i <= 5; i++) {
+            pushBullet(i * 0.05, true); pushBullet(-i * 0.05, true);
+        }
+    } else if (tier === 9) { // THE CELESTIAL: Wide Radiant Spray
         pushBullet(0, true);
-        pushBullet(-0.1, false);
-        pushBullet(0.1, false);
-        pushBullet(-0.25, false); // Wider
-        pushBullet(0.25, false);
-        pushBullet(-0.4, false); // Even Wider
-        pushBullet(0.4, false);
-    } else if (tier === 8) { // THE SPHERE
+        pushBullet(0.15, true); pushBullet(-0.15, true);
+        pushBullet(0.3, false); pushBullet(-0.3, false);
+        pushBullet(0.45, false); pushBullet(-0.45, false);
+    } else if (tier === 8) { // THE SPHERE: 7 Strong Frontal
         pushBullet(0, true);
-        pushBullet(-0.1, false);
-        pushBullet(0.1, false);
-        pushBullet(-0.2, false);
-        pushBullet(0.2, false);
-    } else if (tier === 4) {
+        pushBullet(0.1, true); pushBullet(-0.1, true);
+        pushBullet(0.2, true); pushBullet(-0.2, true);
+        pushBullet(0.3, false); pushBullet(-0.3, false);
+    } else if (tier === 7) { // DECAGON
         pushBullet(0, true);
-        pushBullet(-0.05, false);
-        pushBullet(0.05, false);
-    } else if (tier === 2) {
+        pushBullet(0.1, true); pushBullet(-0.1, true);
+        pushBullet(0.2, false); pushBullet(-0.2, false);
+        pushBullet(0.3, false); pushBullet(-0.3, false);
+    } else if (tier === 6) { // NONAGON
         pushBullet(0, true);
+        pushBullet(0.12, true); pushBullet(-0.12, true);
+        pushBullet(0.24, false); pushBullet(-0.24, false);
+    } else if (tier === 5) { // OCTAGON
         pushBullet(0, true);
-    } else {
+        pushBullet(0.15, true); pushBullet(-0.15, true);
+        pushBullet(0.3, false); pushBullet(-0.3, false);
+    } else if (tier === 4) { // HEPTAGON
+        pushBullet(0, true);
+        pushBullet(0.2, false); pushBullet(-0.2, false);
+    } else if (tier === 3) { // HEXAGON
+        pushBullet(0, true);
+        pushBullet(0.1, true); pushBullet(-0.1, true);
+    } else if (tier === 2) { // PENTAGON
+        pushBullet(0, true); // Double shot (Parallel feel)
+        pushBullet(0, true);
+    } else if (tier === 1) { // SQUARE
+        pushBullet(0, true); // One shot, but scaling makes it stronger
+    } else { // TIER 0: TRIANGLE
         pushBullet(0, true);
     }
 
@@ -1692,18 +1702,23 @@ function loop() {
         }
     }
 
-    // In touch mode, zoom out to see more of the world
-    // Also zoom out during game over and victory to show ~50% of map
-    let targetScale = (playerShip.tier >= 12 ? SCALE_IN_MOUSE_MODE / 2 : SCALE_IN_MOUSE_MODE);
+    // --- Viewport Zoom Calculation ---
+    // Priority: Victory/GameOver > Input Mode (Touch/Mouse) > Tier 12 Godship modifier
+    const isGameOverOrVictory = (playerShip.dead && playerShip.lives <= 0) || victoryState;
+    let targetScale;
 
-    if (inputMode === 'touch') {
-        targetScale = (playerShip.tier >= 12 ? SCALE_IN_TOUCH_MODE / 2 : SCALE_IN_TOUCH_MODE);
-    } else if ((playerShip.dead && playerShip.lives <= 0) || victoryState) {
-        // Zoom out to show ~75% of the map during game over/victory
+    if (isGameOverOrVictory) {
+        // Grand cinematic zoom-out to show the universe
         targetScale = Math.max(0.08, Math.min(width, height) / (WORLD_BOUNDS * 0.75));
+    } else if (inputMode === 'touch') {
+        targetScale = (playerShip.tier >= 12 ? SCALE_IN_TOUCH_MODE / 2 : SCALE_IN_TOUCH_MODE);
+    } else {
+        targetScale = (playerShip.tier >= 12 ? SCALE_IN_MOUSE_MODE / 2 : SCALE_IN_MOUSE_MODE);
     }
 
-    viewScale += (targetScale - viewScale) * 0.001;
+    // Use a slow, smooth factor for cinematic reveals, and a more responsive one for gameplay scaling
+    const zoomInterpolationFactor = isGameOverOrVictory ? 0.001 : 0.02;
+    viewScale += (targetScale - viewScale) * zoomInterpolationFactor;
 
     if (viewScale !== 1.0) {
         // Scale and translate to keep (width/2, height/2) at the center
@@ -1914,7 +1929,7 @@ function loop() {
                         obj.vaporized = true;
 
                         // AWARD SCORE for Godship destruction
-                        if (obj.isPlanet && homePlanetId === null) {
+                        if (obj.isPlanet) {
                             addScreenMessage("PLANET " + obj.name.toUpperCase() + " VAPORIZED", "#ff00ff");
                             createExplosion((obj.x - worldOffsetX + width / 2), (obj.y - worldOffsetY + height / 2), 200, '#00ffff', 10, 'spark');
                             increaseShipScore(playerShip, 1000); // 1000 for planet
@@ -2883,8 +2898,8 @@ function loop() {
                 if (ship.structureHP <= 0) {
                     let debrisColor = ship.type === 'station' ? `hsl(${ship.fleetHue}, 100%, 50%)` : `hsl(${ship.fleetHue}, 100%, 40%)`;
                     createExplosion(vpX, vpY, 40, '#ffaa00', 3, 'spark'); createExplosion(vpX, vpY, 20, debrisColor, 4, 'debris');
-                    if (ship.type === 'station') { onStationDestroyed(ship); }
-                    else { onShipDestroyed(ship); }
+                    if (ship.type === 'station') { onStationDestroyed(ship, playerShip); }
+                    else { onShipDestroyed(ship, playerShip); }
                     ships.splice(i, 1); i--; AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
                     continue; // Ship is gone, don't draw
                 }
@@ -3053,6 +3068,7 @@ function loop() {
                         updateAsteroidCounter();
                     }
 
+                    if (playerShip.tier >= 12) increaseShipScore(playerShip, ASTEROID_DESTROYED_REWARD);
                     roids.splice(i, 1);
                     updateAsteroidCounter();
 
@@ -3644,42 +3660,72 @@ function loop() {
 
 
 
-            } else if (tier === 11) { // THE HYPERION - Advanced Energy Form
-                const sides = 3;
-                canvasContext.shadowBlur = 30; canvasContext.shadowColor = '#00ffff';
-                canvasContext.fillStyle = `rgba(0, 20, 40, 0.9)`;
-                canvasContext.strokeStyle = '#00ffff'; canvasContext.lineWidth = 3;
+            } else if (tier === 11) { // THE HYPERION - "The Celestial Dreadnought"
+                // Transition design: Sharp mechanical edges with divine energy
+                canvasContext.shadowBlur = 25; canvasContext.shadowColor = '#00ffff';
+                canvasContext.lineWidth = 3;
 
-                // Main sleek body
+                // 1. REINFORCED CHASSIS (Sleeker but heavier than Titan)
+                canvasContext.fillStyle = '#0a0a0a'; canvasContext.strokeStyle = '#0088ff';
                 canvasContext.beginPath();
-                canvasContext.ellipse(0, 0, r * 0.4, r * 1.8, 0, 0, Math.PI * 2);
+                canvasContext.moveTo(r * 2.0, 0);               // Front Nose
+                canvasContext.lineTo(r * 0.5, r * 0.8);          // Top Outer corner
+                canvasContext.lineTo(-r * 1.2, r * 0.6);         // Top Back
+                canvasContext.lineTo(-r * 1.5, 0);               // Rear Center
+                canvasContext.lineTo(-r * 1.2, -r * 0.6);        // Bottom Back
+                canvasContext.lineTo(r * 0.5, -r * 0.8);         // Bottom Outer corner
+                canvasContext.closePath();
                 canvasContext.fill(); canvasContext.stroke();
 
-                // Floating Wings
+                // 2. ENERGY WINGS (Floating but close to hull)
+                const pulse = 0.8 + Math.sin(Date.now() / 300) * 0.2;
+                canvasContext.fillStyle = `rgba(0, 150, 255, ${0.4 * pulse})`;
+                canvasContext.strokeStyle = `rgba(0, 255, 255, ${0.6 * pulse})`;
+
+                // Top Wing
                 canvasContext.beginPath();
-                canvasContext.moveTo(r * 0.5, r * 0.2); canvasContext.lineTo(r * 1.5, r * 0.8); canvasContext.lineTo(r * 0.5, r * -0.5);
-                canvasContext.moveTo(-r * 0.5, r * 0.2); canvasContext.lineTo(-r * 1.5, r * 0.8); canvasContext.lineTo(-r * 0.5, r * -0.5);
-                canvasContext.fillStyle = `rgba(0, 100, 255, 0.5)`;
+                canvasContext.moveTo(r * 0.2, -r * 0.9);
+                canvasContext.lineTo(r * 1.2, -r * 1.4);
+                canvasContext.lineTo(r * 0.8, -r * 0.8);
+                canvasContext.closePath();
                 canvasContext.fill(); canvasContext.stroke();
 
-                // Energy Core
+                // Bottom Wing
+                canvasContext.beginPath();
+                canvasContext.moveTo(r * 0.2, r * 0.9);
+                canvasContext.lineTo(r * 1.2, r * 1.4);
+                canvasContext.lineTo(r * 0.8, r * 0.8);
+                canvasContext.closePath();
+                canvasContext.fill(); canvasContext.stroke();
+
+                // 3. CELESTIAL CORE (Divine aspect)
+                canvasContext.shadowBlur = 40; canvasContext.shadowColor = '#fff';
                 canvasContext.fillStyle = '#fff';
-                canvasContext.beginPath(); canvasContext.arc(0, -r * 0.5, r * 0.3, 0, Math.PI * 2); canvasContext.fill();
+                canvasContext.beginPath();
+                canvasContext.arc(0, 0, r * 0.5, 0, Math.PI * 2);
+                canvasContext.fill();
+
+                // 4. ENERGY CHANNELS (Connecting mechanical to divine)
+                canvasContext.shadowBlur = 0;
+                canvasContext.strokeStyle = '#00ffff'; canvasContext.lineWidth = 1;
+                canvasContext.beginPath();
+                canvasContext.moveTo(r * 2.0, 0); canvasContext.lineTo(r * 0.5, 0); // Core to nose
+                canvasContext.stroke();
 
             } else if (tier === 10) { // THE TITAN - Heavy Dreadnought
                 canvasContext.shadowBlur = 20; canvasContext.shadowColor = '#ff5500';
                 canvasContext.fillStyle = '#221100'; canvasContext.strokeStyle = '#ffaa00'; canvasContext.lineWidth = 4;
 
-                // Main Block
-                canvasContext.fillRect(-r * 0.6, -r, r * 1.2, r * 2);
-                canvasContext.strokeRect(-r * 0.6, -r, r * 1.2, r * 2);
+                // Main Block (Long along X)
+                canvasContext.fillRect(-r, -r * 0.6, r * 2, r * 1.2);
+                canvasContext.strokeRect(-r, -r * 0.6, r * 2, r * 1.2);
 
-                // Side Armor
+                // Side Armor (Top and Bottom)
                 canvasContext.fillStyle = '#331100';
-                canvasContext.fillRect(-r * 1.2, -r * 0.5, r * 0.6, r * 1.5);
-                canvasContext.strokeRect(-r * 1.2, -r * 0.5, r * 0.6, r * 1.5);
-                canvasContext.fillRect(r * 0.6, -r * 0.5, r * 0.6, r * 1.5);
-                canvasContext.strokeRect(r * 0.6, -r * 0.5, r * 0.6, r * 1.5);
+                canvasContext.fillRect(-r * 0.5, -r * 1.2, r * 1.5, r * 0.6);
+                canvasContext.strokeRect(-r * 0.5, -r * 1.2, r * 1.5, r * 0.6);
+                canvasContext.fillRect(-r * 0.5, r * 0.6, r * 1.5, r * 0.6);
+                canvasContext.strokeRect(-r * 0.5, r * 0.6, r * 1.5, r * 0.6);
 
             } else if (tier === 9) { // THE CELESTIAL - Radiant Star
                 canvasContext.shadowBlur = 25; canvasContext.shadowColor = '#ffffaa';
@@ -3798,13 +3844,19 @@ function loop() {
                 canvasContext.fillStyle = `rgba(255, 170, 0, ${0.5 + Math.random() * 0.5})`;
                 const thrustL = 30 + Math.random() * 10;
 
-                // Single central thrust for most, dual for some
-                if (tier === 10) { // Titan: Dual/Quad
+                // Single central thrust for most, specialized for heavy tiers
+                if (tier === 10) { // Titan: Dual Thrusters on rear ends
                     [-r * 0.9, r * 0.9].forEach(yPos => {
                         canvasContext.beginPath();
-                        canvasContext.moveTo(-r * 1.2, yPos - 5); canvasContext.lineTo(-r * 1.2 - thrustL, yPos); canvasContext.lineTo(-r * 1.2, yPos + 5);
+                        canvasContext.moveTo(-r, yPos - 5); canvasContext.lineTo(-r - thrustL, yPos); canvasContext.lineTo(-r, yPos + 5);
                         canvasContext.fill();
                     });
+                } else if (tier === 11) { // Hyperion: Celestial Thrust
+                    canvasContext.beginPath();
+                    canvasContext.moveTo(-r * 1.5, -r * 0.3);
+                    canvasContext.lineTo(-r * 1.5 - thrustL * 1.5, 0); // Slightly longer thrust
+                    canvasContext.lineTo(-r * 1.5, r * 0.3);
+                    canvasContext.fill();
                 } else {
                     canvasContext.beginPath();
                     canvasContext.moveTo(-r * 0.7, -r * 0.2);

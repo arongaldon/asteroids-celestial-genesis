@@ -525,7 +525,7 @@ function newPlayerShip() {
         effectiveR: SHIP_SIZE / 2,
         isFriendly: true,
         leaderRef: null,
-        lives: 3,
+        lives: PLAYER_INITIAL_LIVES,
         loneWolf: false,
         mass: 20,
         maxShield: SHIP_BASE_MAX_SHIELD,
