@@ -12,7 +12,6 @@ let worldOffsetX = 0;
 let worldOffsetY = 0;
 let velocity = { x: 0, y: 0 };
 let roids = [];
-let asteroidCount = 0;
 let ships = [];
 let playerShipBullets = [];
 let enemyShipBullets = [];
@@ -22,7 +21,6 @@ let ambientFogs = [];
 let backgroundLayers = { nebulas: [], galaxies: [], starsNear: [], starsMid: [], starsFar: [] };
 let playerReloadTime = 0;
 let stationSpawnTimer = 0;
-let stationsDestroyedCount = 0;
 let level = 0;
 let homePlanetId = null;
 let screenMessages = [];
@@ -53,9 +51,6 @@ const AudioEngine = {
     PIANO_FILTER_FREQ: 1500,
     PIANO_FILTER_Q: 10,
 
-    kickGain: null,
-    snareGain: null,
-
     init: function () {
         if (this.ctx) {
             if (this.ctx.state === 'suspended') {
@@ -75,12 +70,6 @@ const AudioEngine = {
         this.delay.connect(this.delayGain);
         this.delayGain.connect(this.delay);
         this.delayGain.connect(this.masterGain);
-        this.kickGain = this.ctx.createGain();
-        this.kickGain.gain.value = 0;
-        this.kickGain.connect(this.masterGain);
-        this.snareGain = this.ctx.createGain();
-        this.snareGain.gain.value = 0;
-        this.snareGain.connect(this.masterGain);
     },
 
     setTrack: function (track) {
@@ -196,9 +185,142 @@ const AudioEngine = {
         osc.start(time); osc.stop(time + 0.1);
     },
 
-    playKick: function (time) { },
-    playSnare: function (time) { },
+    playSolarWind: function (time, duration) {
+        if (!this.ctx) return;
+        const bufferSize = this.ctx.sampleRate * duration;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+        const noise = this.ctx.createBufferSource(); noise.buffer = buffer;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(100, time);
+        filter.frequency.exponentialRampToValueAtTime(800, time + duration * 0.5);
+        filter.frequency.exponentialRampToValueAtTime(100, time + duration);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.05, time + duration * 0.5);
+        gain.gain.linearRampToValueAtTime(0, time + duration);
+        noise.connect(filter); filter.connect(gain); gain.connect(this.masterGain);
+        noise.start(time);
+    },
 
+    playSpark: function (time) {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(3000 + Math.random() * 3000, time);
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.03, time + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
+        osc.connect(gain); gain.connect(this.masterGain); gain.connect(this.delay);
+        osc.start(time); osc.stop(time + 0.1);
+    },
+
+    scheduler: function () {
+        if (!this.isPlayingMusic || !this.ctx) return;
+        if (this.currentTrack !== 'menu' && this.currentTrack !== 'victory' && this.currentTrack !== 'gameover') {
+            this.stopMusic();
+            return;
+        }
+        const beatDuration = (this.currentTrack === 'menu') ? 0.5 : 0.3;
+        while (this.nextNoteTime < this.ctx.currentTime + 0.1) {
+            if (this.currentTrack === 'victory') {
+                this.playVictoryBeat(this.nextNoteTime);
+            } else if (this.currentTrack === 'gameover') {
+                this.playGameOverBeat(this.nextNoteTime);
+            } else {
+                this.playMenuBeat(this.nextNoteTime);
+            }
+            this.nextNoteTime += beatDuration;
+        }
+        requestAnimationFrame(() => this.scheduler());
+    },
+
+    playVictoryBeat: function (time) {
+        // Cosmic Ambient Lofi: Relaxing, ethereal, cosmic
+        const notes = [261.63, 293.66, 329.63, 392.00, 440.00]; // Pentatonic C Major
+        const beatInMeasure = this.beatCount % 16;
+
+        // Ambient Pad (Slow, relaxing melody)
+        if (beatInMeasure % 4 === 0) {
+            const freq = notes[Math.floor(Math.random() * notes.length)];
+            this.createAmbientPad(freq, 0.1, time, 4.0);
+        }
+
+        // Sub-Bass (Deep and grounding)
+        if (beatInMeasure === 0) {
+            this.createAmbientPad(notes[0] / 4, 0.15, time, 8.0);
+        }
+
+        // Stellar Sparks (Random high-pitched blips)
+        if (Math.random() > 0.7) {
+            this.playSpark(time + Math.random() * 0.2);
+        }
+
+        // Solar Winds (Occasional sweeps)
+        if (beatInMeasure === 8 && Math.random() > 0.5) {
+            this.playSolarWind(time, 4.0);
+        }
+
+        this.beatCount++;
+    },
+
+    playGameOverBeat: function (time) {
+        // Sad Cosmic Ambient: Mournful, ethereal, mystical
+        const notes = [261.63, 311.13, 392.00, 415.30, 466.16]; // C Minor (with Eb, G, Ab, Bb)
+        const beatInMeasure = this.beatCount % 32; // Slower cycles for mystery
+
+        // Mournful Pad (Very slow, sad melody)
+        if (beatInMeasure % 8 === 0) {
+            const freq = notes[Math.floor(Math.random() * notes.length)];
+            this.createAmbientPad(freq, 0.08, time, 6.0); // Longer decay
+        }
+
+        // Mystic Bass (Deep and dark)
+        if (beatInMeasure === 0) {
+            this.createAmbientPad(notes[0] / 4, 0.12, time, 12.0); // Very deep bass
+        }
+
+        // Faint Solar Winds (Constant mournful breathing)
+        if (beatInMeasure % 4 === 0) {
+            this.playSolarWind(time, 5.0);
+        }
+
+        // Dissolving Sparks (Distant echoes)
+        if (Math.random() > 0.8) {
+            this.playSpark(time + Math.random() * 0.5);
+        }
+
+        this.beatCount++;
+    },
+
+    playMenuBeat: function (time) {
+        const A3 = 220; const C4 = 261.63; const E4 = 329.63; const F3 = 174.61; const G3 = 196;
+        let chord = [];
+        let bassFreq;
+        const measure = Math.floor(this.beatCount / 4);
+        if (measure % 4 === 0) { chord = [A3, C4, E4]; bassFreq = A3 / 2; }
+        else if (measure % 4 === 1) { chord = [F3, A3, C4]; bassFreq = F3 / 2; }
+        else if (measure % 4 === 2) { chord = [261.63, 329.63, 392.00]; bassFreq = 261.63 / 2; }
+        else if (measure % 4 === 3) { chord = [G3, 246.94, 293.66]; bassFreq = G3 / 2; }
+        const chordVolume = 0.05;
+        const bassVolume = 0.06;
+        const duration = 3.0;
+        if (this.beatCount % 4 === 0) {
+            chord.forEach(freq => {
+                this.createPianoNote(freq, chordVolume, time, duration);
+            });
+            this.createPianoNote(bassFreq, bassVolume, time, duration * 2);
+        }
+        if (this.beatCount % 2 === 0 && Math.random() < 0.3) {
+            const scale = [440, 523.25, 587.33, 659.25, 783.99];
+            const freq = scale[Math.floor(Math.random() * scale.length)] * 2;
+            this.createPianoNote(freq, 0.02, time, 1.5);
+        }
+        this.beatCount++;
+    },
     isVisible: function (worldX, worldY, z = 0) {
         if (worldX === undefined || worldX === null) return true;
         let depthScale = 1;
@@ -330,110 +452,6 @@ const AudioEngine = {
         gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.1);
         osc.connect(gain); gain.connect(this.masterGain);
         osc.start(); osc.stop(this.ctx.currentTime + 0.1);
-    },
-
-    scheduler: function () {
-        if (!this.isPlayingMusic || !this.ctx) return;
-        if (this.currentTrack !== 'menu' && this.currentTrack !== 'victory' && this.currentTrack !== 'gameover') {
-            this.stopMusic();
-            return;
-        }
-        const beatDuration = (this.currentTrack === 'menu') ? 0.5 : 0.3;
-        while (this.nextNoteTime < this.ctx.currentTime + 0.1) {
-            if (this.currentTrack === 'victory') {
-                this.playVictoryBeat(this.nextNoteTime);
-            } else if (this.currentTrack === 'gameover') {
-                this.playGameOverBeat(this.nextNoteTime);
-            } else {
-                this.playMenuBeat(this.nextNoteTime);
-            }
-            this.nextNoteTime += beatDuration;
-        }
-        requestAnimationFrame(() => this.scheduler());
-    },
-
-    playVictoryBeat: function (time) {
-        // Cosmic Ambient Lofi: Relaxing, ethereal, cosmic
-        const notes = [261.63, 293.66, 329.63, 392.00, 440.00]; // Pentatonic C Major
-        const beatInMeasure = this.beatCount % 16;
-
-        // Ambient Pad (Slow, relaxing melody)
-        if (beatInMeasure % 4 === 0) {
-            const freq = notes[Math.floor(Math.random() * notes.length)];
-            this.createAmbientPad(freq, 0.1, time, 4.0);
-        }
-
-        // Sub-Bass (Deep and grounding)
-        if (beatInMeasure === 0) {
-            this.createAmbientPad(notes[0] / 4, 0.15, time, 8.0);
-        }
-
-        // Stellar Sparks (Random high-pitched blips)
-        if (Math.random() > 0.7) {
-            this.playSpark(time + Math.random() * 0.2);
-        }
-
-        // Solar Winds (Occasional sweeps)
-        if (beatInMeasure === 8 && Math.random() > 0.5) {
-            this.playSolarWind(time, 4.0);
-        }
-
-        this.beatCount++;
-    },
-
-    playGameOverBeat: function (time) {
-        // Sad Cosmic Ambient: Mournful, ethereal, mystical
-        const notes = [261.63, 311.13, 392.00, 415.30, 466.16]; // C Minor (with Eb, G, Ab, Bb)
-        const beatInMeasure = this.beatCount % 32; // Slower cycles for mystery
-
-        // Mournful Pad (Very slow, sad melody)
-        if (beatInMeasure % 8 === 0) {
-            const freq = notes[Math.floor(Math.random() * notes.length)];
-            this.createAmbientPad(freq, 0.08, time, 6.0); // Longer decay
-        }
-
-        // Mystic Bass (Deep and dark)
-        if (beatInMeasure === 0) {
-            this.createAmbientPad(notes[0] / 4, 0.12, time, 12.0); // Very deep bass
-        }
-
-        // Faint Solar Winds (Constant mournful breathing)
-        if (beatInMeasure % 4 === 0) {
-            this.playSolarWind(time, 5.0);
-        }
-
-        // Dissolving Sparks (Distant echoes)
-        if (Math.random() > 0.8) {
-            this.playSpark(time + Math.random() * 0.5);
-        }
-
-        this.beatCount++;
-    },
-
-    playMenuBeat: function (time) {
-        const A3 = 220; const C4 = 261.63; const E4 = 329.63; const F3 = 174.61; const G3 = 196;
-        let chord = [];
-        let bassFreq;
-        const measure = Math.floor(this.beatCount / 4);
-        if (measure % 4 === 0) { chord = [A3, C4, E4]; bassFreq = A3 / 2; }
-        else if (measure % 4 === 1) { chord = [F3, A3, C4]; bassFreq = F3 / 2; }
-        else if (measure % 4 === 2) { chord = [261.63, 329.63, 392.00]; bassFreq = 261.63 / 2; }
-        else if (measure % 4 === 3) { chord = [G3, 246.94, 293.66]; bassFreq = G3 / 2; }
-        const chordVolume = 0.05;
-        const bassVolume = 0.06;
-        const duration = 3.0;
-        if (this.beatCount % 4 === 0) {
-            chord.forEach(freq => {
-                this.createPianoNote(freq, chordVolume, time, duration);
-            });
-            this.createPianoNote(bassFreq, bassVolume, time, duration * 2);
-        }
-        if (this.beatCount % 2 === 0 && Math.random() < 0.3) {
-            const scale = [440, 523.25, 587.33, 659.25, 783.99];
-            const freq = scale[Math.floor(Math.random() * scale.length)] * 2;
-            this.createPianoNote(freq, 0.02, time, 1.5);
-        }
-        this.beatCount++;
     }
 };
 
