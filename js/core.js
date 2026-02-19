@@ -723,8 +723,12 @@ function createExplosion(vpX, vpY, n, color = 'white', sizeBase = 1, type = 'spa
     for (let i = 0; i < n; i++) {
         const pWorldX = vpX - width / 2 + worldOffsetX;
         const pWorldY = vpY - height / 2 + worldOffsetY;
-        let life = 30 + Math.random() * 20; let speed = 10;
+        let life = 30 + Math.random() * 20;
+        let speed = 10;
         if (type === 'debris') { life = 60 + Math.random() * 40; speed = 3; }
+        if (type === 'flame') { life = 40 + Math.random() * 40; speed = 5 + Math.random() * 10; }
+        if (type === 'smoke') { life = 80 + Math.random() * 60; speed = 2 + Math.random() * 3; }
+
         particles.push({
             x: pWorldX,
             y: pWorldY,

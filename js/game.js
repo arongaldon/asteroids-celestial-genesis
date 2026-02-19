@@ -900,7 +900,7 @@ function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
         const dist = innerRadius + Math.random() * (outerRadius - innerRadius);
         const x = cx + Math.cos(angle) * dist;
         const y = cy + Math.sin(angle) * dist;
-        const r = ASTEROID_MIN_SIZE + Math.random() * (ASTEROID_MAX_SIZE - ASTEROID_MIN_SIZE);
+        const r = (Math.random() < 0.5 ? 0.5 : 0.25) * ASTEROID_MAX_SIZE;
         const roid = createAsteroid(x, y, r);
 
         // Small tangential velocity to give a sense of belt movement
@@ -1154,9 +1154,8 @@ function updatePhysics() {
                 if (r1.z < 0) {
                     r1.z = 0;
                     r1.zSpeed = Math.abs(r1.zSpeed);
-                    // Stay 3 times more time in default z than in other z distances
-                    // Travel time = 2 * MAX_Z_DEPTH / abs(zSpeed)
-                    r1.zWait = Math.floor(3 * (2 * MAX_Z_DEPTH / r1.zSpeed));
+                    // Reduced wait time to make background movements more frequent
+                    r1.zWait = Math.floor(1.0 * (2 * MAX_Z_DEPTH / r1.zSpeed));
                 }
             }
 
@@ -1347,10 +1346,17 @@ function updatePhysics() {
 
                 // 1. Planet-Planet Collision
                 if (r1.isPlanet && r2.isPlanet) {
-                    // Only if both are in the same z level
-                    if (r1.z == r2.z) {
-                        createExplosion(midVpX, midVpY, 80, '#ffaa00', 5, 'spark');
-                        createExplosion(midVpX, midVpY, 40, '#ff0000', 8, 'debris');
+                    // Only planets in the foreground (z < 0.5) can crash.
+                    if (r1.z < 0.5 && r2.z < 0.5) {
+                        // THEMATIC DISINTEGRATION
+                        addScreenMessage("PLANETARY CATACLYSM: MASSIVE COLLISION DETECTED!", "#ff4400");
+
+                        // Fire and Lava Explosion Particles
+                        createExplosion(midVpX, midVpY, 150, '#ffaa00', 8, 'flame');
+                        createExplosion(midVpX, midVpY, 100, '#ff4400', 12, 'flame');
+                        createExplosion(midVpX, midVpY, 80, '#550000', 15, 'smoke');
+                        createExplosion(midVpX, midVpY, 50, '#ffff00', 4, 'spark');
+
                         AudioEngine.playPlanetExplosion(midX, midY, r1.z); // Strong sound if visible
 
                         // Check if home planet was lost
@@ -1358,11 +1364,14 @@ function updatePhysics() {
                             triggerHomePlanetLost('collision');
                         }
 
-                        // many asteroids created
-                        const manyAsteroids = ASTEROIDS; // 1500 asteroids!
-                        createExplosionDebris(midX, midY, manyAsteroids);
+                        // Massive debris field
+                        const manyAsteroids = Math.floor(ASTEROIDS * 1.5); // Even more than 1000 if base is 1000
+                        createExplosionDebris(midX, midY, manyAsteroids, true); // true for hot/lava asteroids
+                        createShockwave(midX, midY, true); // Strong shockwave (marks it as god-like power)
+                        updateAsteroidCounter();
+
+                        // Shake the screen for everyone
                         createShockwave(midX, midY);
-                        updateAsteroidCounter(); // New asteroids created!
 
                         // Destroy both planets' stations
                         for (let k = ships.length - 1; k >= 0; k--) {
@@ -1440,50 +1449,117 @@ function updatePhysics() {
                             break;
                         }
                     }
-                    // Asteroid-Asteroid Merge
+                    // Asteroid-Asteroid Interaction Logic
                     else {
-                        let totalMass = r1.mass + r2.mass;
-                        let newVX = (r1.xv * r1.mass + r2.xv * r2.mass) / totalMass;
-                        let newVY = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass;
-                        let newR = Math.sqrt(r1.r * r1.r + r2.r * r2.r) * 1.05;
+                        const isGiant1 = r1.r >= ASTEROID_MAX_SIZE;
+                        const isGiant2 = r2.r >= ASTEROID_MAX_SIZE;
 
-                        // Max size for planet growth
-                        if (newR > PLANET_MAX_SIZE) newR = PLANET_MAX_SIZE;
+                        // CASE 1: PLANETARY GENESIS (Two Giants Merge)
+                        if (isGiant1 && isGiant2) {
+                            let totalMass = r1.mass + r2.mass;
+                            let newVX = (r1.xv * r1.mass + r2.xv * r2.mass) / totalMass;
+                            let newVY = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass;
+                            let newR = Math.sqrt(r1.r * r1.r + r2.r * r2.r) * 1.05;
+                            if (newR > PLANET_MAX_SIZE) newR = PLANET_MAX_SIZE;
+                            const DAMPENING_FACTOR = 0.5;
+                            if (newR > PLANET_THRESHOLD) { newVX *= DAMPENING_FACTOR; newVY *= DAMPENING_FACTOR; }
 
-                        const DAMPENING_FACTOR = 0.5;
-                        if (newR > PLANET_THRESHOLD) { newVX *= DAMPENING_FACTOR; newVY *= DAMPENING_FACTOR; }
+                            r1.x = (r1.x * r1.mass + r2.x * r2.mass) / totalMass;
+                            r1.y = (r1.y * r1.mass + r2.y * r2.mass) / totalMass;
+                            r1.xv = newVX; r1.yv = newVY;
 
-                        let newX = (r1.x * r1.mass + r2.x * r2.mass) / totalMass;
-                        let newY = (r1.y * r1.mass + r2.y * r2.mass) / totalMass;
-
-                        r1.x = newX; r1.y = newY;
-                        r1.xv = newVX; r1.yv = newVY;
-                        r1.targetR = newR;
-
-                        if (newR > PLANET_THRESHOLD && !r1.isPlanet) {
-                            const currentPlanets = roids.filter(r => r.isPlanet).length;
-                            if (currentPlanets < PLANETS_LIMIT) {
-                                r1.r = newR;
-                                initializePlanetAttributes(r1);
-                                r1.targetR = newR;
-                                createExplosion(midVpX, midVpY, 30, '#fff', 5);
+                            if (!r1.isPlanet) {
+                                const currentPlanets = roids.filter(r => r.isPlanet).length;
+                                if (currentPlanets < PLANETS_LIMIT) {
+                                    r1.r = Math.max(newR, PLANET_THRESHOLD + 10);
+                                    initializePlanetAttributes(r1);
+                                    r1.targetR = r1.r;
+                                    r1.mass = totalMass * 0.05;
+                                    createExplosion(midVpX, midVpY, 60, '#00ffff', 10, 'spark');
+                                    addScreenMessage("PLANETARY GENESIS: TWO GIANTS HAVE COALESCED!", "#00ffff");
+                                    AudioEngine.playPlanetExplosion(midX, midY, r1.z);
+                                } else {
+                                    r1.r = newR; r1.targetR = newR;
+                                }
                             } else {
-                                r1.r = newR;
-                                r1.targetR = newR;
+                                r1.r = newR; r1.targetR = newR; r1.mass = totalMass * 0.05;
                             }
-                        } else if (r1.isPlanet) {
-                            r1.r = newR;
-                            r1.mass = totalMass * 0.05;
+                            roids.splice(j, 1); j--;
+                            updateAsteroidCounter();
+                            continue;
                         }
 
-                        // NEW: Audio feedback for asteroid fusion
-                        if (newR <= PLANET_THRESHOLD) {
-                            AudioEngine.playSoftThud(midX, midY, r1.z); // Soft sound for merge
+                        // CASE 2 & 3: Giant interacting with smaller asteroid
+                        else if (isGiant1 || isGiant2) {
+                            const giant = isGiant1 ? r1 : r2;
+                            const smaller = isGiant1 ? r2 : r1;
+                            const smallerIndex = isGiant1 ? j : i;
+                            const giantIndex = isGiant1 ? i : j;
+
+                            // CASE 2: Giant vs MIN_SIZE (Consumption)
+                            if (smaller.r <= ASTEROID_MIN_SIZE * 1.2) {
+                                createExplosion(midVpX, midVpY, 15, '#fff', 2, 'debris');
+                                AudioEngine.playSoftThud(midX, midY, giant.z);
+                                roids.splice(smallerIndex, 1);
+                                if (smallerIndex === i) { i--; break; } else { j--; continue; }
+                            }
+                            // CASE 3: Giant vs Medium (Double Split)
+                            else {
+                                // Split both
+                                [r1, r2].forEach((r) => {
+                                    const newSize = r.r * 0.5;
+                                    if (newSize >= ASTEROID_MIN_SIZE) {
+                                        const dynamicOffset = r.r * (ASTEROID_SPLIT_OFFSET / ASTEROID_MAX_SIZE);
+                                        const angle = Math.random() * Math.PI * 2; // Random split angle for asteroid-asteroid collision
+
+                                        let frag1 = createAsteroid(r.x + Math.cos(angle) * dynamicOffset, r.y + Math.sin(angle) * dynamicOffset, newSize);
+                                        frag1.xv = r.xv + Math.cos(angle) * ASTEROID_SPLIT_SPEED;
+                                        frag1.yv = r.yv + Math.sin(angle) * ASTEROID_SPLIT_SPEED;
+                                        frag1.blinkNum = 30;
+                                        roids.push(frag1);
+
+                                        let frag2 = createAsteroid(r.x - Math.cos(angle) * dynamicOffset, r.y - Math.sin(angle) * dynamicOffset, newSize);
+                                        frag2.xv = r.xv - Math.cos(angle) * ASTEROID_SPLIT_SPEED;
+                                        frag2.yv = r.yv - Math.sin(angle) * ASTEROID_SPLIT_SPEED;
+                                        frag2.blinkNum = 30;
+                                        roids.push(frag2);
+                                    }
+                                });
+
+                                createExplosion(midVpX, midVpY, 40, '#ffaa00', 3, 'spark');
+                                AudioEngine.playExplosion('small', midX, midY, r1.z);
+
+                                // Remove both parents
+                                if (i < j) {
+                                    roids.splice(j, 1);
+                                    roids.splice(i, 1);
+                                } else {
+                                    roids.splice(i, 1);
+                                    roids.splice(j, 1);
+                                }
+                                i--;
+                                updateAsteroidCounter();
+                                break; // Exit j-loop
+                            }
                         }
 
-                        roids.splice(j, 1); j--;
-                        updateAsteroidCounter();
-                        continue;
+                        // CASE 4: Standard Merge (No Giants involved)
+                        else {
+                            let totalMass = r1.mass + r2.mass;
+                            let newVX = (r1.xv * r1.mass + r2.xv * r2.mass) / totalMass;
+                            let newVY = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass;
+                            let newR = Math.sqrt(r1.r * r1.r + r2.r * r2.r) * 1.05;
+
+                            r1.x = (r1.x * r1.mass + r2.x * r2.mass) / totalMass;
+                            r1.y = (r1.y * r1.mass + r2.y * r2.mass) / totalMass;
+                            r1.xv = newVX; r1.yv = newVY;
+                            r1.targetR = newR;
+
+                            AudioEngine.playSoftThud(midX, midY, r1.z);
+                            roids.splice(j, 1); j--;
+                            updateAsteroidCounter();
+                            continue;
+                        }
                     }
                 }
             }
@@ -1495,17 +1571,36 @@ function updatePhysics() {
 
                 // SPECIAL: Planet acting on Asteroid
                 if (r1.isPlanet || r2.isPlanet) {
-                    // Generic planet-planet or deep-z gravity (weaker)
-                    // (Legacy code for distant planets)
-                    force = (G * r1.mass * r2.mass) / Math.max(distSq, 500);
-                    let fx = (dx / dist) * force;
-                    let fy = (dy / dist) * force;
-                    // Planets are on rails, so we generally ignore this for them, 
-                    // but it might affect calculations if we ever un-rail them.
+                    // PLANET-PLANET GRAVITY (Foreground only)
+                    if (r1.isPlanet && r2.isPlanet) {
+                        if (r1.z < 0.5 && r2.z < 0.5) {
+                            // Foreground planets pull each other VERY STRONGLY
+                            // Use a significantly stronger force to ensure they eventually collide
+                            force = (G_CONST * r1.mass * r2.mass * 15.0) / Math.max(distSq, 2000);
+                            let fx = (dx / dist) * force;
+                            let fy = (dy / dist) * force;
+
+                            r1.xv += fx / r1.mass;
+                            r1.yv += fy / r1.mass;
+                            r2.xv -= fx / r2.mass;
+                            r2.yv -= fy / r2.mass;
+                        }
+                    } else {
+                        // Planet-Asteroid gravity (Generic)
+                        force = (G * r1.mass * r2.mass) / Math.max(distSq, 500);
+                        let fx = (dx / dist) * force;
+                        let fy = (dy / dist) * force;
+
+                        // We primarily move the asteroid (the one that is NOT the planet)
+                        if (!r1.isPlanet) { r1.xv += fx / r1.mass; r1.yv += fy / r1.mass; }
+                        if (!r2.isPlanet) { r2.xv -= fx / r2.mass; r2.yv -= fy / r2.mass; }
+                    }
                 } else {
                     // Asteroid-Asteroid Gravity
-                    // Gravedad más fuerte y rango cercano más agresivo (in previous turn, maintained)
-                    let G_ROIDS = 0.08;
+                    // NEW: Significantly stronger attraction if at least one is a "Giant"
+                    const isGiant = (r1.r >= ASTEROID_MAX_SIZE || r2.r >= ASTEROID_MAX_SIZE);
+                    let G_ROIDS = isGiant ? 5.0 : 0.08;
+
                     force = (G_ROIDS * r1.mass * r2.mass) / Math.max(distSq, 400);
 
                     let fx = (dx / dist) * force;
@@ -1521,7 +1616,7 @@ function updatePhysics() {
             } // End of r2 loop
         } // End of interaction section
 
-        // --- Speed Limit and Boundary Correction ---
+        // Speed Limit and Boundary Correction
         const speed = Math.hypot(r1.xv, r1.yv);
         if (speed > ASTEROID_SPEED_LIMIT) {
             const ratio = ASTEROID_SPEED_LIMIT / speed;
@@ -1535,25 +1630,6 @@ function updatePhysics() {
         }
         if (Math.abs(r1.y) > WORLD_BOUNDS - BOUNDARY_TOLERANCE_ROIDS) {
             r1.yv -= Math.sign(r1.y) * BOUNDARY_CORRECTION_FORCE;
-        }
-
-        // Basic Avoidance for fast objects
-        for (let j = 0; j < roids.length; j++) {
-            if (i === j) continue;
-            const r2 = roids[j];
-            const dx = r2.x - r1.x;
-            const dy = r2.y - r1.y;
-            const distSq = dx * dx + dy * dy;
-            const combinedR = r1.r + r2.r;
-            if (distSq < (combinedR * 2) ** 2) {
-                const speed2 = Math.hypot(r2.xv, r2.yv);
-                if (speed2 > ASTEROID_SPEED_LIMIT * 0.8) {
-                    const dist = Math.sqrt(distSq);
-                    const force = 0.1;
-                    r1.xv -= (dx / dist) * force;
-                    r1.yv -= (dy / dist) * force;
-                }
-            }
         }
     } // End of r1 loop
 } // End of updatePhysics function
@@ -3156,7 +3232,15 @@ function loop() {
 
         } else {
             // Draw standard asteroid shape
-            canvasContext.shadowBlur = 10; canvasContext.shadowColor = 'white'; canvasContext.strokeStyle = 'white';
+            if (r.isHot) {
+                canvasContext.shadowBlur = 20;
+                canvasContext.shadowColor = '#ff6600';
+                canvasContext.strokeStyle = '#ffcc00';
+            } else {
+                canvasContext.shadowBlur = 10;
+                canvasContext.shadowColor = 'white';
+                canvasContext.strokeStyle = 'white';
+            }
             canvasContext.fillStyle = r.color; // Dark gray fill
             canvasContext.beginPath();
             for (let j = 0; j < r.vert; j++) {
@@ -3167,6 +3251,21 @@ function loop() {
             canvasContext.closePath();
             canvasContext.fill();
             canvasContext.stroke();
+
+            // Draw lava veins if hot
+            if (r.isHot) {
+                canvasContext.globalAlpha = 0.6;
+                canvasContext.strokeStyle = '#ff3300';
+                canvasContext.lineWidth = 2;
+                canvasContext.beginPath();
+                for (let j = 0; j < r.vert; j += 2) {
+                    const px = r.r * 0.5 * r.offs[j] * Math.cos(r.a + j * Math.PI * 2 / r.vert);
+                    const py = r.r * 0.5 * r.offs[j] * Math.sin(r.a + j * Math.PI * 2 / r.vert);
+                    if (j === 0) canvasContext.moveTo(px, py); else canvasContext.lineTo(px, py);
+                }
+                canvasContext.stroke();
+                canvasContext.globalAlpha = 1;
+            }
         }
         canvasContext.restore(); // Restore context
 
@@ -3193,18 +3292,18 @@ function loop() {
                     createExplosion(vpX, vpY, 15, '#0ff', 2, 'spark');
                     createExplosion(vpX, vpY, 8, '#fff', 1, 'debris');
 
-                    const newSize = r.r * 0.6;
-                    if (newSize > ASTEROID_MIN_SIZE) {
-
+                    const newSize = r.r * 0.5;
+                    if (newSize >= ASTEROID_MIN_SIZE) {
+                        const dynamicOffset = r.r * (ASTEROID_SPLIT_OFFSET / ASTEROID_MAX_SIZE);
                         // West asteroid
-                        let westAst = createAsteroid(r.x - ASTEROID_SPLIT_OFFSET, r.y, newSize);
+                        let westAst = createAsteroid(r.x - dynamicOffset, r.y, newSize);
                         westAst.xv = r.xv - ASTEROID_SPLIT_SPEED;
                         westAst.yv = r.yv;
                         westAst.blinkNum = 30;
                         roids.push(westAst);
 
                         // East asteroid
-                        let eastAst = createAsteroid(r.x + ASTEROID_SPLIT_OFFSET, r.y, newSize);
+                        let eastAst = createAsteroid(r.x + dynamicOffset, r.y, newSize);
                         eastAst.xv = r.xv + ASTEROID_SPLIT_SPEED;
                         eastAst.yv = r.yv;
                         eastAst.blinkNum = 30;
@@ -4166,19 +4265,20 @@ function loop() {
                         enemyShipBullet.owner.score += ASTEROID_DESTROYED_REWARD;
                     }
 
-                    const newSize = r.r * 0.6;
-                    if (newSize > ASTEROID_MIN_SIZE) {
+                    const newSize = r.r * 0.5;
+                    if (newSize >= ASTEROID_MIN_SIZE) {
                         const bulletAngle = Math.atan2(enemyShipBullet.yv, enemyShipBullet.xv);
                         const perpAngle1 = bulletAngle + Math.PI / 2;
                         const perpAngle2 = bulletAngle - Math.PI / 2;
+                        const dynamicOffset = r.r * (ASTEROID_SPLIT_OFFSET / ASTEROID_MAX_SIZE);
 
-                        let frag1 = createAsteroid(r.x + Math.cos(perpAngle1) * ASTEROID_SPLIT_OFFSET, r.y + Math.sin(perpAngle1) * ASTEROID_SPLIT_OFFSET, newSize);
+                        let frag1 = createAsteroid(r.x + Math.cos(perpAngle1) * dynamicOffset, r.y + Math.sin(perpAngle1) * dynamicOffset, newSize);
                         frag1.xv = r.xv + Math.cos(perpAngle1) * ASTEROID_SPLIT_SPEED;
                         frag1.yv = r.yv + Math.sin(perpAngle1) * ASTEROID_SPLIT_SPEED;
                         frag1.blinkNum = 30;
                         roids.push(frag1);
 
-                        let frag2 = createAsteroid(r.x + Math.cos(perpAngle2) * ASTEROID_SPLIT_OFFSET, r.y + Math.sin(perpAngle2) * ASTEROID_SPLIT_OFFSET, newSize);
+                        let frag2 = createAsteroid(r.x + Math.cos(perpAngle2) * dynamicOffset, r.y + Math.sin(perpAngle2) * dynamicOffset, newSize);
                         frag2.xv = r.xv + Math.cos(perpAngle2) * ASTEROID_SPLIT_SPEED;
                         frag2.yv = r.yv + Math.sin(perpAngle2) * ASTEROID_SPLIT_SPEED;
                         frag2.blinkNum = 30;
@@ -4316,19 +4416,20 @@ function loop() {
                     createExplosion(rVpX, rVpY, 15, '#ff0055', 1, 'spark');
                     createExplosion(rVpX, rVpY, 5, '#888', 2, 'debris');
 
-                    const newSize = r.r * 0.6;
-                    if (newSize > ASTEROID_MIN_SIZE) {
+                    const newSize = r.r * 0.5;
+                    if (newSize >= ASTEROID_MIN_SIZE) {
                         const bulletAngle = Math.atan2(playerShipBullet.yv, playerShipBullet.xv);
                         const perpAngle1 = bulletAngle + Math.PI / 2;
                         const perpAngle2 = bulletAngle - Math.PI / 2;
+                        const dynamicOffset = r.r * (ASTEROID_SPLIT_OFFSET / ASTEROID_MAX_SIZE);
 
-                        let frag1 = createAsteroid(r.x + Math.cos(perpAngle1) * ASTEROID_SPLIT_OFFSET, r.y + Math.sin(perpAngle1) * ASTEROID_SPLIT_OFFSET, newSize);
+                        let frag1 = createAsteroid(r.x + Math.cos(perpAngle1) * dynamicOffset, r.y + Math.sin(perpAngle1) * dynamicOffset, newSize);
                         frag1.xv = r.xv + Math.cos(perpAngle1) * ASTEROID_SPLIT_SPEED;
                         frag1.yv = r.yv + Math.sin(perpAngle1) * ASTEROID_SPLIT_SPEED;
                         frag1.blinkNum = 30;
                         roids.push(frag1);
 
-                        let frag2 = createAsteroid(r.x + Math.cos(perpAngle2) * ASTEROID_SPLIT_OFFSET, r.y + Math.sin(perpAngle2) * ASTEROID_SPLIT_OFFSET, newSize);
+                        let frag2 = createAsteroid(r.x + Math.cos(perpAngle2) * dynamicOffset, r.y + Math.sin(perpAngle2) * dynamicOffset, newSize);
                         frag2.xv = r.xv + Math.cos(perpAngle2) * ASTEROID_SPLIT_SPEED;
                         frag2.yv = r.yv + Math.sin(perpAngle2) * ASTEROID_SPLIT_SPEED;
                         frag2.blinkNum = 30;
@@ -4418,10 +4519,30 @@ function loop() {
         const vpX = p.x - worldOffsetX + width / 2;
         const vpY = p.y - worldOffsetY + height / 2;
 
-        canvasContext.shadowColor = p.color; canvasContext.fillStyle = p.color; canvasContext.globalAlpha = p.life / 60;
-        canvasContext.beginPath();
-        if (p.type === 'debris') canvasContext.fillRect(vpX, vpY, p.size, p.size); else canvasContext.arc(vpX, vpY, p.size, 0, Math.PI * 2);
-        canvasContext.fill(); canvasContext.globalAlpha = 1;
+        if (p.type === 'flame') {
+            canvasContext.globalAlpha = p.life / 60;
+            canvasContext.shadowBlur = 15;
+            canvasContext.shadowColor = p.color;
+            canvasContext.fillStyle = p.color;
+            canvasContext.beginPath();
+            // Flames pulsate and grow slightly then shrink
+            const flameSize = p.size * (1 + Math.sin(p.life * 0.2) * 0.3);
+            canvasContext.arc(vpX, vpY, flameSize, 0, Math.PI * 2);
+            canvasContext.fill();
+        } else if (p.type === 'smoke') {
+            canvasContext.globalAlpha = (p.life / 100) * 0.4;
+            canvasContext.fillStyle = p.color;
+            canvasContext.beginPath();
+            canvasContext.arc(vpX, vpY, p.size * (1 + (100 - p.life) * 0.05), 0, Math.PI * 2);
+            canvasContext.fill();
+        } else {
+            canvasContext.shadowColor = p.color; canvasContext.fillStyle = p.color; canvasContext.globalAlpha = p.life / 60;
+            canvasContext.beginPath();
+            if (p.type === 'debris') canvasContext.fillRect(vpX, vpY, p.size, p.size); else canvasContext.arc(vpX, vpY, p.size, 0, Math.PI * 2);
+            canvasContext.fill();
+        }
+        canvasContext.globalAlpha = 1;
+        canvasContext.shadowBlur = 0;
 
         p.life--; if (p.life <= 0) particles.splice(i, 1);
     }
@@ -4690,7 +4811,7 @@ function startGame() {
 
 resize();
 
-function createExplosionDebris(cx, cy, count) {
+function createExplosionDebris(cx, cy, count, isHot = false) {
     for (let i = 0; i < count; i++) {
         // Start from center
         const x = cx;
@@ -4700,16 +4821,22 @@ function createExplosionDebris(cx, cy, count) {
         // Use the existing factory
         const roid = createAsteroid(x, y, r);
 
+        if (isHot) {
+            roid.isHot = true;
+            roid.color = `hsl(${20 + Math.random() * 30}, 80%, 30%)`; // Reddish/Orange base
+        }
+
         // Project outwards in random direction
         const angle = Math.random() * Math.PI * 2;
-        // Random speed, but capped at limit
-        const speed = Math.random() * ASTEROID_SPEED_LIMIT;
+        // Random speed, but capped at limit. If hot, make them potentially faster (lava ejection)
+        const speedBase = isHot ? ASTEROID_SPEED_LIMIT * 2.0 : ASTEROID_SPEED_LIMIT;
+        const speed = Math.random() * speedBase;
 
         roid.xv = Math.cos(angle) * speed;
         roid.yv = Math.sin(angle) * speed;
 
         // Add some random rotation speed
-        roid.rotSpeed = (Math.random() - 0.5) * 0.1;
+        roid.rotSpeed = (Math.random() - 0.5) * 0.2;
 
         roids.push(roid);
     }
