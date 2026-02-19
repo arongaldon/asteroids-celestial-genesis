@@ -34,6 +34,46 @@ let currentZoomIndex = 2;
 let RADAR_RANGE = ZOOM_LEVELS[currentZoomIndex];
 let viewScale = 1.0;
 
+class SpatialHash {
+    constructor(cellSize) {
+        this.cellSize = cellSize;
+        this.grid = new Map();
+    }
+
+    getKey(x, y) {
+        return `${Math.floor(x / this.cellSize)},${Math.floor(y / this.cellSize)}`;
+    }
+
+    clear() {
+        this.grid.clear();
+    }
+
+    insert(obj) {
+        const key = this.getKey(obj.x, obj.y);
+        if (!this.grid.has(key)) this.grid.set(key, []);
+        this.grid.get(key).push(obj);
+    }
+
+    query(obj) {
+        const cx = Math.floor(obj.x / this.cellSize);
+        const cy = Math.floor(obj.y / this.cellSize);
+        let results = [];
+
+        for (let i = -1; i <= 1; i++) {
+            for (let j = -1; j <= 1; j++) {
+                const key = `${cx + i},${cy + j}`;
+                if (this.grid.has(key)) {
+                    const cellObjects = this.grid.get(key);
+                    for (let k = 0; k < cellObjects.length; k++) {
+                        results.push(cellObjects[k]);
+                    }
+                }
+            }
+        }
+        return results;
+    }
+}
+
 /* =========================================
   AUDIO ENGINE (MENU/GAME OVER ONLY)
   ========================================= */
