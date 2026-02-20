@@ -256,3 +256,20 @@ export function addScreenMessage(text, color = "white") {
     }
 }
 
+export function drawRings(ctx, rings, planetRadius, depthScale) {
+    ctx.save();
+    ctx.rotate(rings.tilt);
+    rings.bands.forEach(band => {
+        const bandRadius = planetRadius * band.rRatio;
+        const bandWidth = planetRadius * band.wRatio;
+        const outerRadius = bandRadius * depthScale;
+        ctx.lineWidth = bandWidth * depthScale;
+        ctx.strokeStyle = band.color;
+        ctx.globalAlpha = band.alpha * depthScale;
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, outerRadius, outerRadius * 0.15, 0, 0, Math.PI, false);
+        ctx.stroke();
+    });
+    ctx.restore();
+}

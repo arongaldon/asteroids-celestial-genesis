@@ -1,7 +1,7 @@
-import { ASTEROID_MAX_SIZE, FPS, PLANET_THRESHOLD, PLAYER_INITIAL_LIVES, SHIPS_LIMIT, SHIP_BASE_MAX_SHIELD, SHIP_EVOLUTION_SCORE_STEP, SHIP_FRIENDLY_BLUE_HUE, SHIP_RESISTANCE, SHIP_SIZE, STATIONS_SPAWN_TIMER, STATION_RESISTANCE, WORLD_BOUNDS, suffixes, syllables } from './config.js';
+import { ASTEROID_MAX_SIZE, ASTEROID_MIN_SIZE, ASTEROID_SPEED_LIMIT, ASTEROID_SPLIT_OFFSET, ASTEROID_SPLIT_SPEED, FPS, PLANETS_LIMIT, PLAYER_INITIAL_LIVES, SHIPS_LIMIT, SHIP_BASE_MAX_SHIELD, SHIP_EVOLUTION_SCORE_STEP, SHIP_FRIENDLY_BLUE_HUE, SHIP_KILLED_REWARD, SHIP_RESISTANCE, SHIP_SIZE, STATIONS_SPAWN_TIMER, STATION_KILLED_REWARD, STATION_RESISTANCE, WORLD_BOUNDS, suffixes, syllables } from './config.js';
 import { State } from './state.js';
 import { mulberry32, getShapeName } from './utils.js';
-import { addScreenMessage } from './render.js';
+import { addScreenMessage, updateAsteroidCounter, drawLives } from './render.js';
 
 export function newPlayerShip() {
     const startingHP = SHIP_RESISTANCE;
@@ -18,10 +18,16 @@ export function newPlayerShip() {
         mass: 20,
         maxShield: SHIP_BASE_MAX_SHIELD,
         r: SHIP_SIZE / 2,
-        role: null,
+        role: 'leader',
         score: 0,
         shield: SHIP_BASE_MAX_SHIELD,
         squadId: null,
+        squadSlots: [
+            { x: -150, y: -150, occupant: null }, { x: 150, y: -150, occupant: null },
+            { x: -300, y: -300, occupant: null }, { x: 300, y: -300, occupant: null },
+            { x: -450, y: -450, occupant: null }, { x: 450, y: -450, occupant: null },
+            { x: 0, y: -600, occupant: null }
+        ],
         structureHP: startingHP,
         thrusting: false,
         tier: 0,
@@ -34,8 +40,17 @@ export function newPlayerShip() {
     };
 }
 
-export function createAsteroid(x, y, r, z = 0) {
-    let isPlanet = r > PLANET_THRESHOLD;
+export function createAsteroid(x, y, r, z = 0, forcedName = null) {
+    let isPlanet = false;
+    if (r > ASTEROID_MAX_SIZE) {
+        const currentPlanets = State.roids.filter(ro => ro.isPlanet && !ro._destroyed).length;
+        if (currentPlanets < PLANETS_LIMIT) {
+            isPlanet = true;
+        } else {
+            r = ASTEROID_MAX_SIZE;
+        }
+    }
+
     let roid = {
         id: ++State.roidCounter,
         x, y,
@@ -47,7 +62,7 @@ export function createAsteroid(x, y, r, z = 0) {
         isPlanet: isPlanet,
         z: z,
         zSpeed: 0,
-        name: null,
+        name: forcedName,
         textureData: null,
         rings: null,
         blinkNum: 0,
@@ -56,19 +71,25 @@ export function createAsteroid(x, y, r, z = 0) {
     };
     roid.stableXV = roid.xv;
     roid.stableYV = roid.yv;
-    if (isPlanet) initializePlanetAttributes(roid);
+    if (isPlanet) initializePlanetAttributes(roid, null, forcedName);
     for (let i = 0; i < roid.vert; i++) roid.offs.push(Math.random() * 0.3 * 2 + 1 - 0.3);
     return roid;
 }
 
-export function initializePlanetAttributes(roid, forcedHue = null) {
+export function initializePlanetAttributes(roid, forcedHue = null, forcedName = null) {
     if (roid.isPlanet && roid.textureData) return;
     const r = roid.r;
     const seed = Math.floor(Math.random() * 100000);
     const rng = mulberry32(seed);
     const hue = forcedHue !== null ? forcedHue : rng() * 360;
     roid.isPlanet = true;
-    roid.name = generatePlanetName();
+    roid.name = forcedName || generatePlanetName();
+
+    const countInState = State.roids.filter(r => r.isPlanet && !r._destroyed).length;
+    const isNewToState = !State.roids.find(r => r.id === roid.id);
+    const totalPlanetsCount = countInState + (isNewToState ? 1 : 0);
+
+    if (State.gameRunning) console.log("Planet " + roid.name + " created. Total planets " + totalPlanetsCount);
 
     // ELLIPTICAL ORBITAL INITIALIZATION
     // Each planet has its own unique center of gravity (not all orbiting 0,0)
@@ -145,7 +166,7 @@ export function initializePlanetAttributes(roid, forcedHue = null) {
     }
     roid.zWait = 0;
     roid.textureData = textureData;
-    if (Math.random() < 0.25 || r > PLANET_THRESHOLD + 100) {
+    if (Math.random() < 0.25 || r > ASTEROID_MAX_SIZE + 100) {
         roid.rings = {
             tilt: (rng() * 0.4 - 0.2) + (Math.PI / 2),
             bands: [
@@ -300,9 +321,9 @@ export function spawnShipsSquad(station) {
 
     let formationData = [
         { role: 'leader', x: 0, y: 0 },
-        { role: 'wingman', x: -120, y: -120 }, { role: 'wingman', x: 120, y: -120 },
-        { role: 'wingman', x: -240, y: -240 }, { role: 'wingman', x: 240, y: -240 },
-        { role: 'wingman', x: -360, y: -360 }, { role: 'wingman', x: 360, y: -360 }
+        { role: 'wingman', x: -150, y: -150 }, { role: 'wingman', x: 150, y: -150 },
+        { role: 'wingman', x: -300, y: -300 }, { role: 'wingman', x: 300, y: -300 },
+        { role: 'wingman', x: -450, y: -450 }, { role: 'wingman', x: 450, y: -450 }
     ];
 
     // Limit squad size to SHIPS_LIMIT (accounting for player if friendly)
@@ -363,9 +384,17 @@ export function spawnShipsSquad(station) {
 
         if (slot.role === 'leader') {
             leader = e;
-            leader.squadSlots = []; // Initialize slots
-            // If the leader is the player, we attach slots to the player object
-            if (e === State.playerShip) State.playerShip.squadSlots = [];
+            // Always ensure the leader has 7 squad slots (for wingmen 1-7)
+            if (!leader.squadSlots || leader.squadSlots.length < 7) {
+                leader.squadSlots = [
+                    { x: -150, y: -150, occupant: null }, { x: 150, y: -150, occupant: null },
+                    { x: -300, y: -300, occupant: null }, { x: 300, y: -300, occupant: null },
+                    { x: -450, y: -450, occupant: null }, { x: 450, y: -450, occupant: null },
+                    { x: 0, y: -600, occupant: null } // 7th slot
+                ];
+            }
+            // Clear current occupants for this specific squad spawn session
+            leader.squadSlots.forEach(s => s.occupant = null);
         } else {
             e.leaderRef = leader;
             // Register this wingman in the leader's slot list
@@ -373,11 +402,19 @@ export function spawnShipsSquad(station) {
                 // Determine which list to use (player or NPC leader)
                 const slots = leader === State.playerShip ? State.playerShip.squadSlots : leader.squadSlots;
                 if (slots) {
-                    slots.push({
-                        x: slot.x,
-                        y: slot.y,
-                        occupant: e
-                    });
+                    // Find an empty slot or a slot matching our offset
+                    let targetSlot = slots.find(s => !s.occupant && s.x === slot.x && s.y === slot.y);
+                    if (!targetSlot) targetSlot = slots.find(s => !s.occupant);
+                    if (targetSlot) {
+                        targetSlot.occupant = e;
+                    } else {
+                        // Fallback: push if no slots left (though we initialized 7)
+                        slots.push({
+                            x: slot.x,
+                            y: slot.y,
+                            occupant: e
+                        });
+                    }
                 }
             }
         }
@@ -424,3 +461,83 @@ export function increaseShipScore(ship, reward) {
     ship.tier = newTier;
 }
 
+
+export function onShipDestroyed(ship, killerShip = null) {
+    if (killerShip === State.playerShip) {
+        if (ship.isFriendly && !State.playerShip.loneWolf) {
+            triggerBetrayal();
+            return;
+        }
+
+        increaseShipScore(killerShip, SHIP_KILLED_REWARD);
+    }
+}
+
+export function onStationDestroyed(station, killerShip = null) {
+    if (station) {
+        let junkAst = createAsteroid(station.x + ASTEROID_SPLIT_OFFSET, station.y, ASTEROID_MIN_SIZE);
+        junkAst.xv = station.xv + ASTEROID_SPLIT_SPEED;
+        junkAst.yv = station.yv;
+        junkAst.blinkNum = 30;
+        State.roids.push(junkAst);
+        updateAsteroidCounter();
+    };
+
+    if (killerShip === State.playerShip) {
+        if (station.isFriendly && !State.playerShip.loneWolf) {
+            triggerBetrayal();
+            return;
+        }
+
+        State.playerShip.shield = State.playerShip.maxShield;
+        increaseShipScore(killerShip, STATION_KILLED_REWARD);
+        // stationsDestroyedCount handled locally in main.js if needed, or moved to State
+
+        State.playerShip.lives++;
+        drawLives();
+        addScreenMessage("EXTRA LIFE!");
+
+        State.playerShip.structureHP = SHIP_RESISTANCE;
+        State.playerShip.shield = State.playerShip.maxShield;
+    }
+}
+
+export function createExplosionDebris(cx, cy, count, isHot = false) {
+    for (let i = 0; i < count; i++) {
+        const x = cx;
+        const y = cy;
+        const r = ASTEROID_MIN_SIZE + Math.random() * (ASTEROID_MAX_SIZE - ASTEROID_MIN_SIZE);
+        const roid = createAsteroid(x, y, r);
+
+        if (isHot) {
+            roid.isHot = true;
+            roid.color = `hsl(${20 + Math.random() * 30}, 80%, 30%)`;
+        }
+
+        const angle = Math.random() * Math.PI * 2;
+        const speedBase = isHot ? ASTEROID_SPEED_LIMIT * 2.0 : ASTEROID_SPEED_LIMIT;
+        const speed = Math.random() * speedBase;
+
+        roid.xv = Math.cos(angle) * speed;
+        roid.yv = Math.sin(angle) * speed;
+        roid.rotSpeed = (Math.random() - 0.5) * 0.2;
+
+        State.roids.push(roid);
+    }
+}
+
+function triggerBetrayal() {
+    if (State.playerShip.loneWolf) return;
+    State.playerShip.leaderRef = null;
+    State.playerShip.loneWolf = true;
+    State.playerShip.squadId = null;
+    addScreenMessage("⚠ BETRAYAL: YOU ARE NOW A LONE WOLF!", "#ff0000");
+
+    State.ships.forEach(ship => {
+        if (ship.isFriendly) {
+            ship.isFriendly = false;
+            ship.aiState = 'COMBAT';
+            ship.fleetHue = 0;
+        }
+    });
+}

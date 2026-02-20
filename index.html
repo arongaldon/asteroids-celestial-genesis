@@ -2,21 +2,6 @@
 <html lang="en">
 
 <head>
-    <script>
-    window.onerror = function(message, source, lineno, colno, error) {
-        fetch('/log-error', {
-            method: 'POST',
-            body: message + ' at ' + source + ':' + lineno
-        });
-    };
-    window.addEventListener('unhandledrejection', function(event) {
-        fetch('/log-error', {
-            method: 'POST',
-            body: 'Unhandled Promise Rejection: ' + event.reason
-        });
-    });
-    </script>
-    
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <!-- 
@@ -27,6 +12,7 @@
      * The author (Aron Galdon Gines) retains all copyrights.
      -->
     <title>Asteroids: Celestial Genesis</title>
+    <link rel="icon" type="image/x-icon" href="img/favicon.ico">
     <link rel="stylesheet" href="style.css">
 </head>
 

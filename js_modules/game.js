@@ -1,45 +1,10 @@
-import { ASTEROIDS, ASTEROIDS_INIT_INNER, ASTEROIDS_INIT_OUTER, ASTEROID_DESTROYED_REWARD, ASTEROID_MAX_SIZE, ASTEROID_MIN_SIZE, ASTEROID_SPEED_LIMIT, ASTEROID_SPLIT_OFFSET, ASTEROID_SPLIT_SPEED, BOUNDARY_CORRECTION_FORCE, BOUNDARY_DAMPENING, BOUNDARY_TOLERANCE, BOUNDARY_TOLERANCE_ROIDS, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, PLANETS_LIMIT, PLANET_MAX_SIZE, PLANET_THRESHOLD, PLAYER_INITIAL_LIVES, PLAYER_RELOAD_TIME_MAX, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, SHIPS_COMBAT_ORBIT_DISTANCE, SHIPS_LIMIT, SHIPS_SEPARATION_DISTANCE, SHIPS_SPAWN_TIME, SHIP_BASE_MAX_SHIELD, SHIP_BULLET1_LIFETIME, SHIP_BULLET2_LIFETIME, SHIP_BULLET_FADE_FRAMES, SHIP_BULLET_GRAVITY_FACTOR, SHIP_EVOLUTION_SCORE_STEP, SHIP_FRIENDLY_BLUE_HUE, SHIP_KILLED_REWARD, SHIP_MAX_SPEED, SHIP_RESISTANCE, SHIP_SIGHT_RANGE, SHIP_SIZE, SHIP_THRUST, STATIONS_PER_PLANET, STATIONS_SPAWN_TIMER, STATION_KILLED_REWARD, STATION_RESISTANCE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
 import { State } from './state.js';
+import { SpatialHash, mulberry32, getShapeName } from './utils.js';
+import { AudioEngine } from './audio.js';
+import { newPlayerShip, createAsteroid, initializePlanetAttributes, createGalaxy, createAmbientFog, createExplosion, createShockwave, createAsteroidBelt, spawnStation, spawnShipsSquad, getShipTier, onShipDestroyed, onStationDestroyed, createExplosionDebris, generatePlanetName, increaseShipScore } from './entities.js';
+import { drawPlanetTexture, drawRadar, drawHeart, drawLives, updateHUD, updateAsteroidCounter, showInfoLEDText, addScreenMessage, drawRings } from './render.js';
+import { changeRadarZoom, shootLaser, fireEntityWeapon, fireGodWeapon, enemyShoot, isTrajectoryClear, proactiveCombatScanner } from './input.js';
 
-function onShipDestroyed(ship, killerShip = null) {
-    if (killerShip === State.playerShip) {
-        if (ship.isFriendly && !State.playerShip.loneWolf) {
-            triggerBetrayal();
-            return;
-        }
-
-        increaseShipScore(killerShip, SHIP_KILLED_REWARD);
-    }
-}
-
-function onStationDestroyed(station, killerShip = null) {
-    if (station) {
-        let junkAst = createAsteroid(station.x + ASTEROID_SPLIT_OFFSET, station.y, ASTEROID_MIN_SIZE);
-        junkAst.xv = station.xv + ASTEROID_SPLIT_SPEED;
-        junkAst.yv = station.yv;
-        junkAst.blinkNum = 30;
-        State.roids.push(junkAst);
-        updateAsteroidCounter();
-    };
-
-    if (killerShip === State.playerShip) {
-        if (station.isFriendly && !State.playerShip.loneWolf) {
-            triggerBetrayal();
-            return;
-        }
-
-        State.playerShip.shield = State.playerShip.maxShield;
-        increaseShipScore(killerShip, STATION_KILLED_REWARD);
-        stationsDestroyedCount++;
-
-        State.playerShip.lives++;
-        drawLives();
-        addScreenMessage("EXTRA LIFE!");
-
-        State.playerShip.structureHP = SHIP_RESISTANCE;
-        State.playerShip.shield = State.playerShip.maxShield;
-    }
-}
 
 
 function resize() {
@@ -88,17 +53,6 @@ window.onload = function () {
 }
 
 // Function to handle zoom change (used by Z key and Mouse Wheel)
-function changeRadarZoom(direction) {
-    let newIndex = State.currentZoomIndex + direction;
-
-    if (newIndex < 0) newIndex = 0;
-    if (newIndex >= ZOOM_LEVELS.length) newIndex = ZOOM_LEVELS.length - 1;
-
-    if (newIndex !== State.currentZoomIndex) {
-        State.currentZoomIndex = newIndex;
-        State.RADAR_RANGE = ZOOM_LEVELS[State.currentZoomIndex];
-    }
-}
 
 document.addEventListener('keydown', (e) => {
     if (e.code === 'Space') shootLaser();
@@ -259,8 +213,6 @@ document.addEventListener('touchend', (e) => {
     e.preventDefault();
 });
 
-/* Background factories moved to core.js */
-
 function initBackground() {
     // Resets and populates background layers for parallax
     State.backgroundLayers = { nebulas: [], galaxies: [], starsNear: [], starsMid: [], starsFar: [] };
@@ -274,679 +226,21 @@ function initBackground() {
     for (let i = 0; i < 40; i++) State.backgroundLayers.starsNear.push(createStar());
 }
 
-function spawnStation(hostPlanet = null) {
-    if (!hostPlanet) {
-        const nearbyPlanets = State.roids.filter(r => r.isPlanet);
-        if (nearbyPlanets.length === 0) {
-            State.stationSpawnTimer = 300;
-            return;
-        }
 
-        // Select a random planet to host the station
-        hostPlanet = nearbyPlanets[Math.floor(Math.random() * nearbyPlanets.length)];
-    }
 
-    const SAFE_ORBIT_FACTOR = 0.3; // Much closer
-    const STATION_R = 70;
-    const orbitDistance = hostPlanet.r + (hostPlanet.r * SAFE_ORBIT_FACTOR) + STATION_R;
 
-    const orbitAngle = Math.random() * Math.PI * 2;
 
-    // Calculate initial ABSOLUTE WORLD position relative to the planet center
-    const startX = hostPlanet.x + Math.cos(orbitAngle) * orbitDistance;
-    const startY = hostPlanet.y + Math.sin(orbitAngle) * orbitDistance;
 
-    const friendly = State.playerShip.loneWolf === false && State.homePlanetId !== null && hostPlanet.id === State.homePlanetId;
-
-    State.ships.push({
-        type: 'station',
-        x: startX, // World Coordinate X
-        y: startY, // World Coordinate Y
-        xv: hostPlanet.xv, // Inherit planet State.velocity
-        yv: hostPlanet.yv,
-        r: STATION_R, a: Math.random() * Math.PI * 2, rotSpeed: 0.005,
-        structureHP: STATION_RESISTANCE,
-        shieldHitTimer: 0,
-        spawnTimer: 180, reloadTime: 120, mass: 500,
-        hostPlanet: hostPlanet, // Reference to the planet object
-        orbitDistance: orbitDistance,
-        orbitAngle: orbitAngle,
-        orbitSpeed: (Math.random() > 0.5 ? 1 : -1) * 0.002, // Slow orbital rotation
-        fleetHue: friendly ? SHIP_FRIENDLY_BLUE_HUE : Math.floor(Math.random() * 360),
-        blinkNum: 60,
-        z: 0, // Always at default Z-depth for radar visibility
-        hostPlanetId: hostPlanet.id, // Store ID instead of reference
-        isFriendly: friendly,
-        // Weapon Props
-        bulletSpeed: 20,
-        bulletSize: 6,
-        bulletLife: 50,
-        effectiveR: STATION_R // Use station radius for bullet spawn offset
-    });
-    State.stationSpawnTimer = STATIONS_SPAWN_TIMER + Math.random() * STATIONS_SPAWN_TIMER;
-}
-
-function spawnShipsSquad(station) {
-    // Avoid spawning more than SHIPS_LIMIT total State.ships (including players for friendly squads)
-    if (station.isFriendly) {
-        const currentFriendlyShips = State.ships.filter(en => en.type === 'ship' && en.isFriendly === true).length;
-        if (currentFriendlyShips >= SHIPS_LIMIT) { return; }
-    } else {
-        const currentHostileShips = State.ships.filter(en => en.type === 'ship' && en.isFriendly === false).length;
-        // Hostile stations have their own local limit based on SHIPS_LIMIT
-        if (currentHostileShips >= SHIPS_LIMIT * 3) { return; } // Allowing more hostiles than friends for balance
-    }
-    const squadId = Math.random();
-
-    let formationData = [
-        { role: 'leader', x: 0, y: 0 },
-        { role: 'wingman', x: -120, y: -120 }, { role: 'wingman', x: 120, y: -120 },
-        { role: 'wingman', x: -240, y: -240 }, { role: 'wingman', x: 240, y: -240 },
-        { role: 'wingman', x: -360, y: -360 }, { role: 'wingman', x: 360, y: -360 }
-    ];
-
-    // Limit squad size to SHIPS_LIMIT (accounting for player if friendly)
-    formationData = formationData.slice(0, SHIPS_LIMIT);
-
-    const spawnDist = station.r * 2.0;
-    const spawnAngle = Math.random() * Math.PI * 2;
-
-    const squadX = station.x + Math.cos(spawnAngle) * spawnDist;
-    const squadY = station.y + Math.sin(spawnAngle) * spawnDist;
-
-    let e = null;
-    let leader = null;
-
-    formationData.forEach(slot => {
-        if (station.isFriendly && State.playerShip.dead === false && State.playerShip.squadId === null) {
-            e = State.playerShip;
-            e.squadId = squadId;
-            e.bulletSpeed = 25; // Player stats are handled elsewhere usually, but good fallback
-        }
-        else {
-            e = {
-                a: spawnAngle + Math.PI,
-                aiState: 'FORMATION',
-                blinkNum: 30,
-                fleetHue: station.fleetHue,
-                formationOffset: { x: slot.x, y: slot.y },
-                isFriendly: station.isFriendly,
-                leaderRef: null,
-                mass: 30,
-                r: SHIP_SIZE / 2,
-                reloadTime: 100 + Math.random() * 100,
-                role: slot.role,
-                score: 0,
-                shieldHitTimer: 0,
-                squadId: squadId,
-                structureHP: SHIP_RESISTANCE,
-                thrusting: false,
-                tier: 0,
-                // Weapon Properties (Default for Player)
-                bulletSpeed: 25,
-                bulletLife: 50,
-                bulletSize: 6,
-                type: 'ship',
-                x: squadX + slot.x,
-                xv: station.xv,
-                y: squadY + slot.y,
-                yv: station.yv,
-                z: 0,
-                homeStation: station,
-                // Individual Weapon Properties (Randomized)
-                bulletSpeed: 15 + Math.random() * 10, // 15-25
-                bulletSize: 4 + Math.random() * 3, // 4-7
-                bulletLife: 45 + Math.random() * 15,
-                shootDelay: Math.random() * 20 // Randomize firing phase
-            };
-        }
-
-        if (slot.role === 'leader') {
-            leader = e;
-            // Always ensure the leader has 7 squad slots (for wingmen 1-7)
-            if (!leader.squadSlots || leader.squadSlots.length < 7) {
-                leader.squadSlots = [
-                    { x: -120, y: -120, occupant: null }, { x: 120, y: -120, occupant: null },
-                    { x: -240, y: -240, occupant: null }, { x: 240, y: -240, occupant: null },
-                    { x: -360, y: -360, occupant: null }, { x: 360, y: -360, occupant: null },
-                    { x: 0, y: -480, occupant: null } // 7th slot
-                ];
-            }
-            // Clear current occupants for this specific squad spawn session
-            leader.squadSlots.forEach(s => s.occupant = null);
-        }
-        else {
-            e.leaderRef = leader;
-            // Register this wingman in the leader's slot list
-            if (leader) {
-                // Determine which list to use (player or NPC leader)
-                const slots = leader === State.playerShip ? State.playerShip.squadSlots : leader.squadSlots;
-                if (slots) {
-                    slots.push({
-                        x: slot.x,
-                        y: slot.y,
-                        occupant: e
-                    });
-                }
-            }
-        }
-
-        State.ships.push(e);
-    });
-}
-
-/* Entity factories moved to core.js */
-
-function addScreenMessage(text, color = "white") {
-    // Avoid duplicate messages if they are the same
-    if (State.screenMessages.length > 0 && State.screenMessages[State.screenMessages.length - 1].text === text) return;
-    State.screenMessages.push({ text, color, life: 180 }); // 3 seconds at 60fps
-
-    // Limit to 2 most recent messages
-    if (State.screenMessages.length > 2) {
-        State.screenMessages.shift();
-    }
-}
-
-function triggerBetrayal() {
-    if (State.playerShip.loneWolf) return;
-    State.playerShip.leaderRef = null;
-    State.playerShip.loneWolf = true;
-    State.playerShip.squadId = null;
-    addScreenMessage("⚠ BETRAYAL: YOU ARE NOW A LONE WOLF!", "#ff0000");
-    addScreenMessage("NO MORE ALLIES WILL SUPPORT YOU.", "#ff4444");
-
-    // Turn all current friends into State.ships
-    State.ships.forEach(ship => {
-        if (ship.isFriendly) {
-            ship.isFriendly = false;
-            ship.aiState = 'COMBAT';
-            ship.fleetHue = 0; // Red for betrayal
-        }
-    });
-}
-
-function fireGodWeapon(ship) {
-    State.playerReloadTime = PLAYER_RELOAD_TIME_MAX * 5; // Long cooldown for massive power
-
-    // Play Godly sound
-    AudioEngine.playLaser(State.worldOffsetX, State.worldOffsetY, 12);
-
-    // One-time announcement handled in metamorphosis completion logic
-
-    // Create the expanding ring
-    State.shockwaves.push({
-        x: State.worldOffsetX,
-        y: State.worldOffsetY,
-        r: 100,
-        maxR: Math.max(State.width, State.height) * 4, // Reach 4 times the visible viewport (~4000 units)
-        strength: 2000,
-        alpha: 3.0,
-        isGodRing: true,
-        type: 'lightning'
-    });
-}
-
-function fireEntityWeapon(ship, bulletList, isEnemy = true) {
-    const isPlayer = (ship === State.playerShip);
-    const tier = isPlayer ? ship.tier : Math.floor(ship.score / SHIP_EVOLUTION_SCORE_STEP);
-
-    if (isPlayer && tier >= 12) {
-        if (ship.transformationTimer > 0) {
-            // Cannot fire while transforming to Godship
-            if (State.playerReloadTime <= 0) {
-                addScreenMessage("ENERGY UNSTABLE: TRANSFORMING...", "#ffaa00");
-                State.playerReloadTime = 30; // Brief internal cooldown for message
-            }
-            return;
-        }
-        fireGodWeapon(ship);
-        return;
-    }
-
-    const hue = ship.fleetHue !== undefined ? ship.fleetHue : 200;
-    const a = isPlayer ? State.playerShip.a : ship.a;
-
-    const pushBullet = (angleOffset, isPrimary = true) => {
-        const shootAngle = a + angleOffset;
-
-        // Systematic scaling for power feel
-        const speedScale = 1 + (tier * 0.08); // +8% speed per tier
-        const sizeScale = 1 + (tier * 0.12);  // +12% size per tier
-
-        // Strictly force bullet origin to be at the ship's nose (front vertex)
-        const visualScale = 1 + (tier * 0.1);
-        const spawnRadius = ((ship.effectiveR || ship.r) * visualScale) + 20;
-
-        const fwdX = Math.cos(a);
-        const fwdY = Math.sin(a);
-
-        const startX = (isPlayer ? State.worldOffsetX : ship.x) + (fwdX * spawnRadius);
-        const startY = (isPlayer ? State.worldOffsetY : ship.y) + (fwdY * spawnRadius);
-
-        const bSpeed = (ship.bulletSpeed || 18) * speedScale;
-        const bLife = ship.bulletLife || (isPrimary ? SHIP_BULLET1_LIFETIME : SHIP_BULLET2_LIFETIME);
-        const bSize = (ship.bulletSize || 5) * sizeScale;
-
-        const velX = (Math.cos(shootAngle) * bSpeed) + (isPlayer ? State.velocity.x : ship.xv);
-        const velY = (Math.sin(shootAngle) * bSpeed) + (isPlayer ? State.velocity.y : ship.yv);
-
-        const bullet = {
-            x: startX,
-            y: startY,
-            xv: velX,
-            yv: velY,
-            a: shootAngle,
-            dist: 0,
-            life: bLife,
-            size: bSize,
-            tier: tier,
-            hue: hue,
-            isFriendly: isPlayer || ship.isFriendly,
-            owner: ship
-        };
-        bulletList.push(bullet);
-    };
-
-    // --- TIER PATTERNS (Clearly more powerful with each step) ---
-    if (tier === 11) { // THE HYPERION: Massive Arc & Defense
-        pushBullet(0, true);
-        for (let i = 1; i <= 6; i++) {
-            pushBullet(i * 0.1, true); pushBullet(-i * 0.1, true);
-        }
-        pushBullet(Math.PI, false); // Rear guard
-    } else if (tier === 10) { // THE TITAN: Heavy Frontal Wall
-        pushBullet(0, true);
-        for (let i = 1; i <= 5; i++) {
-            pushBullet(i * 0.05, true); pushBullet(-i * 0.05, true);
-        }
-    } else if (tier === 9) { // THE CELESTIAL: Wide Radiant Spray
-        pushBullet(0, true);
-        pushBullet(0.15, true); pushBullet(-0.15, true);
-        pushBullet(0.3, false); pushBullet(-0.3, false);
-        pushBullet(0.45, false); pushBullet(-0.45, false);
-    } else if (tier === 8) { // THE SPHERE: 7 Strong Frontal
-        pushBullet(0, true);
-        pushBullet(0.1, true); pushBullet(-0.1, true);
-        pushBullet(0.2, true); pushBullet(-0.2, true);
-        pushBullet(0.3, false); pushBullet(-0.3, false);
-    } else if (tier === 7) { // DECAGON
-        pushBullet(0, true);
-        pushBullet(0.1, true); pushBullet(-0.1, true);
-        pushBullet(0.2, false); pushBullet(-0.2, false);
-        pushBullet(0.3, false); pushBullet(-0.3, false);
-    } else if (tier === 6) { // NONAGON
-        pushBullet(0, true);
-        pushBullet(0.12, true); pushBullet(-0.12, true);
-        pushBullet(0.24, false); pushBullet(-0.24, false);
-    } else if (tier === 5) { // OCTAGON
-        pushBullet(0, true);
-        pushBullet(0.15, true); pushBullet(-0.15, true);
-        pushBullet(0.3, false); pushBullet(-0.3, false);
-    } else if (tier === 4) { // HEPTAGON
-        pushBullet(0, true);
-        pushBullet(0.2, false); pushBullet(-0.2, false);
-    } else if (tier === 3) { // HEXAGON
-        pushBullet(0, true);
-        pushBullet(0.1, true); pushBullet(-0.1, true);
-    } else if (tier === 2) { // PENTAGON
-        pushBullet(0, true); // Double shot (Parallel feel)
-        pushBullet(0, true);
-    } else if (tier === 1) { // SQUARE
-        pushBullet(0, true); // One shot, but scaling makes it stronger
-    } else { // TIER 0: TRIANGLE
-        pushBullet(0, true);
-    }
-
-    if (isPlayer) AudioEngine.playLaser(State.worldOffsetX, State.worldOffsetY, tier);
-    else AudioEngine.playLaser(ship.x, ship.y, tier);
-}
-
-function shootLaser() {
-    if (!State.gameRunning || State.playerShip.dead || State.victoryState) return;
-    if (State.playerReloadTime > 0) return;
-    State.playerReloadTime = PLAYER_RELOAD_TIME_MAX;
-    fireEntityWeapon(State.playerShip, State.playerShipBullets, false);
-}
 
 // --- ASTEROID EXPULSION LOGIC REMOVED ---
 
-function isTrajectoryClear(e, targetX, targetY) {
-    const trajectoryAngle = Math.atan2(targetY - e.y, targetX - e.x);
-    const distToTarget = Math.hypot(targetX - e.x, targetY - e.y);
 
-    // Check against player
-    if (!State.playerShip.dead) {
-        if (e.isFriendly) {
-            // Friendlies check if player is in way
-            const distToPlayer = Math.hypot(State.worldOffsetX - e.x, State.worldOffsetY - e.y);
-            if (distToPlayer < distToTarget) {
-                const angleToPlayer = Math.atan2(State.worldOffsetY - e.y, State.worldOffsetX - e.x);
-                let diff = Math.abs(trajectoryAngle - angleToPlayer);
-                if (diff > Math.PI) diff = 2 * Math.PI - diff;
-                if (diff < 0.2) return false; // Player is in way
-            }
-        } else {
-            // State.ships check if other State.ships are in way
-            // (Standard enemy behavior handled in enemyShoot, but let's be thorough)
-        }
-    }
 
-    // Check against all other State.ships/stations
-    for (let other of State.ships) {
-        if (other === e) continue;
 
-        let shouldRespect = false;
-        if (e.isFriendly && other.isFriendly) shouldRespect = true;
-        if (!e.isFriendly && !other.isFriendly && e.fleetHue === other.fleetHue) shouldRespect = true;
 
-        if (shouldRespect) {
-            const distToOther = Math.hypot(other.x - e.x, other.y - e.y);
-            if (distToOther < distToTarget) {
-                const angleToOther = Math.atan2(other.y - e.y, other.x - e.x);
-                let diff = Math.abs(trajectoryAngle - angleToOther);
-                if (diff > Math.PI) diff = 2 * Math.PI - diff;
-                if (diff < 0.25) return false; // Friend is in way
-            }
-        }
-    }
-    return true;
-}
 
-function proactiveCombatScanner(e) {
-    if (e.reloadTime > 0) return;
 
-    // 1. SCAN FOR RIVALS
-    for (let target of State.ships) {
-        if (target === e || target.type === 'station') continue;
 
-        let isRival = false;
-        if (e.isFriendly && !target.isFriendly) isRival = true;
-        if (!e.isFriendly && (target.isFriendly || target.fleetHue !== e.fleetHue)) isRival = true;
-
-        if (isRival) {
-            const dist = Math.hypot(target.x - e.x, target.y - e.y);
-            if (dist < 2000) {
-                // Since we mirror rotation, we only shoot if lined up
-                enemyShoot(e, target.x, target.y);
-                if (e.reloadTime > 0) return; // Shot fired
-            }
-        }
-    }
-
-    // 2. SCAN FOR ASTEROIDS (Defend Home Station)
-    // Priority: Asteroids near the home station
-    if (e.homeStation) {
-        for (let r of State.roids) {
-            if (r.z > 0.5 || r.isPlanet) continue;
-            const distToStation = Math.hypot(r.x - e.homeStation.x, r.y - e.homeStation.y);
-            const dangerRange = e.homeStation.r * 8.0;
-
-            if (distToStation < dangerRange) {
-                const distToShip = Math.hypot(r.x - e.x, r.y - e.y);
-                if (distToShip < 2000) { // Within firing range
-                    enemyShoot(e, r.x, r.y);
-                    if (e.reloadTime > 0) return;
-                }
-            }
-        }
-    }
-
-    // Generic asteroid clearing
-    for (let r of State.roids) {
-        if (r.z > 0.5 || r.isPlanet) continue;
-        const dist = Math.hypot(r.x - e.x, r.y - e.y);
-        if (dist < 1500) {
-            enemyShoot(e, r.x, r.y);
-            if (e.reloadTime > 0) return;
-        }
-    }
-
-    // 3. SCAN FOR PLAYER (if enemy)
-    if (!e.isFriendly && !State.playerShip.dead) {
-        const dist = Math.hypot(State.worldOffsetX - e.x, State.worldOffsetY - e.y);
-        if (dist < 2000) {
-            enemyShoot(e, State.worldOffsetX, State.worldOffsetY);
-        }
-    }
-}
-
-function enemyShoot(e, tx, ty) {
-    // e.x, e.y, tx, ty are ABSOLUTE WORLD COORDINATES
-
-    if (tx === undefined) tx = State.worldOffsetX;
-    if (ty === undefined) ty = State.worldOffsetY;
-
-    let trajectoryAngle = Math.atan2(ty - e.y, tx - e.x); // Correct angle in world space
-
-    let angleDiff = trajectoryAngle - e.a;
-
-    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-    while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
-
-    const FIRE_CONE = Math.PI / 6; // 30 degrees
-    if (Math.abs(angleDiff) > FIRE_CONE) return;
-
-    if (!isTrajectoryClear(e, tx, ty)) return;
-
-    let clearShot = true;
-
-    for (let other of State.ships) {
-        if (other === e) continue;
-        let distToOther = Math.hypot(other.x - e.x, other.y - e.y); // World distance
-        let distToTarget = Math.hypot(tx - e.x, ty - e.y); // World distance
-
-        // If the friend is closer than the target (potential block)
-        if (distToOther < distToTarget) {
-            let angleToOther = Math.atan2(other.y - e.y, other.x - e.x);
-            let checkAngleDiff = Math.abs(trajectoryAngle - angleToOther);
-            if (checkAngleDiff > Math.PI) checkAngleDiff = 2 * Math.PI - checkAngleDiff;
-
-            // If friend is within a 20-degree cone (approx 0.35 rad) of the firing line
-            if (checkAngleDiff < 0.35) {
-                clearShot = false;
-                break;
-            }
-        }
-    }
-
-    if (clearShot) {
-        fireEntityWeapon(e, State.enemyShipBullets, true);
-        e.reloadTime = 30 + Math.random() * 20; // Set cooldown after successful shot
-    }
-}
-
-function drawRadar() {
-    try {
-        const rW = DOM.canvasRadar.width; const rH = DOM.canvasRadar.height;
-        const cX = rW / 2; const cY = rH / 2;
-        DOM.canvasRadarContext.clearRect(0, 0, rW, rH);
-
-        const radarRadius = rW / 2;
-        const scale = radarRadius / Math.max(1, State.RADAR_RANGE);
-
-        const drawBlip = (worldX, worldY, type, color, size, z = 0) => {
-            if (!isFinite(worldX) || !isFinite(worldY) || isNaN(worldX) || isNaN(worldY)) return;
-
-            let dx = worldX - State.worldOffsetX;
-            let dy = worldY - State.worldOffsetY;
-
-            // Safety check for worldOffset being invalid
-            if (isNaN(dx) || isNaN(dy)) return;
-
-            let dist = Math.sqrt(dx * dx + dy * dy);
-
-            if (dist > State.RADAR_RANGE || !isFinite(dist)) return;
-
-            let angle = Math.atan2(dy, dx);
-            let radarDist = dist * scale;
-            let radarSize = (size * scale) / (1 + z);
-
-            // Ensure elements are visible on the radar regardless of zoom
-            if (type === 'planet') radarSize = Math.max(4, radarSize);
-            else if (type === 'asteroid') radarSize = Math.max(1.5, radarSize);
-            else radarSize = Math.max(2, radarSize); // Default minimum for State.ships/etc
-
-            // Safety check for radarSize
-            if (isNaN(radarSize) || !isFinite(radarSize)) radarSize = 2;
-
-            if (radarDist > radarRadius - radarSize) {
-                radarDist = Math.max(0, radarRadius - radarSize - 1);
-            }
-
-            if (isNaN(radarDist) || !isFinite(radarDist)) return;
-
-            let rx = cX + radarDist * Math.cos(angle);
-            let ry = cY + radarDist * Math.sin(angle);
-
-            if (isNaN(rx) || isNaN(ry)) return;
-
-            DOM.canvasRadarContext.fillStyle = color;
-            DOM.canvasRadarContext.strokeStyle = color;
-
-            if (type === 'station') {
-                DOM.canvasRadarContext.font = "bold 12px Courier New";
-                DOM.canvasRadarContext.textAlign = 'center';
-                DOM.canvasRadarContext.textBaseline = 'middle';
-                DOM.canvasRadarContext.fillText('O', rx, ry);
-            } else if (type === 'asteroid') {
-                DOM.canvasRadarContext.beginPath();
-                DOM.canvasRadarContext.arc(rx, ry, radarSize, 0, Math.PI * 2);
-                DOM.canvasRadarContext.stroke();
-            } else {
-                DOM.canvasRadarContext.beginPath();
-                DOM.canvasRadarContext.arc(rx, ry, radarSize, 0, Math.PI * 2);
-                DOM.canvasRadarContext.fill();
-            }
-        };
-
-        State.roids.forEach(r => {
-            if (r.isPlanet) {
-                const color = r.textureData ? r.textureData.waterColor : 'rgba(0, 150, 255, 0.7)';
-                const radarSize = r.r;
-                drawBlip(r.x, r.y, 'planet', color, radarSize, r.z);
-            }
-        });
-
-        State.roids.forEach(r => {
-            if (!r.isPlanet && r.z <= 0.1) {
-                drawBlip(r.x, r.y, 'asteroid', 'rgba(200, 200, 200, 0.9)', r.r, r.z);
-            }
-        });
-
-        State.ships.forEach(e => {
-            if (e.z <= 0.1) {
-                const color = e.isFriendly ? '#0088FF' : '#FF0000';
-                if (e.type === 'station') {
-                    drawBlip(e.x, e.y, 'station', color, 0, e.z);
-                } else {
-                    drawBlip(e.x, e.y, 'ship', color, 2, e.z);
-                }
-            }
-        });
-
-        DOM.canvasRadarContext.strokeStyle = 'rgba(0, 255, 255, 0.2)'; DOM.canvasRadarContext.lineWidth = 1;
-        DOM.canvasRadarContext.beginPath(); DOM.canvasRadarContext.moveTo(cX, 0); DOM.canvasRadarContext.lineTo(cX, rH); DOM.canvasRadarContext.stroke();
-        DOM.canvasRadarContext.beginPath(); DOM.canvasRadarContext.moveTo(0, cY); DOM.canvasRadarContext.lineTo(rW, cY); DOM.canvasRadarContext.stroke();
-        DOM.canvasRadarContext.beginPath(); DOM.canvasRadarContext.arc(cX, cY, rW / 2 - 1, 0, Math.PI * 2); DOM.canvasRadarContext.stroke();
-        DOM.canvasRadarContext.fillStyle = '#0ff'; DOM.canvasRadarContext.beginPath(); DOM.canvasRadarContext.arc(cX, cY, 3, 0, Math.PI * 2); DOM.canvasRadarContext.fill();
-
-        // 4. HOME PLANET NAVIGATOR (Dotted path to home)
-        if (State.homePlanetId) {
-            const home = State.roids.find(r => r.id === State.homePlanetId);
-            if (home) {
-                let dx = home.x - State.worldOffsetX;
-                let dy = home.y - State.worldOffsetY;
-                let dist = Math.sqrt(dx * dx + dy * dy);
-                let angle = Math.atan2(dy, dx);
-
-                // Calculate radar position for home planet blip
-                let radarDist = dist * scale;
-                if (radarDist > radarRadius - 5) radarDist = radarRadius - 5;
-
-                let rx = cX + radarDist * Math.cos(angle);
-                let ry = cY + radarDist * Math.sin(angle);
-
-                // Draw dotted line
-                DOM.canvasRadarContext.setLineDash([3, 5]);
-                DOM.canvasRadarContext.strokeStyle = 'rgba(0, 255, 255, 0.5)';
-                DOM.canvasRadarContext.lineWidth = 1;
-                DOM.canvasRadarContext.beginPath();
-                DOM.canvasRadarContext.moveTo(cX, cY);
-                DOM.canvasRadarContext.lineTo(rx, ry);
-                DOM.canvasRadarContext.stroke();
-                DOM.canvasRadarContext.setLineDash([]); // Reset dash
-
-                // Ensure home blip is always visible on radar edge if far away
-                DOM.canvasRadarContext.fillStyle = '#00ffaa';
-                DOM.canvasRadarContext.beginPath();
-                DOM.canvasRadarContext.arc(rx, ry, 4, 0, Math.PI * 2);
-                DOM.canvasRadarContext.fill();
-
-                // Pulse effect for home planet
-                if (Date.now() % 1000 < 500) {
-                    DOM.canvasRadarContext.strokeStyle = '#00ffaa';
-                    DOM.canvasRadarContext.beginPath();
-                    DOM.canvasRadarContext.arc(rx, ry, 7, 0, Math.PI * 2);
-                    DOM.canvasRadarContext.stroke();
-                }
-            }
-        }
-    } catch (e) {
-        console.error("Radar drawing error:", e);
-    }
-}
-
-function drawHeart(ctx, x, y, size) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.bezierCurveTo(-size, -size, -size * 1.5, size / 2, 0, size);
-    ctx.bezierCurveTo(size * 1.5, size / 2, size, -size, 0, 0);
-    ctx.fillStyle = '#ff0000';
-    ctx.fill();
-    ctx.restore();
-}
-
-function drawLives() {
-    DOM.livesDisplay.innerText = `LIVES: ${State.playerShip.lives}`;
-    DOM.livesDisplay.style.color = '#0ff';
-    DOM.livesDisplay.style.marginTop = '5px';
-}
-
-function updateHUD() {
-    if (DOM.scoreDisplay && State.playerShip) {
-        const currentScore = State.playerShip.score || 0;
-        DOM.scoreDisplay.innerText = isNaN(currentScore) ? 0 : currentScore;
-    }
-    if (DOM.asteroidCountDisplay) {
-        DOM.asteroidCountDisplay.innerText = State.roids.filter(r => !r.isPlanet).length;
-    }
-}
-
-function updateAsteroidCounter() {
-    updateHUD();
-}
-
-function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
-    for (let i = 0; i < count; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const dist = innerRadius + Math.random() * (outerRadius - innerRadius);
-        const x = cx + Math.cos(angle) * dist;
-        const y = cy + Math.sin(angle) * dist;
-        const r = (Math.random() < 0.5 ? 0.5 : 0.25) * ASTEROID_MAX_SIZE;
-        const roid = createAsteroid(x, y, r);
-
-        // Small tangential State.velocity to give a sense of belt movement
-        const orbitalSpeed = 0.2 + Math.random() * 0.3;
-        const tangentAngle = angle + Math.PI / 2;
-        roid.xv += Math.cos(tangentAngle) * orbitalSpeed * (Math.random() < 0.5 ? 1 : -1);
-        roid.yv += Math.sin(tangentAngle) * orbitalSpeed * (Math.random() < 0.5 ? 1 : -1);
-
-        State.roids.push(roid);
-    }
-}
 
 function createLevel() {
     State.roids = []; State.enemyShipBullets = []; State.playerShipBullets = []; State.shockwaves = [];
@@ -959,10 +253,9 @@ function createLevel() {
         let planetSpawned = false;
         let planetX = (Math.random() - 0.5) * 5000;
         let planetY = (Math.random() - 0.5) * 5000;
-        let firstPlanet = createAsteroid(planetX, planetY, PLANET_THRESHOLD + 1, 0);
+        let firstPlanet = createAsteroid(planetX, planetY, ASTEROID_MAX_SIZE + 1, 0, "HOME");
         State.roids.push(firstPlanet);
         State.homePlanetId = firstPlanet.id;
-        firstPlanet.name = "HOME";
         firstPlanet.zSpeed = 0;
 
         if (firstPlanet.textureData) {
@@ -1358,6 +651,9 @@ function resolveInteraction(r1, r2) {
             for (let k = State.ships.length - 1; k >= 0; k--) {
                 if (State.ships[k].hostPlanet === r1 || State.ships[k].hostPlanet === r2) State.ships.splice(k, 1);
             }
+            const planetsBefore = State.roids.filter(r => r.isPlanet && !r._destroyed).length;
+            addScreenMessage("Planet " + r1.name + " destroyed. Total planets " + (planetsBefore - 1), "#ff4400");
+            addScreenMessage("Planet " + r2.name + " destroyed. Total planets " + (planetsBefore - 2), "#ff4400");
             r1._destroyed = true; r2._destroyed = true;
             return;
         }
@@ -1397,11 +693,10 @@ function resolveInteraction(r1, r2) {
             if (!r1.isPlanet) {
                 const currentPlanets = State.roids.filter(r => r.isPlanet && !r._destroyed).length;
                 if (currentPlanets < PLANETS_LIMIT) {
-                    r1.r = Math.max(newR, PLANET_THRESHOLD + 10);
+                    r1.r = Math.max(newR, ASTEROID_MAX_SIZE + 10);
                     initializePlanetAttributes(r1);
                     r1.targetR = r1.r; r1.mass = totalMass * 0.05;
                     createExplosion(midVpX, midVpY, 60, '#00ffff', 10, 'spark');
-                    addScreenMessage("PLANETARY GENESIS: TWO GIANTS HAVE COALESCED!", "#00ffff");
                     AudioEngine.playPlanetExplosion(midX, midY, r1.z);
                 } else { r1.r = newR; r1.targetR = newR; }
             } else { r1.r = newR; r1.targetR = newR; r1.mass = totalMass * 0.05; }
@@ -1444,37 +739,6 @@ function resolveInteraction(r1, r2) {
     }
 }
 
-// NEW: Function to draw planetary rings (fixed attributes, dynamic scale)
-function drawRings(ctx, rings, planetRadius, depthScale) {
-    // Draw rings as a series of thin ellipses
-    ctx.save();
-
-    ctx.rotate(rings.tilt);
-
-    // Draw each band
-    rings.bands.forEach(band => {
-        // Calculate actual radius and State.width based on current planet size (planetRadius)
-        const bandRadius = planetRadius * band.rRatio;
-        const bandWidth = planetRadius * band.wRatio;
-
-        const outerRadius = bandRadius * depthScale;
-
-        // Draw a thick line approach for simplicity and aesthetics
-        ctx.lineWidth = bandWidth * depthScale;
-        ctx.strokeStyle = band.color;
-        ctx.globalAlpha = band.alpha * depthScale; // Use depthScale as alpha factor
-        ctx.shadowBlur = 0; // Disable shadow for rings
-
-        // Back half of the ellipse (hidden behind the planet) is drawn first
-        ctx.beginPath();
-        // The State.height of the ellipse is scaled by a factor (e.g., 0.15) to simulate perspective tilt
-        ctx.ellipse(0, 0, outerRadius, outerRadius * 0.15, 0, 0, Math.PI, false);
-        ctx.stroke();
-
-    });
-
-    ctx.restore();
-}
 
 function loop() {
     requestAnimationFrame(loop);
@@ -2107,7 +1371,7 @@ function loop() {
             }
 
             // 2. Friendly ships can join Player's formation
-            if (ship.isFriendly && !ship.leaderRef && !State.playerShip.dead && State.playerShip.squadSlots) {
+            if (ship.isFriendly && ship.role !== 'leader' && ship.leaderRef !== State.playerShip && !State.playerShip.dead && State.playerShip.squadSlots) {
                 const distToPlayer = Math.hypot(ship.x - State.worldOffsetX, ship.y - State.worldOffsetY);
 
                 // JOIN CONDITION: Ship is within recruitment range
@@ -2127,7 +1391,10 @@ function loop() {
                         ship.leaderRef = State.playerShip;
                         ship.aiState = 'FORMATION';
                         // Ensure player has a squadId if they are about to lead
-                        if (State.playerShip.squadId === null) State.playerShip.squadId = Math.random();
+                        if (State.playerShip.squadId === null) {
+                            State.playerShip.squadId = Math.random();
+                            addScreenMessage("Wingman squad formed with player as leader.", "#00ffff");
+                        }
                         ship.squadId = State.playerShip.squadId;
                         emptySlot.occupant = ship;
                         // Force update formation offset immediately for snappy feedback
@@ -2456,6 +1723,17 @@ function loop() {
                             // Update the member's target offset to the new slot's position
                             member.formationOffset = { x: slot.x, y: slot.y };
                         }
+
+                        // Dissolution Check
+                        const currentCount = validOccupants.length;
+                        if (ship._lastSquadCount > 0 && currentCount === 0) {
+                            if (ship === State.playerShip) {
+                                addScreenMessage("Player wingman squad completely dissolved.", "#ff0000");
+                            } else {
+                                addScreenMessage(ship.isFriendly ? "Friendly squad dissolved." : "Enemy wingman squad completely dissolved.", "#ff4444");
+                            }
+                        }
+                        ship._lastSquadCount = currentCount;
                     }
 
                     // LEADER: Patrol or Defend
@@ -2540,7 +1818,7 @@ function loop() {
                         ship.xv = (ship.xv / speed) * CRUISE_SPEED;
                         ship.yv = (ship.yv / speed) * CRUISE_SPEED;
                     }
-                } else if (!isRetreating && ship.role === 'wingman') {
+                } else if (!isRetreating && ship.role !== 'leader') {
                     if (ship.leaderRef && (ship.leaderRef.dead || (!State.ships.includes(ship.leaderRef) && ship.leaderRef !== State.playerShip))) {
                         ship.leaderRef = null;
                         ship.squadId = null;
@@ -2752,17 +2030,33 @@ function loop() {
                             }
                         }
 
-                        // 2. CHECK NPC LEADERS (If not joined player)
+                        // 2. CHECK NPC LEADERS OR STRAYS (If not joined player)
                         if (!foundLeader) {
                             for (let other of State.ships) {
                                 if (other.dead || other === ship || other.type !== 'ship') continue;
-                                if (other.role === 'leader' && other.fleetHue === ship.fleetHue) {
+                                if (other.fleetHue === ship.fleetHue) {
                                     const dist = Math.hypot(other.x - ship.x, other.y - ship.y);
-                                    if (dist < JOIN_RANGE && other.squadSlots) {
-                                        const openSlot = other.squadSlots.find(s => !s.occupant || s.occupant.dead || !State.ships.includes(s.occupant));
-                                        if (openSlot) {
+                                    if (dist < JOIN_RANGE) {
+                                        if (other.role === 'leader' && other.squadSlots) {
+                                            const openSlot = other.squadSlots.find(s => !s.occupant || s.occupant.dead || !State.ships.includes(s.occupant));
+                                            if (openSlot) {
+                                                foundLeader = other;
+                                                foundSlot = openSlot;
+                                                break;
+                                            }
+                                        } else if (!other.leaderRef && other.role !== 'leader' && ship.role !== 'leader') {
+                                            // Dynamic Promotion: Both are independent strays. Promote 'other' to leader.
+                                            other.role = 'leader';
+                                            other.squadId = Math.random();
+                                            addScreenMessage(other.isFriendly ? "Friendly npc squad formed." : "Enemy wingman squad formed.", "#ffaa00");
+                                            other.squadSlots = [
+                                                { x: -120, y: -120, occupant: null }, { x: 120, y: -120, occupant: null },
+                                                { x: -240, y: -240, occupant: null }, { x: 240, y: -240, occupant: null },
+                                                { x: -360, y: -360, occupant: null }, { x: 360, y: -360, occupant: null },
+                                                { x: 0, y: -480, occupant: null } // 7th slot
+                                            ];
                                             foundLeader = other;
-                                            foundSlot = openSlot;
+                                            foundSlot = other.squadSlots[0];
                                             break;
                                         }
                                     }
@@ -2772,6 +2066,7 @@ function loop() {
 
                         if (foundLeader && foundSlot) {
                             ship.leaderRef = foundLeader;
+                            ship.aiState = 'FORMATION';
                             ship.formationOffset = { x: foundSlot.x, y: foundSlot.y };
                             foundSlot.occupant = ship;
                         } else {
@@ -2855,7 +2150,7 @@ function loop() {
                 let targetAngle = Math.atan2(ty - ship.y, tx - ship.x);
 
                 // Friendly squad State.ships point the same way as player
-                if (ship.isFriendly && ship.role === 'wingman' && ship.leaderRef === State.playerShip) {
+                if (ship.isFriendly && ship.role !== 'leader' && ship.leaderRef === State.playerShip) {
                     targetAngle = State.playerShip.a;
                 }
 
@@ -3009,6 +2304,10 @@ function loop() {
             let vpX = (r.x - State.worldOffsetX) + State.width / 2;
             let vpY = (r.y - State.worldOffsetY) + State.height / 2;
             createExplosion(vpX, vpY, r.isPlanet ? 200 : 40, '#00ffff', r.isPlanet ? 15 : 4, 'spark');
+            if (r.isPlanet) {
+                const planetsBefore = State.roids.filter(plan => plan.isPlanet && !plan._destroyed).length;
+                addScreenMessage("Planet " + r.name + " destroyed. Total planets " + (planetsBefore - 1), "#ff00ff");
+            }
             State.roids.splice(i, 1);
             if (!r.isPlanet) updateAsteroidCounter();
             AudioEngine.playExplosion(r.isPlanet ? 'large' : 'small', r.x, r.y, r.z);
@@ -4684,35 +3983,5 @@ function startGame() {
 
 resize();
 
-function createExplosionDebris(cx, cy, count, isHot = false) {
-    for (let i = 0; i < count; i++) {
-        // Start from center
-        const x = cx;
-        const y = cy;
-        const r = ASTEROID_MIN_SIZE + Math.random() * (ASTEROID_MAX_SIZE - ASTEROID_MIN_SIZE);
-
-        // Use the existing factory
-        const roid = createAsteroid(x, y, r);
-
-        if (isHot) {
-            roid.isHot = true;
-            roid.color = `hsl(${20 + Math.random() * 30}, 80%, 30%)`; // Reddish/Orange base
-        }
-
-        // Project outwards in random direction
-        const angle = Math.random() * Math.PI * 2;
-        // Random speed, but capped at limit. If hot, make them potentially faster (lava ejection)
-        const speedBase = isHot ? ASTEROID_SPEED_LIMIT * 2.0 : ASTEROID_SPEED_LIMIT;
-        const speed = Math.random() * speedBase;
-
-        roid.xv = Math.cos(angle) * speed;
-        roid.yv = Math.sin(angle) * speed;
-
-        // Add some random rotation speed
-        roid.rotSpeed = (Math.random() - 0.5) * 0.2;
-
-        State.roids.push(roid);
-    }
-}
 
 

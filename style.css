@@ -267,19 +267,19 @@ canvas {
 }
 
 #intro-backdrop {
-    background-image: url('intro.png');
+    background-image: url('img/intro.png');
     opacity: 0.95;
     transition: opacity 3s ease-in-out;
 }
 
 #gameover-backdrop {
-    background-image: url('gameover.png');
+    background-image: url('img/gameover.png');
     opacity: 0;
     transition: opacity 3s ease-in-out;
 }
 
 #victory-backdrop {
-    background-image: url('victory.png');
+    background-image: url('img/victory.png');
     opacity: 0;
     transition: opacity 3s ease-in-out;
 }
