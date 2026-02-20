@@ -403,10 +403,19 @@ function spawnShipsSquad(station) {
 
         if (slot.role === 'leader') {
             leader = e;
-            leader.squadSlots = []; // Initialize slots
-            // If the leader is the player, we attach slots to the player object
-            if (e === State.playerShip) State.playerShip.squadSlots = [];
-        } else {
+            // Always ensure the leader has 7 squad slots (for wingmen 1-7)
+            if (!leader.squadSlots || leader.squadSlots.length < 7) {
+                leader.squadSlots = [
+                    { x: -120, y: -120, occupant: null }, { x: 120, y: -120, occupant: null },
+                    { x: -240, y: -240, occupant: null }, { x: 240, y: -240, occupant: null },
+                    { x: -360, y: -360, occupant: null }, { x: 360, y: -360, occupant: null },
+                    { x: 0, y: -480, occupant: null } // 7th slot
+                ];
+            }
+            // Clear current occupants for this specific squad spawn session
+            leader.squadSlots.forEach(s => s.occupant = null);
+        }
+        else {
             e.leaderRef = leader;
             // Register this wingman in the leader's slot list
             if (leader) {
@@ -1968,6 +1977,14 @@ function loop() {
     for (let i = State.ships.length - 1; i >= 0; i--) {
         let ship = State.ships[i];
 
+        // CRITICAL SYNC: Ensure player ship in the list matches actual world position
+        if (ship === State.playerShip) {
+            ship.x = State.worldOffsetX;
+            ship.y = State.worldOffsetY;
+            ship.xv = State.velocity.x;
+            ship.yv = State.velocity.y;
+        }
+
         if (ship.vaporized || ship.structureHP <= -1) {
             let vpX = (ship.x - State.worldOffsetX) + State.width / 2;
             let vpY = (ship.y - State.worldOffsetY) + State.height / 2;
@@ -2064,8 +2081,16 @@ function loop() {
             // 1. Assign Defender vs Stray role based on station capacity
             if (ship.homeStation) {
                 const alliedShips = State.ships.filter(s => s.type === 'ship' && s.homeStation === ship.homeStation && !s.dead);
-                // Sort by distance to home station to keep the closest ones as defenders
+
+                // Prioritize ships that ALREADY have a leader away from station as Strays (don't pull them back)
+                // Also sort by distance to keep core defenders close
                 alliedShips.sort((a, b) => {
+                    // Force ships with a leader that is NOT the home station to the end of the list (to be STRAYs)
+                    const aLeading = (a.leaderRef && a.leaderRef !== a.homeStation);
+                    const bLeading = (b.leaderRef && b.leaderRef !== b.homeStation);
+                    if (aLeading && !bLeading) return 1;
+                    if (!aLeading && bLeading) return -1;
+
                     const da = Math.hypot(a.x - ship.homeStation.x, a.y - ship.homeStation.y);
                     const db = Math.hypot(b.x - ship.homeStation.x, b.y - ship.homeStation.y);
                     return da - db;
@@ -2074,23 +2099,39 @@ function loop() {
                 const myIndex = alliedShips.indexOf(ship);
                 if (myIndex < 7) {
                     ship.assignment = 'DEFENDER';
-                    ship.leaderRef = null; // Defenders don't follow leaders away
+                    // Only clear leaderRef if it's NOT the player (don't break player squads)
+                    if (ship.leaderRef !== State.playerShip) ship.leaderRef = null;
                 } else {
                     ship.assignment = 'STRAY';
                 }
             }
 
-            // 2. Friendly Strays can join Player's formation
-            if (ship.isFriendly && ship.assignment === 'STRAY' && !ship.leaderRef && !State.playerShip.dead && State.playerShip.squadSlots) {
+            // 2. Friendly ships can join Player's formation
+            if (ship.isFriendly && !ship.leaderRef && !State.playerShip.dead && State.playerShip.squadSlots) {
                 const distToPlayer = Math.hypot(ship.x - State.worldOffsetX, ship.y - State.worldOffsetY);
-                if (distToPlayer < 800) {
+
+                // JOIN CONDITION: Ship is within recruitment range
+                // We make this much more generous now (800 usually, 1200 if moving away)
+                let playerIsLeaving = true;
+                if (ship.homeStation) {
+                    const distPlayerToStation = Math.hypot(State.worldOffsetX - ship.homeStation.x, State.worldOffsetY - ship.homeStation.y);
+                    if (distPlayerToStation < 1000) playerIsLeaving = false;
+                }
+
+                const joinRange = playerIsLeaving ? 1200 : 800;
+
+                if (distToPlayer < joinRange) {
                     // Look for an empty slot in player's squad
-                    const emptySlot = State.playerShip.squadSlots.find(slot => !slot.occupant || slot.occupant.dead);
+                    const emptySlot = State.playerShip.squadSlots.find(slot => !slot.occupant || slot.occupant.dead || !State.ships.includes(slot.occupant));
                     if (emptySlot) {
                         ship.leaderRef = State.playerShip;
                         ship.aiState = 'FORMATION';
+                        // Ensure player has a squadId if they are about to lead
+                        if (State.playerShip.squadId === null) State.playerShip.squadId = Math.random();
                         ship.squadId = State.playerShip.squadId;
                         emptySlot.occupant = ship;
+                        // Force update formation offset immediately for snappy feedback
+                        ship.formationOffset = { x: emptySlot.x, y: emptySlot.y };
                     }
                 }
             }
@@ -2106,6 +2147,11 @@ function loop() {
                 const shipSpeed = Math.hypot(ship.xv, ship.yv);
                 if (shipSpeed < 10.0) shouldOrbit = true;
             }
+        }
+
+        // NEW: Only orbit if the ship does NOT have a leader (to prevent fighting formation movement)
+        if (shouldOrbit && ship.leaderRef) {
+            shouldOrbit = false;
         }
 
         if (shouldOrbit) {
@@ -2394,8 +2440,11 @@ function loop() {
                             if (slot.occupant && !slot.occupant.dead && (State.ships.includes(slot.occupant) || slot.occupant === State.playerShip)) {
                                 validOccupants.push(slot.occupant);
                             }
-                            slot.occupant = null; // Clear all slots first
+                            // slot.occupant = null; // REMOVED: This was clearing player-assigned occupants every frame!
                         });
+
+                        // 2. Clear all slots first (only after we've saved the occupants)
+                        ship.squadSlots.forEach(slot => slot.occupant = null);
 
                         // 2. Re-assign occupants to slots in order (filling from closest to leader)
                         // 'squadSlots' is naturally ordered by creation (which is usually inner-to-outer in V-formation logic)
