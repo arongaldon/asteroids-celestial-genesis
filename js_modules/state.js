@@ -1,0 +1,33 @@
+import { ZOOM_LEVELS } from './config.js';
+
+export const State = {
+    width: 0,
+    height: 0,
+    playerShip: null,
+    worldOffsetX: 0,
+    worldOffsetY: 0,
+    velocity: { x: 0, y: 0 },
+    roids: [],
+    ships: [],
+    playerShipBullets: [],
+    enemyShipBullets: [],
+    particles: [],
+    shockwaves: [],
+    ambientFogs: [],
+    backgroundLayers: { nebulas: [], galaxies: [], starsNear: [], starsMid: [], starsFar: [] },
+    playerReloadTime: 0,
+    stationSpawnTimer: 0,
+    level: 0,
+    homePlanetId: null,
+    screenMessages: [],
+    gameRunning: false,
+    victoryState: false,
+    loopStarted: false,
+    inputMode: 'mouse',
+    keys: { ArrowUp: false, ArrowDown: false, Space: false, ArrowLeft: false, ArrowRight: false, KeyA: false, KeyD: false },
+    mouse: { x: 0, y: 0 },
+    currentZoomIndex: 2,
+    RADAR_RANGE: ZOOM_LEVELS ? ZOOM_LEVELS[2] : 3000,
+    viewScale: 1.0,
+    roidCounter: 0
+};

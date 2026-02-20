@@ -1,0 +1,59 @@
+export class SpatialHash {
+    constructor(cellSize) {
+        this.cellSize = cellSize;
+        this.grid = new Map();
+    }
+
+    getKey(x, y) {
+        return `${Math.floor(x / this.cellSize)},${Math.floor(y / this.cellSize)}`;
+    }
+
+    clear() {
+        this.grid.clear();
+    }
+
+    insert(obj) {
+        const key = this.getKey(obj.x, obj.y);
+        if (!this.grid.has(key)) this.grid.set(key, []);
+        this.grid.get(key).push(obj);
+    }
+
+    query(obj) {
+        const cx = Math.floor(obj.x / this.cellSize);
+        const cy = Math.floor(obj.y / this.cellSize);
+        let results = [];
+
+        for (let i = -1; i <= 1; i++) {
+            for (let j = -1; j <= 1; j++) {
+                const key = `${cx + i},${cy + j}`;
+                if (this.grid.has(key)) {
+                    const cellObjects = this.grid.get(key);
+                    for (let k = 0; k < cellObjects.length; k++) {
+                        results.push(cellObjects[k]);
+                    }
+                }
+            }
+        }
+        return results;
+    }
+}
+
+export function mulberry32(a) {
+    return function () {
+        var t = a += 0x6D2B79F5;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    }
+}
+
+export function getShapeName(tier) {
+    if (tier >= 12) return "THE GODSHIP";
+    if (tier === 11) return "THE HYPERION";
+    if (tier === 10) return "THE TITAN";
+    if (tier === 9) return "THE CELESTIAL";
+    if (tier === 8) return "THE SPHERE";
+    const shapes = ["TRIANGLE", "SQUARE", "PENTAGON", "HEXAGON", "HEPTAGON", "OCTAGON", "NONAGON", "DECAGON"];
+    return shapes[Math.min(tier, shapes.length - 1)];
+}
+
