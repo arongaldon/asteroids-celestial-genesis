@@ -29,5 +29,6 @@ export const State = {
     currentZoomIndex: 2,
     RADAR_RANGE: ZOOM_LEVELS ? ZOOM_LEVELS[2] : 3000,
     viewScale: 1.0,
-    roidCounter: 0
+    roidCounter: 0,
+    pendingDebris: []
 };

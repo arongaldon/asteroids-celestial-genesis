@@ -1,219 +1,25 @@
+import { ASTEROIDS, ASTEROIDS_INIT_INNER, ASTEROIDS_INIT_OUTER, ASTEROID_DESTROYED_REWARD, ASTEROID_MAX_SIZE, ASTEROID_MIN_SIZE, ASTEROID_SPEED_LIMIT, ASTEROID_SPLIT_OFFSET, ASTEROID_SPLIT_SPEED, BOUNDARY_CORRECTION_FORCE, BOUNDARY_DAMPENING, BOUNDARY_TOLERANCE, BOUNDARY_TOLERANCE_ROIDS, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, PLANETS_LIMIT, PLANET_MAX_SIZE, PLAYER_INITIAL_LIVES, PLAYER_RELOAD_TIME_MAX, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, SHIPS_COMBAT_ORBIT_DISTANCE, SHIPS_LIMIT, SHIPS_SEPARATION_DISTANCE, SHIPS_SPAWN_TIME, SHIP_BASE_MAX_SHIELD, SHIP_BULLET1_LIFETIME, SHIP_BULLET2_LIFETIME, SHIP_BULLET_FADE_FRAMES, SHIP_BULLET_GRAVITY_FACTOR, SHIP_EVOLUTION_SCORE_STEP, SHIP_FRIENDLY_BLUE_HUE, SHIP_KILLED_REWARD, SHIP_MAX_SPEED, SHIP_RESISTANCE, SHIP_SIGHT_RANGE, SHIP_SIZE, SHIP_THRUST, STATIONS_PER_PLANET, STATIONS_SPAWN_TIMER, STATION_KILLED_REWARD, STATION_RESISTANCE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
 import { State } from './state.js';
 import { SpatialHash, mulberry32, getShapeName } from './utils.js';
 import { AudioEngine } from './audio.js';
-import { newPlayerShip, createAsteroid, initializePlanetAttributes, createGalaxy, createAmbientFog, createExplosion, createShockwave, createAsteroidBelt, spawnStation, spawnShipsSquad, getShipTier, onShipDestroyed, onStationDestroyed, createExplosionDebris, generatePlanetName, increaseShipScore } from './entities.js';
+import { newPlayerShip, createAsteroid, initializePlanetAttributes, createGalaxy, createAmbientFog, createExplosion, createShockwave, createAsteroidBelt, spawnStation, spawnShipsSquad, getShipTier, generatePlanetName, increaseShipScore, onShipDestroyed, onStationDestroyed, createExplosionDebris } from './entities.js';
 import { drawPlanetTexture, drawRadar, drawHeart, drawLives, updateHUD, updateAsteroidCounter, showInfoLEDText, addScreenMessage, drawRings } from './render.js';
 import { changeRadarZoom, shootLaser, fireEntityWeapon, fireGodWeapon, enemyShoot, isTrajectoryClear, proactiveCombatScanner } from './input.js';
 
+import { setupInputEvents, isTouching, touchStartTime } from './events.js';
+import { spatialGrid, updatePhysics, resolveInteraction } from './physics.js';
+
+/* * AI DISCLAIMER: This code was developed with the assistance of a large language model. 
+ * The author (Aron Galdon Gines) retains all copyrights.
+ */
+
+let stationsDestroyedCount = 0;
 
 
-function resize() {
-    State.width = Math.max(window.innerWidth, 100);
-    State.height = Math.max(window.innerHeight, 100);
-    DOM.canvas.width = State.width;
-    DOM.canvas.height = State.height;
-    if (State.mouse.x === 0) { State.mouse.x = State.width / 2; State.mouse.y = 0; }
-    initBackground();
-}
-window.addEventListener('resize', resize);
 
-const audioStarter = () => {
-    AudioEngine.init();
-    AudioEngine.startMusic();
-    DOM.startScreen.removeEventListener('click', audioStarter);
-}
 
-const audioStopper = () => {
-    AudioEngine.stopMusic();
-    DOM.startScreen.removeEventListener('click', audioStopper);
-}
 
-window.onload = function () {
-    resize();
-    AudioEngine.init();
-    AudioEngine.setTrack('menu');
-
-    // Initialize dummy State.playerShip for safety during early loops
-    State.playerShip = { dead: true, tier: 0, score: 0, a: 0 };
-
-    // Initialize background world immediately
-    initBackground();
-    createLevel();
-
-    // Start loop immediately so we see the world behind the intro
-    if (!State.loopStarted) {
-        State.loopStarted = true;
-        loop();
-    }
-
-    // Add listener to start audio on the first interaction
-    DOM.startScreen.addEventListener('click', audioStarter);
-
-    showInfoLEDText("The Classic, reimagined by Aron Galdon. Have a safe trip!")
-}
-
-// Function to handle zoom change (used by Z key and Mouse Wheel)
-
-document.addEventListener('keydown', (e) => {
-    if (e.code === 'Space') shootLaser();
-
-    // NOTE: The logic for KeyE to create matter has been permanently removed.
-
-    if (e.code === 'KeyZ') {
-        changeRadarZoom(1); // Zoom Out (next State.level)
-    }
-
-    if (e.code === 'KeyX') {
-        changeRadarZoom(-1); // Zoom In (previous State.level)
-    }
-
-    if (e.code === 'KeyW' || e.code === 'ArrowUp') State.keys.ArrowUp = true;
-    if (e.code === 'KeyS' || e.code === 'ArrowDown') State.keys.ArrowDown = false; // KeyS is brake
-
-    if (e.code === 'ArrowLeft') State.keys.ArrowLeft = true;
-    if (e.code === 'ArrowRight') State.keys.ArrowRight = true;
-
-    if (e.code === 'KeyA') State.keys.KeyA = true;
-    if (e.code === 'KeyD') State.keys.KeyD = true;
-});
-document.addEventListener('keyup', (e) => {
-    if (e.code === 'KeyW' || e.code === 'ArrowUp') State.keys.ArrowUp = false;
-    if (e.code === 'KeyS' || e.code === 'ArrowDown') State.keys.ArrowDown = false;
-
-    if (e.code === 'ArrowLeft') State.keys.ArrowLeft = false;
-    if (e.code === 'ArrowRight') State.keys.ArrowRight = false;
-
-    if (e.code === 'KeyA') State.keys.KeyA = false;
-    if (e.code === 'KeyD') State.keys.KeyD = false;
-});
-document.addEventListener('mousemove', (e) => {
-    if (e.target.closest('.btn')) return; // Ignore if over a button
-    State.inputMode = 'mouse'; State.mouse.x = e.clientX; State.mouse.y = e.clientY;
-});
-document.addEventListener('mousedown', (e) => {
-    if (!State.gameRunning || e.target.closest('button')) return;
-    State.inputMode = 'mouse'; shootLaser();
-});
-
-// NEW: Mouse Wheel Event Listener for Zoom
-document.addEventListener('wheel', (e) => {
-    if (!State.gameRunning) return;
-    e.preventDefault(); // Prevent page scrolling
-
-    // DeltaY is positive when scrolling down (zoom out), negative when scrolling up (zoom in)
-    const direction = e.deltaY > 0 ? 1 : -1;
-    changeRadarZoom(direction);
-}, { passive: false });
-
-let touchStartX = 0;
-let touchStartY = 0;
-let isTouching = false;
-let touchStartTime = 0;
-let initialPinchDistance = 0;
-let wasPinching = false;
-
-document.addEventListener('touchstart', (e) => {
-    if (!State.gameRunning) return; // Allow interaction with start screen
-    if (e.target.closest('.btn') || e.target.closest('.start-btn')) return;
-
-    State.inputMode = 'touch';
-    isTouching = true;
-
-    if (e.touches.length === 1) {
-        // Joystick Anchor
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-        touchStartTime = Date.now();
-
-        // Rotate ship to face the tap immediately
-        const dx = touchStartX - State.width / 2;
-        const dy = touchStartY - State.height / 2;
-        State.playerShip.a = Math.atan2(dy, dx);
-    } else if (e.touches.length === 2) {
-        // Prepare for pinch zoom
-        wasPinching = true;
-        initialPinchDistance = Math.hypot(
-            e.touches[0].clientX - e.touches[1].clientX,
-            e.touches[0].clientY - e.touches[1].clientY
-        );
-    }
-
-    e.preventDefault();
-}, { passive: false });
-
-document.addEventListener('touchmove', (e) => {
-    if (!isTouching || !State.gameRunning || State.playerShip.dead) return;
-    e.preventDefault();
-
-    if (e.touches.length === 1) {
-        const duration = Date.now() - touchStartTime;
-        if (duration < MIN_DURATION_TAP_TO_MOVE) {
-            return;
-        }
-
-        const currentX = e.touches[0].clientX;
-        const currentY = e.touches[0].clientY;
-
-        const dx = currentX - touchStartX;
-        const dy = currentY - touchStartY;
-
-        // Deadzone to prevent jitter
-        if (Math.hypot(dx, dy) > 10) {
-            // Steer towards the drag vector
-            // Note: dy is screen coordinates (down is positive).
-            let targetAngle = Math.atan2(dy, dx);
-
-            // Smooth rotate towards target
-            let angleDiff = targetAngle - State.playerShip.a;
-
-            // Safety check for NaN or Infinity
-            if (isNaN(angleDiff) || !isFinite(angleDiff)) angleDiff = 0;
-
-            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
-
-            State.playerShip.a += angleDiff * 0.2; // Responsiveness
-
-            // Normalize a to [-PI, PI] to prevent overflow over long gameplay
-            while (State.playerShip.a > Math.PI) State.playerShip.a -= 2 * Math.PI;
-            while (State.playerShip.a <= -Math.PI) State.playerShip.a += 2 * Math.PI;
-        }
-    } else if (e.touches.length === 2) {
-        const currentDistance = Math.hypot(
-            e.touches[0].clientX - e.touches[1].clientX,
-            e.touches[0].clientY - e.touches[1].clientY
-        );
-        const diff = currentDistance - initialPinchDistance;
-
-        // Sensivity threshold for zoom change
-        if (Math.abs(diff) > 40) {
-            const direction = diff > 0 ? -1 : 1; // Pinch out (diff > 0) -> Zoom In (-1 index)
-            changeRadarZoom(direction);
-            initialPinchDistance = currentDistance;
-        }
-    }
-}, { passive: false });
-
-document.addEventListener('touchend', (e) => {
-    if (!State.gameRunning) return;
-    if (e.target.closest('.btn') || e.target.closest('.start-btn')) return;
-
-    if (e.touches.length === 0) {
-        isTouching = false;
-        initialPinchDistance = 0;
-        // Reset wasPinching after a short delay to allow the last touchend to check it
-        setTimeout(() => { wasPinching = false; }, 0);
-    }
-
-    // Short tap => shoot still (only if it was a single touch interaction and no pinch occurred)
-    const duration = Date.now() - touchStartTime;
-    if (duration < MIN_DURATION_TAP_TO_MOVE && e.changedTouches.length === 1 && !wasPinching) {
-        shootLaser();
-    }
-    e.preventDefault();
-});
-
-function initBackground() {
+export function initBackground() {
     // Resets and populates background layers for parallax
     State.backgroundLayers = { nebulas: [], galaxies: [], starsNear: [], starsMid: [], starsFar: [] };
     State.ambientFogs = []; // NEW: Reset ambient fog
@@ -227,22 +33,7 @@ function initBackground() {
 }
 
 
-
-
-
-
-
-// --- ASTEROID EXPULSION LOGIC REMOVED ---
-
-
-
-
-
-
-
-
-
-function createLevel() {
+export function createLevel() {
     State.roids = []; State.enemyShipBullets = []; State.playerShipBullets = []; State.shockwaves = [];
     // State.ships = []; // REMOVED: Don't clear State.ships here, clear it in startGame instead
 
@@ -267,7 +58,7 @@ function createLevel() {
         planetSpawned = true;
     }
 
-    createAsteroidBelt(0, 0, ASTEROIDS_INIT_INNER, ASTEROIDS_INIT_OUTER, ASTEROIDS);
+    createAsteroidBelt(0, 0, ASTEROIDS_INIT_INNER, WORLD_BOUNDS * 0.9, ASTEROIDS);
 
     State.roids.filter(r => r.isPlanet).forEach(planet => {
         const stationCount = Math.floor(Math.random() * STATIONS_PER_PLANET) + 1;
@@ -279,7 +70,7 @@ function createLevel() {
     updateAsteroidCounter();
 }
 
-function hitPlayerShip(damageAmount, sourceIsNearPlanet = false) {
+export function hitPlayerShip(damageAmount, sourceIsNearPlanet = false) {
     if (State.playerShip.blinkNum > 0 || State.playerShip.dead || State.victoryState) return;
 
     State.playerShip.structureHP--;
@@ -297,7 +88,7 @@ function hitPlayerShip(damageAmount, sourceIsNearPlanet = false) {
     }
 }
 
-function killPlayerShip(reason = 'normal') {
+export function killPlayerShip(reason = 'normal') {
     const vpX = State.width / 2; const vpY = State.height / 2;
     createExplosion(vpX, vpY, 60, '#0ff', 3);
     AudioEngine.playExplosion('large', State.worldOffsetX, State.worldOffsetY);
@@ -340,7 +131,7 @@ function killPlayerShip(reason = 'normal') {
 
             // Audio: Game Over Sequence
             AudioEngine.playGameOverMusic();
-            DOM.startScreen.addEventListener('click', audioStopper);
+            DOM.startScreen.addEventListener('click', window.audioStopper);
 
             // Philosophical Game Over Messages
             if (reason === 'player') {
@@ -361,7 +152,7 @@ function killPlayerShip(reason = 'normal') {
     }
 }
 
-function triggerHomePlanetLost(reason) {
+export function triggerHomePlanetLost(reason) {
     State.playerShip.lives = 0; // Force game over
     killPlayerShip(reason);
 
@@ -384,12 +175,12 @@ function handleVictoryInteraction() {
     DOM.startScreen.classList.remove('fade-out');
     DOM.startScreen.classList.add('victory');
     DOM.startScreen.style.display = 'flex';
-    DOM.startScreen.addEventListener('click', audioStopper); // Allow stopping music
+    DOM.startScreen.addEventListener('click', window.audioStopper); // Allow stopping music
     DOM.startBtn.style.display = 'block';
     DOM.startBtn.innerText = 'RESTART JOURNEY';
     DOM.startBtn.onclick = () => {
         State.victoryState = false;
-        DOM.startScreen.removeEventListener('click', audioStopper);
+        DOM.startScreen.removeEventListener('click', window.audioStopper);
         startGame();
     };
 
@@ -397,7 +188,7 @@ function handleVictoryInteraction() {
     window.removeEventListener('touchstart', handleVictoryInteraction);
 };
 
-function winGame() {
+export function winGame() {
     if (State.victoryState) return;
     State.victoryState = true;
 
@@ -429,318 +220,7 @@ function winGame() {
     }, 1000);
 }
 
-const spatialGrid = new SpatialHash(2000);
-
-function updatePhysics() {
-    const activePlanets = [];
-    spatialGrid.clear();
-
-    // PHASE 1: PHYSICS UPDATE & GRID POPULATION
-    for (let i = 0; i < State.roids.length; i++) {
-        let r1 = State.roids[i];
-        if (isNaN(r1.x) || isNaN(r1.y)) { State.roids.splice(i, 1); updateAsteroidCounter(); i--; continue; }
-
-        // --- 1. Radius Growth ---
-        if (r1.targetR && r1.r < r1.targetR) {
-            r1.r += (r1.targetR - r1.r) * 0.02;
-            r1.mass = r1.r * r1.r * 0.05;
-            if (r1.targetR - r1.r < 1.0) { r1.r = r1.targetR; r1.targetR = null; r1.mass = r1.r * r1.r * 0.05; }
-        } else {
-            r1.mass = r1.r * r1.r * 0.05;
-        }
-
-        // --- 2. Planet Physics (Z-Depth, Orbit) ---
-        if (r1.isPlanet) {
-            if (r1.zWait > 0) {
-                r1.zWait--;
-            } else {
-                r1.z += r1.zSpeed;
-                if (r1.z < 0.2 && !r1.hasSpawnedStationThisCycle) {
-                    const hasStation = State.ships.some(e => e.type === 'station' && e.hostPlanetId === r1.id);
-                    if (!hasStation) spawnStation(r1);
-                    r1.hasSpawnedStationThisCycle = true;
-                }
-                if (r1.z > 1.0) r1.hasSpawnedStationThisCycle = false;
-                if (r1.z > MAX_Z_DEPTH) r1.zSpeed *= -1;
-                if (r1.z < 0) {
-                    r1.z = 0; r1.zSpeed = Math.abs(r1.zSpeed);
-                    r1.zWait = Math.floor(1.0 * (2 * MAX_Z_DEPTH / r1.zSpeed));
-                }
-            }
-            if (r1.isBubbleDebris) {
-                r1.xv *= r1.bubbleFriction; r1.yv *= r1.bubbleFriction;
-                if (Math.hypot(r1.xv, r1.yv) < 0.1) r1.isBubbleDebris = false;
-            }
-            if (r1.semiMajorAxis && r1.orbitSpeed) {
-                const zSpeedModifier = 1 / (1 + r1.z);
-                const nextAngle = r1.orbitAngle + (r1.orbitSpeed * zSpeedModifier);
-                const xEllipse = r1.semiMajorAxis * Math.cos(nextAngle);
-                const yEllipse = r1.semiMinorAxis * Math.sin(nextAngle);
-                const cosRot = Math.cos(r1.ellipseRotation);
-                const sinRot = Math.sin(r1.ellipseRotation);
-                const xRotated = xEllipse * cosRot - yEllipse * sinRot;
-                const yRotated = xEllipse * sinRot + yEllipse * cosRot;
-                r1.xv = (r1.orbitCenterX + xRotated) - r1.x;
-                r1.yv = (r1.orbitCenterY + yRotated) - r1.y;
-                r1.orbitAngle = nextAngle;
-            }
-        }
-
-        // Unset destroyed flag for safety
-        r1._destroyed = false;
-
-        if (r1.blinkNum > 0) r1.blinkNum--;
-
-        // Collect Active Planets (z < 1.0) for Attraction Logic
-        if (r1.isPlanet && Math.abs(r1.z) < 1.0) {
-            activePlanets.push(r1);
-        }
-
-        // --- 3. Attraction to Planets (Asteroids only) ---
-        if (!r1.isPlanet) {
-            let nearestPlanet = null;
-            let minDistSq = Infinity;
-
-            // Use local activePlanets list instead of full loop
-            for (const other of activePlanets) {
-                const dSq = (other.x - r1.x) ** 2 + (other.y - r1.y) ** 2;
-                if (dSq < minDistSq) { minDistSq = dSq; nearestPlanet = other; }
-            }
-
-            if (nearestPlanet) {
-                const dist = Math.sqrt(minDistSq);
-                const dx = nearestPlanet.x - r1.x;
-                const dy = nearestPlanet.y - r1.y;
-                const orbitRadius = nearestPlanet.r * 1.5 + r1.r;
-                const gravityRange = nearestPlanet.r * 8.0;
-
-                if (dist < gravityRange) {
-                    const isOrbitCandidate = (r1.r <= ASTEROID_MIN_SIZE * 1.1);
-                    if (dist > orbitRadius || !isOrbitCandidate) {
-                        const forceMagnitude = (G_CONST * nearestPlanet.mass * 8.0) / Math.max(minDistSq, 100);
-                        r1.xv += (dx / dist) * forceMagnitude;
-                        r1.yv += (dy / dist) * forceMagnitude;
-                    }
-                    if (dist <= orbitRadius && isOrbitCandidate) {
-                        if (!r1.orbitRadiusFactor) r1.orbitRadiusFactor = 1.3 + Math.random() * 2.5;
-                        const dynamicOrbitRadius = nearestPlanet.r * r1.orbitRadiusFactor + r1.r;
-                        const angleToPlanet = Math.atan2(dy, dx);
-                        const tangentAngle = angleToPlanet + Math.PI / 2;
-                        const orbitSpeed = Math.sqrt((G_CONST * nearestPlanet.mass * 8.0) / dist);
-                        const targetXV = Math.cos(tangentAngle) * orbitSpeed;
-                        const targetYV = Math.sin(tangentAngle) * orbitSpeed;
-                        r1.xv += (targetXV - r1.xv) * 0.1;
-                        r1.yv += (targetYV - r1.yv) * 0.1;
-                        const distError = dist - dynamicOrbitRadius;
-                        const correctionForce = distError * 0.005;
-                        r1.xv += (dx / dist) * correctionForce;
-                        r1.yv += (dy / dist) * correctionForce;
-                    }
-                }
-            }
-        }
-
-        // --- 4. Gravity on Player ---
-        if (r1.isPlanet && r1.z < 0.5) {
-            let dx = State.worldOffsetX - r1.x;
-            let dy = State.worldOffsetY - r1.y;
-            let distSq = dx * dx + dy * dy;
-            let dist = Math.sqrt(distSq);
-            if (dist < r1.r * 8 && dist > State.playerShip.r) {
-                let clampedDistSq = Math.max(distSq, 100);
-                let effectiveDist = Math.max(0, dist - State.playerShip.r);
-                let feather = Math.min(1, (effectiveDist / (r1.r * 8)) * 5);
-                let force = (G_CONST * r1.mass) / clampedDistSq;
-                State.velocity.x += (dx / dist) * force * 1.5 * feather;
-                State.velocity.y += (dy / dist) * force * 1.5 * feather;
-            }
-        }
-
-        // --- 5. Speed Limit & Boundary ---
-        const speed = Math.hypot(r1.xv, r1.yv);
-        if (speed > ASTEROID_SPEED_LIMIT) {
-            const ratio = ASTEROID_SPEED_LIMIT / speed;
-            r1.xv *= ratio; r1.yv *= ratio;
-        }
-        if (Math.abs(r1.x) > WORLD_BOUNDS - BOUNDARY_TOLERANCE_ROIDS) r1.xv -= Math.sign(r1.x) * BOUNDARY_CORRECTION_FORCE;
-        if (Math.abs(r1.y) > WORLD_BOUNDS - BOUNDARY_TOLERANCE_ROIDS) r1.yv -= Math.sign(r1.y) * BOUNDARY_CORRECTION_FORCE;
-
-        // --- 6. Insert into Grid ---
-        if (!r1.isPlanet && r1.z < 0.5) spatialGrid.insert(r1);
-    }
-
-    // PHASE 2: COLLISIONS & GRAVITY MESH
-    for (let i = 0; i < activePlanets.length; i++) {
-        let p = activePlanets[i];
-        if (p._destroyed) continue;
-        for (let j = i + 1; j < activePlanets.length; j++) {
-            let p2 = activePlanets[j];
-            if (!p2._destroyed) resolveInteraction(p, p2);
-        }
-        let potentialColliders = spatialGrid.query(p);
-        for (let r2 of potentialColliders) {
-            if (!r2._destroyed && !r2.isPlanet) resolveInteraction(p, r2);
-        }
-    }
-
-    for (let i = 0; i < State.roids.length; i++) {
-        let r1 = State.roids[i];
-        if (r1.isPlanet || r1.z >= 0.5 || r1._destroyed) continue;
-        let neighbors = spatialGrid.query(r1);
-        for (let r2 of neighbors) {
-            if (r1.id < r2.id && !r2.isPlanet && !r2._destroyed) {
-                resolveInteraction(r1, r2);
-            }
-        }
-    }
-
-    // PHASE 3: CLEANUP
-    let writeIdx = 0;
-    for (let i = 0; i < State.roids.length; i++) {
-        if (!State.roids[i]._destroyed) {
-            State.roids[writeIdx++] = State.roids[i];
-        }
-    }
-    State.roids.length = writeIdx;
-    updateAsteroidCounter();
-}
-
-function resolveInteraction(r1, r2) {
-    if (r1.blinkNum > 0 || r2.blinkNum > 0) return;
-
-    let dx = r2.x - r1.x; let dy = r2.y - r1.y;
-    let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
-
-    const attractionRange = (r1.r + r2.r) * 3;
-    if (dist < attractionRange && dist > r1.r + r2.r) {
-        let force = 0;
-        if (r1.isPlanet && r2.isPlanet) {
-            force = (G_CONST * r1.mass * r2.mass * 15.0) / Math.max(distSq, 2000);
-        } else if (r1.isPlanet || r2.isPlanet) {
-            force = (G_CONST * r1.mass * r2.mass) / Math.max(distSq, 500);
-        } else {
-            const isGiant = (r1.r >= ASTEROID_MAX_SIZE || r2.r >= ASTEROID_MAX_SIZE);
-            const G_ROIDS = isGiant ? 5.0 : 0.08;
-            force = (G_ROIDS * r1.mass * r2.mass) / Math.max(distSq, 400);
-        }
-        let fx = (dx / dist) * force;
-        let fy = (dy / dist) * force;
-        if (!isNaN(fx)) {
-            r1.xv += fx / r1.mass; r1.yv += fy / r1.mass;
-            r2.xv -= fx / r2.mass; r2.yv -= fy / r2.mass;
-        }
-        return;
-    }
-
-    if (dist < r1.r + r2.r) {
-        const midX = (r1.x + r2.x) / 2; const midY = (r1.y + r2.y) / 2;
-        const midVpX = midX - State.worldOffsetX + State.width / 2;
-        const midVpY = midY - State.worldOffsetY + State.height / 2;
-
-        if (r1.isPlanet && r2.isPlanet) {
-            addScreenMessage("PLANETARY CATACLYSM: MASSIVE COLLISION DETECTED!", "#ff4400");
-            createExplosion(midVpX, midVpY, 150, '#ffaa00', 8, 'flame');
-            createExplosion(midVpX, midVpY, 100, '#ff4400', 12, 'flame');
-            createExplosion(midVpX, midVpY, 80, '#550000', 15, 'smoke');
-            createExplosion(midVpX, midVpY, 50, '#ffff00', 4, 'spark');
-            AudioEngine.playPlanetExplosion(midX, midY, r1.z);
-            if (r1.id === State.homePlanetId || r2.id === State.homePlanetId) triggerHomePlanetLost('collision');
-            createExplosionDebris(midX, midY, Math.floor(ASTEROIDS * 1.5), true);
-            createShockwave(midX, midY, true);
-            createShockwave(midX, midY);
-            for (let k = State.ships.length - 1; k >= 0; k--) {
-                if (State.ships[k].hostPlanet === r1 || State.ships[k].hostPlanet === r2) State.ships.splice(k, 1);
-            }
-            const planetsBefore = State.roids.filter(r => r.isPlanet && !r._destroyed).length;
-            addScreenMessage("Planet " + r1.name + " destroyed. Total planets " + (planetsBefore - 1), "#ff4400");
-            addScreenMessage("Planet " + r2.name + " destroyed. Total planets " + (planetsBefore - 2), "#ff4400");
-            r1._destroyed = true; r2._destroyed = true;
-            return;
-        }
-
-        if (r1.isPlanet !== r2.isPlanet) {
-            let planet = r1.isPlanet ? r1 : r2;
-            let asteroid = r1.isPlanet ? r2 : r1;
-            if (asteroid.r <= ASTEROID_MIN_SIZE * 1.2) {
-                const angle = Math.atan2(asteroid.y - planet.y, asteroid.x - planet.x);
-                const minDist = planet.r + asteroid.r + 5;
-                asteroid.x = planet.x + Math.cos(angle) * minDist;
-                asteroid.y = planet.y + Math.sin(angle) * minDist;
-                asteroid.xv += Math.cos(angle) * 1.0; asteroid.yv += Math.sin(angle) * 1.0;
-                return;
-            }
-            let totalMass = planet.mass + asteroid.mass;
-            planet.xv = (planet.xv * planet.mass + asteroid.xv * asteroid.mass) / totalMass;
-            planet.yv = (planet.yv * planet.mass + asteroid.yv * asteroid.mass) / totalMass;
-            planet.x = (planet.x * planet.mass + asteroid.x * asteroid.mass) / totalMass;
-            planet.y = (planet.y * planet.mass + asteroid.y * asteroid.mass) / totalMass;
-            planet.targetR = Math.sqrt((Math.PI * planet.r * planet.r + Math.PI * asteroid.r * asteroid.r) / Math.PI);
-            planet.mass = totalMass;
-            asteroid._destroyed = true;
-            return;
-        }
-
-        const isGiant1 = r1.r >= ASTEROID_MAX_SIZE;
-        const isGiant2 = r2.r >= ASTEROID_MAX_SIZE;
-
-        if (isGiant1 && isGiant2) {
-            let totalMass = r1.mass + r2.mass;
-            let newR = Math.sqrt(r1.r * r1.r + r2.r * r2.r) * 1.05;
-            r1.x = (r1.x * r1.mass + r2.x * r2.mass) / totalMass;
-            r1.y = (r1.y * r1.mass + r2.y * r2.mass) / totalMass;
-            r1.xv = (r1.xv * r1.mass + r2.xv * r2.mass) / totalMass * 0.5;
-            r1.yv = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass * 0.5;
-            if (!r1.isPlanet) {
-                const currentPlanets = State.roids.filter(r => r.isPlanet && !r._destroyed).length;
-                if (currentPlanets < PLANETS_LIMIT) {
-                    r1.r = Math.max(newR, ASTEROID_MAX_SIZE + 10);
-                    initializePlanetAttributes(r1);
-                    r1.targetR = r1.r; r1.mass = totalMass * 0.05;
-                    createExplosion(midVpX, midVpY, 60, '#00ffff', 10, 'spark');
-                    AudioEngine.playPlanetExplosion(midX, midY, r1.z);
-                } else { r1.r = newR; r1.targetR = newR; }
-            } else { r1.r = newR; r1.targetR = newR; r1.mass = totalMass * 0.05; }
-            r2._destroyed = true;
-        } else if (isGiant1 || isGiant2) {
-            const giant = isGiant1 ? r1 : r2;
-            const smaller = isGiant1 ? r2 : r1;
-            if (smaller.r <= ASTEROID_MIN_SIZE * 1.2) {
-                createExplosion(midVpX, midVpY, 15, '#fff', 2, 'debris');
-                AudioEngine.playSoftThud(midX, midY, giant.z);
-                smaller._destroyed = true;
-            } else {
-                [r1, r2].forEach((r) => {
-                    const newSize = r.r * 0.5;
-                    if (newSize >= ASTEROID_MIN_SIZE) {
-                        const off = r.r * (ASTEROID_SPLIT_OFFSET / ASTEROID_MAX_SIZE);
-                        const ang = Math.random() * Math.PI * 2;
-                        let f1 = createAsteroid(r.x + Math.cos(ang) * off, r.y + Math.sin(ang) * off, newSize);
-                        f1.xv = r.xv + Math.cos(ang) * ASTEROID_SPLIT_SPEED; f1.yv = r.yv + Math.sin(ang) * ASTEROID_SPLIT_SPEED; f1.blinkNum = 30;
-                        State.roids.push(f1);
-                        let f2 = createAsteroid(r.x - Math.cos(ang) * off, r.y - Math.sin(ang) * off, newSize);
-                        f2.xv = r.xv - Math.cos(ang) * ASTEROID_SPLIT_SPEED; f2.yv = r.yv - Math.sin(ang) * ASTEROID_SPLIT_SPEED; f2.blinkNum = 30;
-                        State.roids.push(f2);
-                    }
-                });
-                createExplosion(midVpX, midVpY, 40, '#ffaa00', 3, 'spark');
-                AudioEngine.playExplosion('small', midX, midY, r1.z);
-                r1._destroyed = true; r2._destroyed = true;
-            }
-        } else {
-            let totalMass = r1.mass + r2.mass;
-            r1.x = (r1.x * r1.mass + r2.x * r2.mass) / totalMass;
-            r1.y = (r1.y * r1.mass + r2.y * r2.mass) / totalMass;
-            r1.xv = (r1.xv * r1.mass + r2.xv * r2.mass) / totalMass;
-            r1.yv = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass;
-            r1.targetR = Math.sqrt(r1.r * r1.r + r2.r * r2.r) * 1.05;
-            AudioEngine.playSoftThud(midX, midY, r1.z);
-            r2._destroyed = true;
-        }
-    }
-}
-
-
-function loop() {
+export function loop() {
     requestAnimationFrame(loop);
 
     // Reset global transformation to prevent accumulation of effects like screen shake
@@ -885,6 +365,22 @@ function loop() {
         DOM.canvasContext.scale(State.viewScale, State.viewScale);
     }
 
+    // DRAW CIRCULAR WORLD BOUNDARY (In World Space)
+    DOM.canvasContext.save();
+    const boundVpX = -State.worldOffsetX + State.width / 2;
+    const boundVpY = -State.worldOffsetY + State.height / 2;
+    DOM.canvasContext.beginPath();
+    DOM.canvasContext.arc(boundVpX, boundVpY, WORLD_BOUNDS, 0, Math.PI * 2);
+    DOM.canvasContext.strokeStyle = 'rgba(0, 255, 255, 0.05)';
+    DOM.canvasContext.lineWidth = 100;
+    DOM.canvasContext.stroke();
+
+    // Neon edge
+    DOM.canvasContext.strokeStyle = 'rgba(0, 255, 255, 0.15)';
+    DOM.canvasContext.lineWidth = 20;
+    DOM.canvasContext.stroke();
+    DOM.canvasContext.restore();
+
     // Win condition check: make this very robust. Directly check the State.roids array.
     const activeAsteroids = State.roids.filter(r => !r.isPlanet).length;
     if (State.gameRunning && !State.victoryState && activeAsteroids === 0) {
@@ -1001,38 +497,40 @@ function loop() {
         let shadow = [];
         const SHADOW_SIZE = 50; // Size of the inset shadow border
 
-        // X Boundary Check
-        if (Math.abs(nextWorldX) > WORLD_BOUNDS) {
+        const nextDist = Math.hypot(nextWorldX, nextWorldY);
+        if (nextDist > WORLD_BOUNDS) {
             State.velocity.x *= BOUNDARY_DAMPENING;
-            if (Math.abs(State.worldOffsetX) >= WORLD_BOUNDS) {
-                State.velocity.x = 0; // Stop movement at the edge
-                State.worldOffsetX = nextWorldX > 0 ? WORLD_BOUNDS : -WORLD_BOUNDS; // Cap position
+            State.velocity.y *= BOUNDARY_DAMPENING;
+
+            const currentDist = Math.hypot(State.worldOffsetX, State.worldOffsetY);
+            if (currentDist >= WORLD_BOUNDS) {
+                State.velocity.x = 0;
+                State.velocity.y = 0;
+                const angle = Math.atan2(nextWorldY, nextWorldX);
+                State.worldOffsetX = Math.cos(angle) * WORLD_BOUNDS;
+                State.worldOffsetY = Math.sin(angle) * WORLD_BOUNDS;
             } else {
                 State.worldOffsetX = nextWorldX;
-            }
-        } else {
-            State.worldOffsetX = nextWorldX;
-        }
-
-        // Y Boundary Check (includes dampening near the edge)
-        if (Math.abs(nextWorldY) > WORLD_BOUNDS) {
-            State.velocity.y *= BOUNDARY_DAMPENING;
-            if (Math.abs(State.worldOffsetY) >= WORLD_BOUNDS) {
-                State.velocity.y = 0; // Stop movement at the edge
-                State.worldOffsetY = nextWorldY > 0 ? WORLD_BOUNDS : -WORLD_BOUNDS; // Cap position
-            } else {
                 State.worldOffsetY = nextWorldY;
             }
         } else {
+            State.worldOffsetX = nextWorldX;
             State.worldOffsetY = nextWorldY;
         }
 
         // 4. Visual Boundary Alert (Directional)
+        const currentDist = Math.hypot(State.worldOffsetX, State.worldOffsetY);
         const RED_GLOW = 'rgba(255, 0, 0, 0.7)';
-        if (State.worldOffsetX >= WORLD_BOUNDS - BOUNDARY_TOLERANCE) shadow.push(`${-SHADOW_SIZE}px 0 0 0 ${RED_GLOW} inset`);
-        if (State.worldOffsetX <= -WORLD_BOUNDS + BOUNDARY_TOLERANCE) shadow.push(`${SHADOW_SIZE}px 0 0 0 ${RED_GLOW} inset`);
-        if (State.worldOffsetY >= WORLD_BOUNDS - BOUNDARY_TOLERANCE) shadow.push(`0 ${-SHADOW_SIZE}px 0 0 ${RED_GLOW} inset`);
-        if (State.worldOffsetY <= -WORLD_BOUNDS + BOUNDARY_TOLERANCE) shadow.push(`0 ${SHADOW_SIZE}px 0 0 ${RED_GLOW} inset`);
+        if (currentDist >= WORLD_BOUNDS - BOUNDARY_TOLERANCE) {
+            const angle = Math.atan2(State.worldOffsetY, State.worldOffsetX);
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+
+            if (cos > 0.5) shadow.push(`${-SHADOW_SIZE}px 0 0 0 ${RED_GLOW} inset`);
+            if (cos < -0.5) shadow.push(`${SHADOW_SIZE}px 0 0 0 ${RED_GLOW} inset`);
+            if (sin > 0.5) shadow.push(`0 ${-SHADOW_SIZE}px 0 0 ${RED_GLOW} inset`);
+            if (sin < -0.5) shadow.push(`0 ${SHADOW_SIZE}px 0 0 ${RED_GLOW} inset`);
+        }
 
         if (shadow.length > 0) {
             DOM.canvas.style.boxShadow = shadow.join(', ');
@@ -1142,7 +640,20 @@ function loop() {
                         // AWARD SCORE for Godship destruction
                         if (obj.isPlanet) {
                             addScreenMessage("PLANET " + obj.name.toUpperCase() + " VAPORIZED", "#ff00ff");
-                            createExplosion((obj.x - State.worldOffsetX + State.width / 2), (obj.y - State.worldOffsetY + State.height / 2), 200, '#00ffff', 10, 'spark');
+
+                            const vpX = obj.x - State.worldOffsetX + State.width / 2;
+                            const vpY = obj.y - State.worldOffsetY + State.height / 2;
+
+                            createExplosion(vpX, vpY, 150, '#ffaa00', 8, 'flame');
+                            createExplosion(vpX, vpY, 100, '#ff4400', 12, 'flame');
+                            createExplosion(vpX, vpY, 80, '#550000', 15, 'smoke');
+                            createExplosion(vpX, vpY, 50, '#ffff00', 4, 'spark');
+
+                            AudioEngine.playPlanetExplosion(obj.x, obj.y, obj.z || 0);
+                            State.pendingDebris.push({ x: obj.x, y: obj.y, count: Math.floor(ASTEROIDS * 0.8), isHot: true });
+                            createShockwave(obj.x, obj.y);
+                            createShockwave(obj.x, obj.y);
+
                             increaseShipScore(State.playerShip, 1000); // 1000 for planet
 
                             // Check if player destroyed their own home
@@ -1241,14 +752,6 @@ function loop() {
     for (let i = State.ships.length - 1; i >= 0; i--) {
         let ship = State.ships[i];
 
-        // CRITICAL SYNC: Ensure player ship in the list matches actual world position
-        if (ship === State.playerShip) {
-            ship.x = State.worldOffsetX;
-            ship.y = State.worldOffsetY;
-            ship.xv = State.velocity.x;
-            ship.yv = State.velocity.y;
-        }
-
         if (ship.vaporized || ship.structureHP <= -1) {
             let vpX = (ship.x - State.worldOffsetX) + State.width / 2;
             let vpY = (ship.y - State.worldOffsetY) + State.height / 2;
@@ -1345,16 +848,8 @@ function loop() {
             // 1. Assign Defender vs Stray role based on station capacity
             if (ship.homeStation) {
                 const alliedShips = State.ships.filter(s => s.type === 'ship' && s.homeStation === ship.homeStation && !s.dead);
-
-                // Prioritize ships that ALREADY have a leader away from station as Strays (don't pull them back)
-                // Also sort by distance to keep core defenders close
+                // Sort by distance to home station to keep the closest ones as defenders
                 alliedShips.sort((a, b) => {
-                    // Force ships with a leader that is NOT the home station to the end of the list (to be STRAYs)
-                    const aLeading = (a.leaderRef && a.leaderRef !== a.homeStation);
-                    const bLeading = (b.leaderRef && b.leaderRef !== b.homeStation);
-                    if (aLeading && !bLeading) return 1;
-                    if (!aLeading && bLeading) return -1;
-
                     const da = Math.hypot(a.x - ship.homeStation.x, a.y - ship.homeStation.y);
                     const db = Math.hypot(b.x - ship.homeStation.x, b.y - ship.homeStation.y);
                     return da - db;
@@ -1363,42 +858,30 @@ function loop() {
                 const myIndex = alliedShips.indexOf(ship);
                 if (myIndex < 7) {
                     ship.assignment = 'DEFENDER';
-                    // Only clear leaderRef if it's NOT the player (don't break player squads)
-                    if (ship.leaderRef !== State.playerShip) ship.leaderRef = null;
+                    ship.leaderRef = null; // Defenders don't follow leaders away
                 } else {
                     ship.assignment = 'STRAY';
                 }
             }
 
-            // 2. Friendly ships can join Player's formation
-            if (ship.isFriendly && ship.role !== 'leader' && ship.leaderRef !== State.playerShip && !State.playerShip.dead && State.playerShip.squadSlots) {
+            // 2. Friendly Strays can join Player's formation (Priority)
+            if (ship.isFriendly && ship.assignment === 'STRAY' && ship.leaderRef !== State.playerShip && !State.playerShip.dead && State.playerShip.squadSlots) {
                 const distToPlayer = Math.hypot(ship.x - State.worldOffsetX, ship.y - State.worldOffsetY);
-
-                // JOIN CONDITION: Ship is within recruitment range
-                // We make this much more generous now (800 usually, 1200 if moving away)
-                let playerIsLeaving = true;
-                if (ship.homeStation) {
-                    const distPlayerToStation = Math.hypot(State.worldOffsetX - ship.homeStation.x, State.worldOffsetY - ship.homeStation.y);
-                    if (distPlayerToStation < 1000) playerIsLeaving = false;
-                }
-
-                const joinRange = playerIsLeaving ? 1200 : 800;
-
-                if (distToPlayer < joinRange) {
+                if (distToPlayer < 1500) {
                     // Look for an empty slot in player's squad
                     const emptySlot = State.playerShip.squadSlots.find(slot => !slot.occupant || slot.occupant.dead || !State.ships.includes(slot.occupant));
                     if (emptySlot) {
                         ship.leaderRef = State.playerShip;
                         ship.aiState = 'FORMATION';
+                        ship.role = 'wingman';
+                        ship.formationOffset = { x: emptySlot.x, y: emptySlot.y };
                         // Ensure player has a squadId if they are about to lead
                         if (State.playerShip.squadId === null) {
                             State.playerShip.squadId = Math.random();
-                            addScreenMessage("Wingman squad formed with player as leader.", "#00ffff");
+                            if (State.gameRunning) console.log("Wingman squad formed with player as leader.");
                         }
                         ship.squadId = State.playerShip.squadId;
                         emptySlot.occupant = ship;
-                        // Force update formation offset immediately for snappy feedback
-                        ship.formationOffset = { x: emptySlot.x, y: emptySlot.y };
                     }
                 }
             }
@@ -1414,11 +897,6 @@ function loop() {
                 const shipSpeed = Math.hypot(ship.xv, ship.yv);
                 if (shipSpeed < 10.0) shouldOrbit = true;
             }
-        }
-
-        // NEW: Only orbit if the ship does NOT have a leader (to prevent fighting formation movement)
-        if (shouldOrbit && ship.leaderRef) {
-            shouldOrbit = false;
         }
 
         if (shouldOrbit) {
@@ -1465,6 +943,15 @@ function loop() {
 
         ship.x += ship.xv;
         ship.y += ship.yv;
+
+        // Circular boundary enforcement for ships
+        const distFromCenter = Math.hypot(ship.x, ship.y);
+        if (distFromCenter > WORLD_BOUNDS) {
+            const angleToCenter = Math.atan2(ship.y, ship.x);
+            // Apply a correction force back towards the center
+            ship.xv -= Math.cos(angleToCenter) * BOUNDARY_CORRECTION_FORCE * 2;
+            ship.yv -= Math.sin(angleToCenter) * BOUNDARY_CORRECTION_FORCE * 2;
+        }
 
         // Calculate Viewport Position for drawing (WITH PARALLAX)
         let depthScale = 1;
@@ -1644,7 +1131,7 @@ function loop() {
                     if (obstacle && isPlayerActive) ship.isAvoiding = true;
                     else if (!isPlayerActive) ship.isAvoiding = false;
 
-                    let formationForce = 0.05;
+                    let formationForce = 0.15; // Increased from 0.05
                     ship.arrivalDamping = 0.85;
 
                     if (ship.isAvoiding) {
@@ -1660,7 +1147,14 @@ function loop() {
                         }
                         // While avoiding, do NOT imitate leader
                     } else {
-                        // Normal formation logic
+                        // Normal formation logic: Incorporate leader velocity to eliminate lag
+                        const leaderVX = State.velocity.x;
+                        const leaderVY = State.velocity.y;
+
+                        // Smoothly match leader velocity
+                        ship.xv += (leaderVX - ship.xv) * 0.1;
+                        ship.yv += (leaderVY - ship.yv) * 0.1;
+
                         if (distToTarget < 200) {
                             const arrivalFactor = distToTarget / 200;
                             formationForce *= arrivalFactor;
@@ -1707,11 +1201,8 @@ function loop() {
                             if (slot.occupant && !slot.occupant.dead && (State.ships.includes(slot.occupant) || slot.occupant === State.playerShip)) {
                                 validOccupants.push(slot.occupant);
                             }
-                            // slot.occupant = null; // REMOVED: This was clearing player-assigned occupants every frame!
+                            slot.occupant = null; // Clear all slots first
                         });
-
-                        // 2. Clear all slots first (only after we've saved the occupants)
-                        ship.squadSlots.forEach(slot => slot.occupant = null);
 
                         // 2. Re-assign occupants to slots in order (filling from closest to leader)
                         // 'squadSlots' is naturally ordered by creation (which is usually inner-to-outer in V-formation logic)
@@ -1728,9 +1219,9 @@ function loop() {
                         const currentCount = validOccupants.length;
                         if (ship._lastSquadCount > 0 && currentCount === 0) {
                             if (ship === State.playerShip) {
-                                addScreenMessage("Player wingman squad completely dissolved.", "#ff0000");
+                                if (State.gameRunning) console.log("Player wingman squad completely dissolved.");
                             } else {
-                                addScreenMessage(ship.isFriendly ? "Friendly squad dissolved." : "Enemy wingman squad completely dissolved.", "#ff4444");
+                                if (State.gameRunning) console.log(ship.isFriendly ? "Friendly squad dissolved." : "Enemy wingman squad completely dissolved.");
                             }
                         }
                         ship._lastSquadCount = currentCount;
@@ -1779,8 +1270,10 @@ function loop() {
                             // Pick a new target
                             if (Math.random() < 0.5) {
                                 // Random point in the world
-                                ship.patrolTarget.x = (Math.random() - 0.5) * 1.8 * WORLD_BOUNDS;
-                                ship.patrolTarget.y = (Math.random() - 0.5) * 1.8 * WORLD_BOUNDS;
+                                let ang = Math.random() * Math.PI * 2;
+                                let r = Math.random() * WORLD_BOUNDS * 0.9;
+                                ship.patrolTarget.x = Math.cos(ang) * r;
+                                ship.patrolTarget.y = Math.sin(ang) * r;
                             } else {
                                 // Target check: find a rival station?
                                 let rival = State.ships.find(s => s.type === 'station' && !s.isFriendly && s.fleetHue !== ship.fleetHue && !s.dead);
@@ -1844,8 +1337,16 @@ function loop() {
 
                         const isInVisualSlot = distToTarget < 50;
 
-                        let force = 0.05;
+                        let force = 0.12; // Increased from 0.05
                         let damping = 0.90;
+
+                        // Leader Velocity Inheritance
+                        const lvx = ship.leaderRef === State.playerShip ? State.velocity.x : (ship.leaderRef.xv || 0);
+                        const lvy = ship.leaderRef === State.playerShip ? State.velocity.y : (ship.leaderRef.yv || 0);
+
+                        // Match leader velocity
+                        ship.xv += (lvx - ship.xv) * 0.1;
+                        ship.yv += (lvy - ship.yv) * 0.1;
 
                         if (distToTarget < 200) {
                             const factor = distToTarget / 200;
@@ -2015,12 +1516,13 @@ function loop() {
                         // ship.leaderRef is null here
                         let foundLeader = null;
                         let foundSlot = null;
-                        const JOIN_RANGE = 300; // Must be very close ("near or over him")
+                        const PLAYER_JOIN_RANGE = 1500; // Large range to prioritize following player
+                        const NPC_JOIN_RANGE = 300; // Smaller range for npc clumping
 
                         // 1. CHECK PLAYER FIRST (Priority)
                         if (ship.isFriendly && !State.playerShip.dead && !State.playerShip.loneWolf) {
                             const distToPlayer = Math.hypot(State.worldOffsetX - ship.x, State.worldOffsetY - ship.y);
-                            if (distToPlayer < JOIN_RANGE && State.playerShip.squadSlots) {
+                            if (distToPlayer < PLAYER_JOIN_RANGE && State.playerShip.squadSlots) {
                                 // Find open slot
                                 const openSlot = State.playerShip.squadSlots.find(s => !s.occupant || s.occupant.dead || !State.ships.includes(s.occupant));
                                 if (openSlot) {
@@ -2036,7 +1538,7 @@ function loop() {
                                 if (other.dead || other === ship || other.type !== 'ship') continue;
                                 if (other.fleetHue === ship.fleetHue) {
                                     const dist = Math.hypot(other.x - ship.x, other.y - ship.y);
-                                    if (dist < JOIN_RANGE) {
+                                    if (dist < NPC_JOIN_RANGE) {
                                         if (other.role === 'leader' && other.squadSlots) {
                                             const openSlot = other.squadSlots.find(s => !s.occupant || s.occupant.dead || !State.ships.includes(s.occupant));
                                             if (openSlot) {
@@ -2048,12 +1550,12 @@ function loop() {
                                             // Dynamic Promotion: Both are independent strays. Promote 'other' to leader.
                                             other.role = 'leader';
                                             other.squadId = Math.random();
-                                            addScreenMessage(other.isFriendly ? "Friendly npc squad formed." : "Enemy wingman squad formed.", "#ffaa00");
+                                            if (State.gameRunning) console.log(other.isFriendly ? "Friendly npc squad formed." : "Enemy wingman squad formed.");
                                             other.squadSlots = [
-                                                { x: -120, y: -120, occupant: null }, { x: 120, y: -120, occupant: null },
-                                                { x: -240, y: -240, occupant: null }, { x: 240, y: -240, occupant: null },
-                                                { x: -360, y: -360, occupant: null }, { x: 360, y: -360, occupant: null },
-                                                { x: 0, y: -480, occupant: null } // 7th slot
+                                                { x: -150, y: -150, occupant: null }, { x: 150, y: -150, occupant: null },
+                                                { x: -300, y: -300, occupant: null }, { x: 300, y: -300, occupant: null },
+                                                { x: -450, y: -450, occupant: null }, { x: 450, y: -450, occupant: null },
+                                                { x: 0, y: -600, occupant: null } // 7th slot
                                             ];
                                             foundLeader = other;
                                             foundSlot = other.squadSlots[0];
@@ -2078,8 +1580,10 @@ function loop() {
                             if (!ship.patrolTarget) ship.patrolTarget = { x: ship.x, y: ship.y };
                             const distToPatrol = Math.hypot(ship.x - ship.patrolTarget.x, ship.y - ship.patrolTarget.y);
                             if (distToPatrol < 100) {
-                                ship.patrolTarget.x = (Math.random() - 0.5) * 1.5 * WORLD_BOUNDS;
-                                ship.patrolTarget.y = (Math.random() - 0.5) * 1.5 * WORLD_BOUNDS;
+                                let ang = Math.random() * Math.PI * 2;
+                                let r = Math.random() * WORLD_BOUNDS * 0.7;
+                                ship.patrolTarget.x = Math.cos(ang) * r;
+                                ship.patrolTarget.y = Math.sin(ang) * r;
                             }
                             const tx = ship.patrolTarget.x;
                             const ty = ship.patrolTarget.y;
@@ -2306,7 +1810,7 @@ function loop() {
             createExplosion(vpX, vpY, r.isPlanet ? 200 : 40, '#00ffff', r.isPlanet ? 15 : 4, 'spark');
             if (r.isPlanet) {
                 const planetsBefore = State.roids.filter(plan => plan.isPlanet && !plan._destroyed).length;
-                addScreenMessage("Planet " + r.name + " destroyed. Total planets " + (planetsBefore - 1), "#ff00ff");
+                if (State.gameRunning) console.log("Planet " + r.name + " destroyed. Total planets " + (planetsBefore - 1));
             }
             State.roids.splice(i, 1);
             if (!r.isPlanet) updateAsteroidCounter();
@@ -3689,14 +3193,15 @@ function loop() {
             DOM.canvasContext.fillStyle = p.color;
             DOM.canvasContext.beginPath();
             // Flames pulsate and grow slightly then shrink
-            const flameSize = p.size * (1 + Math.sin(p.life * 0.2) * 0.3);
+            const flameSize = Math.max(0.1, p.size * (1 + Math.sin(p.life * 0.2) * 0.3));
             DOM.canvasContext.arc(vpX, vpY, flameSize, 0, Math.PI * 2);
             DOM.canvasContext.fill();
         } else if (p.type === 'smoke') {
             DOM.canvasContext.globalAlpha = (p.life / 100) * 0.4;
             DOM.canvasContext.fillStyle = p.color;
             DOM.canvasContext.beginPath();
-            DOM.canvasContext.arc(vpX, vpY, p.size * (1 + (100 - p.life) * 0.05), 0, Math.PI * 2);
+            const smokeSize = Math.max(0.1, p.size * (1 + (100 - p.life) * 0.05));
+            DOM.canvasContext.arc(vpX, vpY, smokeSize, 0, Math.PI * 2);
             DOM.canvasContext.fill();
         } else {
             DOM.canvasContext.shadowColor = p.color; DOM.canvasContext.fillStyle = p.color; DOM.canvasContext.globalAlpha = p.life / 60;
@@ -3903,7 +3408,8 @@ function loop() {
     }
 }
 
-function startGame() {
+window.startGame = startGame;
+export function startGame() {
     // Stop menu music
     AudioEngine.stopMusic();
     AudioEngine.setTrack('game');
@@ -3917,7 +3423,7 @@ function startGame() {
 
     DOM.startScreen.style.display = 'none';
     DOM.startScreen.classList.remove('game-over', 'game-over-bg', 'victory', 'fade-out');
-    DOM.startScreen.removeEventListener('click', audioStopper);
+    DOM.startScreen.removeEventListener('click', window.audioStopper);
 
     State.level = 0;
     State.homePlanetId = null;
@@ -3950,6 +3456,7 @@ function startGame() {
         return;
     }
 
+    State.gameRunning = true;
     initBackground();
     createLevel();
 
@@ -3964,7 +3471,6 @@ function startGame() {
 
     drawLives();
     updateAsteroidCounter(); // Sync score/count immediately
-    State.gameRunning = true;
 
     // Reset radar zoom to default (2500)
     State.currentZoomIndex = 2;
@@ -3980,8 +3486,6 @@ function startGame() {
         loop();
     }
 }
-
-resize();
 
 
 

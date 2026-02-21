@@ -95,8 +95,10 @@ export function initializePlanetAttributes(roid, forcedHue = null, forcedName = 
     // Each planet has its own unique center of gravity (not all orbiting 0,0)
     // Generate a random offset for this planet's orbital center
     const maxCenterOffset = WORLD_BOUNDS * 0.3; // Centers can be up to 30% of world bounds from origin
-    roid.orbitCenterX = (rng() - 0.5) * 2 * maxCenterOffset;
-    roid.orbitCenterY = (rng() - 0.5) * 2 * maxCenterOffset;
+    const centerDist = rng() * maxCenterOffset;
+    const centerAng = rng() * Math.PI * 2;
+    roid.orbitCenterX = Math.cos(centerAng) * centerDist;
+    roid.orbitCenterY = Math.sin(centerAng) * centerDist;
 
     // Calculate distance from this planet's orbital center
     const dx = roid.x - roid.orbitCenterX;
@@ -504,8 +506,11 @@ export function onStationDestroyed(station, killerShip = null) {
 
 export function createExplosionDebris(cx, cy, count, isHot = false) {
     for (let i = 0; i < count; i++) {
-        const x = cx;
-        const y = cy;
+        const angle = Math.random() * Math.PI * 2;
+        const offset = Math.random() * 50; // Spread them out slightly to prevent physics overlap glitches
+        const x = cx + Math.cos(angle) * offset;
+        const y = cy + Math.sin(angle) * offset;
+
         const r = ASTEROID_MIN_SIZE + Math.random() * (ASTEROID_MAX_SIZE - ASTEROID_MIN_SIZE);
         const roid = createAsteroid(x, y, r);
 
@@ -514,13 +519,13 @@ export function createExplosionDebris(cx, cy, count, isHot = false) {
             roid.color = `hsl(${20 + Math.random() * 30}, 80%, 30%)`;
         }
 
-        const angle = Math.random() * Math.PI * 2;
-        const speedBase = isHot ? ASTEROID_SPEED_LIMIT * 2.0 : ASTEROID_SPEED_LIMIT;
-        const speed = Math.random() * speedBase;
+        const speedBase = isHot ? ASTEROID_SPEED_LIMIT * 4.0 : ASTEROID_SPEED_LIMIT * 2.0;
+        const speed = (0.5 + Math.random() * 0.5) * speedBase;
 
         roid.xv = Math.cos(angle) * speed;
         roid.yv = Math.sin(angle) * speed;
-        roid.rotSpeed = (Math.random() - 0.5) * 0.2;
+        roid.rotSpeed = (Math.random() - 0.5) * 0.4;
+        roid.blinkNum = 60; // GHOSTING: Prevent N^2 collision checks in clumpy debris cloud for 1 second
 
         State.roids.push(roid);
     }
