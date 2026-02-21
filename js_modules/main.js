@@ -50,11 +50,14 @@ window.onload = function () {
         loop();
     }
 
-    // Add listener to start audio on the first interaction
+    // Add listener to start audio and the game on the first interaction
     DOM.startScreen.addEventListener('click', audioStarter);
+    if (DOM.startBtn) {
+        DOM.startBtn.addEventListener('click', startGame);
+    }
 
     showInfoLEDText("The Classic, reimagined by Aron Galdon. Have a safe trip!")
 }
 
-// Global start function for HTML
+// Global start function backward compat (just in case)
 window.startGame = startGame;

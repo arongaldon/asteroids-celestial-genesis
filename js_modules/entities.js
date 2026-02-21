@@ -25,8 +25,7 @@ export function newPlayerShip() {
         squadSlots: [
             { x: -150, y: -150, occupant: null }, { x: 150, y: -150, occupant: null },
             { x: -300, y: -300, occupant: null }, { x: 300, y: -300, occupant: null },
-            { x: -450, y: -450, occupant: null }, { x: 450, y: -450, occupant: null },
-            { x: 0, y: -600, occupant: null }
+            { x: -450, y: -450, occupant: null }, { x: 450, y: -450, occupant: null } // 6 wingman slots
         ],
         structureHP: startingHP,
         thrusting: false,
@@ -319,110 +318,47 @@ export function spawnShipsSquad(station) {
         // Hostile stations have their own local limit based on SHIP_CONFIG.LIMIT
         if (currentHostileShips >= SHIP_CONFIG.LIMIT * 3) { return; } // Allowing more hostiles than friends for balance
     }
-    const squadId = Math.random();
+    // Spawn 7 independent ships
+    for (let i = 0; i < 7; i++) {
+        const spawnDist = station.r * 2.0 + Math.random() * 50;
+        const spawnAngle = Math.random() * Math.PI * 2;
 
-    let formationData = [
-        { role: 'leader', x: 0, y: 0 },
-        { role: 'wingman', x: -150, y: -150 }, { role: 'wingman', x: 150, y: -150 },
-        { role: 'wingman', x: -300, y: -300 }, { role: 'wingman', x: 300, y: -300 },
-        { role: 'wingman', x: -450, y: -450 }, { role: 'wingman', x: 450, y: -450 }
-    ];
+        const squadX = station.x + Math.cos(spawnAngle) * spawnDist;
+        const squadY = station.y + Math.sin(spawnAngle) * spawnDist;
 
-    // Limit squad size to SHIP_CONFIG.LIMIT (accounting for player if friendly)
-    formationData = formationData.slice(0, SHIP_CONFIG.LIMIT);
-
-    const spawnDist = station.r * 2.0;
-    const spawnAngle = Math.random() * Math.PI * 2;
-
-    const squadX = station.x + Math.cos(spawnAngle) * spawnDist;
-    const squadY = station.y + Math.sin(spawnAngle) * spawnDist;
-
-    let e = null;
-    let leader = null;
-
-    formationData.forEach(slot => {
-        if (station.isFriendly && State.playerShip.dead === false && State.playerShip.squadId === null) {
-            e = State.playerShip;
-            e.squadId = squadId;
-            e.bulletSpeed = 25; // Player stats are handled elsewhere usually, but good fallback
-        }
-        else {
-            e = {
-                a: spawnAngle + Math.PI,
-                aiState: 'FORMATION',
-                blinkNum: 30,
-                fleetHue: station.fleetHue,
-                formationOffset: { x: slot.x, y: slot.y },
-                isFriendly: station.isFriendly,
-                leaderRef: null,
-                mass: 30,
-                r: SHIP_CONFIG.SIZE / 2,
-                reloadTime: 100 + Math.random() * 100,
-                role: slot.role,
-                score: 0,
-                shieldHitTimer: 0,
-                squadId: squadId,
-                structureHP: SHIP_CONFIG.RESISTANCE,
-                thrusting: false,
-                tier: 0,
-                // Weapon Properties (Default for Player)
-                bulletSpeed: 25,
-                bulletLife: 50,
-                bulletSize: 6,
-                type: 'ship',
-                x: squadX + slot.x,
-                xv: station.xv,
-                y: squadY + slot.y,
-                yv: station.yv,
-                z: 0,
-                homeStation: station,
-                // Individual Weapon Properties (Randomized)
-                bulletSpeed: 15 + Math.random() * 10, // 15-25
-                bulletSize: 4 + Math.random() * 3, // 4-7
-                bulletLife: 45 + Math.random() * 15,
-                shootDelay: Math.random() * 20 // Randomize firing phase
-            };
-        }
-
-        if (slot.role === 'leader') {
-            leader = e;
-            // Always ensure the leader has 7 squad slots (for wingmen 1-7)
-            if (!leader.squadSlots || leader.squadSlots.length < 7) {
-                leader.squadSlots = [
-                    { x: -150, y: -150, occupant: null }, { x: 150, y: -150, occupant: null },
-                    { x: -300, y: -300, occupant: null }, { x: 300, y: -300, occupant: null },
-                    { x: -450, y: -450, occupant: null }, { x: 450, y: -450, occupant: null },
-                    { x: 0, y: -600, occupant: null } // 7th slot
-                ];
-            }
-            // Clear current occupants for this specific squad spawn session
-            leader.squadSlots.forEach(s => s.occupant = null);
-        } else {
-            e.leaderRef = leader;
-            // Register this wingman in the leader's slot list
-            if (leader) {
-                // Determine which list to use (player or NPC leader)
-                const slots = leader === State.playerShip ? State.playerShip.squadSlots : leader.squadSlots;
-                if (slots) {
-                    // Find an empty slot or a slot matching our offset
-                    let targetSlot = slots.find(s => !s.occupant && s.x === slot.x && s.y === slot.y);
-                    if (!targetSlot) targetSlot = slots.find(s => !s.occupant);
-                    if (targetSlot) {
-                        targetSlot.occupant = e;
-                    } else {
-                        // Fallback: push if no slots left (though we initialized 7)
-                        slots.push({
-                            x: slot.x,
-                            y: slot.y,
-                            occupant: e
-                        });
-                    }
-                }
-            }
-        }
+        let e = {
+            a: spawnAngle + Math.PI,
+            aiState: 'FORMATION',
+            blinkNum: 30,
+            fleetHue: station.fleetHue,
+            formationOffset: { x: 0, y: 0 },
+            isFriendly: station.isFriendly,
+            leaderRef: null,
+            mass: 30,
+            r: SHIP_CONFIG.SIZE / 2,
+            reloadTime: 100 + Math.random() * 100,
+            role: 'wingman', // Spawns as independent stray
+            score: 0,
+            shieldHitTimer: 0,
+            squadId: null,
+            structureHP: SHIP_CONFIG.RESISTANCE,
+            thrusting: false,
+            tier: 0,
+            type: 'ship',
+            x: squadX,
+            xv: station.xv + (Math.random() - 0.5),
+            y: squadY,
+            yv: station.yv + (Math.random() - 0.5),
+            z: 0,
+            homeStation: station,
+            bulletSpeed: 15 + Math.random() * 10,
+            bulletSize: 4 + Math.random() * 3,
+            bulletLife: 45 + Math.random() * 15,
+            shootDelay: Math.random() * 20
+        };
 
         State.ships.push(e);
-    });
+    }
 }
 
 export function getShipTier(ship) {
