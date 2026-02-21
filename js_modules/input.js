@@ -1,4 +1,4 @@
-import { ASTEROIDS, PLAYER_RELOAD_TIME_MAX, SHIP_BULLET1_LIFETIME, SHIP_BULLET2_LIFETIME, SHIP_EVOLUTION_SCORE_STEP, ZOOM_LEVELS } from './config.js';
+import { ASTEROID_CONFIG, BOUNDARY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
 import { State } from './state.js';
 import { AudioEngine } from './audio.js';
 import { addScreenMessage } from './render.js';
@@ -18,13 +18,13 @@ export function changeRadarZoom(direction) {
 export function shootLaser() {
     if (!State.gameRunning || State.playerShip.dead || State.victoryState) return;
     if (State.playerReloadTime > 0) return;
-    State.playerReloadTime = PLAYER_RELOAD_TIME_MAX;
+    State.playerReloadTime = PLAYER_CONFIG.RELOAD_TIME_MAX;
     fireEntityWeapon(State.playerShip, State.playerShipBullets, false);
 }
 
 export function fireEntityWeapon(ship, bulletList, isEnemy = true) {
     const isPlayer = (ship === State.playerShip);
-    const tier = isPlayer ? ship.tier : Math.floor(ship.score / SHIP_EVOLUTION_SCORE_STEP);
+    const tier = isPlayer ? ship.tier : Math.floor(ship.score / SHIP_CONFIG.EVOLUTION_SCORE_STEP);
 
     if (isPlayer && tier >= 12) {
         if (ship.transformationTimer > 0) {
@@ -60,7 +60,7 @@ export function fireEntityWeapon(ship, bulletList, isEnemy = true) {
         const startY = (isPlayer ? State.worldOffsetY : ship.y) + (fwdY * spawnRadius);
 
         const bSpeed = (ship.bulletSpeed || 18) * speedScale;
-        const bLife = ship.bulletLife || (isPrimary ? SHIP_BULLET1_LIFETIME : SHIP_BULLET2_LIFETIME);
+        const bLife = ship.bulletLife || (isPrimary ? SHIP_CONFIG.BULLET1_LIFETIME : SHIP_CONFIG.BULLET2_LIFETIME);
         const bSize = (ship.bulletSize || 5) * sizeScale;
 
         const velX = (Math.cos(shootAngle) * bSpeed) + (isPlayer ? State.velocity.x : ship.xv);
@@ -138,7 +138,7 @@ export function fireEntityWeapon(ship, bulletList, isEnemy = true) {
 }
 
 export function fireGodWeapon(ship) {
-    State.playerReloadTime = PLAYER_RELOAD_TIME_MAX * 5; // Long cooldown for massive power
+    State.playerReloadTime = PLAYER_CONFIG.RELOAD_TIME_MAX * 5; // Long cooldown for massive power
 
     // Play Godly sound
     AudioEngine.playLaser(State.worldOffsetX, State.worldOffsetY, 12);
@@ -266,7 +266,7 @@ export function proactiveCombatScanner(e) {
         }
     }
 
-    // 2. SCAN FOR ASTEROIDS (Defend Home Station)
+    // 2. SCAN FOR ASTEROID_CONFIG.COUNT (Defend Home Station)
     // Priority: Asteroids near the home station
     if (e.homeStation) {
         for (let r of State.roids) {

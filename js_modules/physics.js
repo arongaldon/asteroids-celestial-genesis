@@ -1,6 +1,6 @@
 import { State } from './state.js';
 import { SpatialHash } from './utils.js';
-import { ASTEROIDS, ASTEROID_MAX_SIZE, ASTEROID_MIN_SIZE, ASTEROID_SPEED_LIMIT, BOUNDARY_CORRECTION_FORCE, BOUNDARY_TOLERANCE_ROIDS, PLANETS_LIMIT, G_CONST, WORLD_BOUNDS, ASTEROID_SPLIT_OFFSET, ASTEROID_SPLIT_SPEED, MAX_Z_DEPTH } from './config.js';
+import { ASTEROID_CONFIG, BOUNDARY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
 import { createAsteroid, initializePlanetAttributes, createExplosion, createExplosionDebris, createShockwave, spawnStation } from './entities.js';
 import { AudioEngine } from './audio.js';
 import { addScreenMessage, updateAsteroidCounter } from './render.js';
@@ -17,8 +17,8 @@ export function updatePhysics() {
         let r1 = State.roids[i];
         if (isNaN(r1.x) || isNaN(r1.y)) { State.roids.splice(i, 1); updateAsteroidCounter(); i--; continue; }
 
-        // --- 1. Radius Growth ---
-        if (r1.targetR && r1.r < r1.targetR) {
+        // --- 1. Radius Growth (Only for Planets) ---
+        if (r1.isPlanet && r1.targetR && r1.r < r1.targetR) {
             r1.r += (r1.targetR - r1.r) * 0.02;
             r1.mass = r1.r * r1.r * 0.05;
             if (r1.targetR - r1.r < 1.0) { r1.r = r1.targetR; r1.targetR = null; r1.mass = r1.r * r1.r * 0.05; }
@@ -92,7 +92,7 @@ export function updatePhysics() {
                 const gravityRange = nearestPlanet.r * 10.0; // Increased gravity range
 
                 if (dist < gravityRange) {
-                    const isOrbitCandidate = (r1.r <= ASTEROID_MIN_SIZE * 1.2);
+                    const isOrbitCandidate = (r1.r <= ASTEROID_CONFIG.MIN_SIZE * 1.2);
                     if (dist > orbitRadius || !isOrbitCandidate) {
                         const forceMagnitude = (G_CONST * nearestPlanet.mass * 8.0) / Math.max(minDistSq, 100);
                         r1.xv += (dx / dist) * forceMagnitude;
@@ -134,15 +134,15 @@ export function updatePhysics() {
 
         // --- 5. Speed Limit & Boundary ---
         const speed = Math.hypot(r1.xv, r1.yv);
-        if (speed > ASTEROID_SPEED_LIMIT) {
-            const ratio = ASTEROID_SPEED_LIMIT / speed;
+        if (speed > ASTEROID_CONFIG.MAX_SPEED) {
+            const ratio = ASTEROID_CONFIG.MAX_SPEED / speed;
             r1.xv *= ratio; r1.yv *= ratio;
         }
         const distToCenter = Math.hypot(r1.x, r1.y);
-        if (distToCenter > WORLD_BOUNDS - BOUNDARY_TOLERANCE_ROIDS) {
+        if (distToCenter > WORLD_BOUNDS - BOUNDARY_CONFIG.TOLERANCE_ROIDS) {
             const angle = Math.atan2(r1.y, r1.x);
-            r1.xv -= Math.cos(angle) * BOUNDARY_CORRECTION_FORCE;
-            r1.yv -= Math.sin(angle) * BOUNDARY_CORRECTION_FORCE;
+            r1.xv -= Math.cos(angle) * BOUNDARY_CONFIG.CORRECTION_FORCE;
+            r1.yv -= Math.sin(angle) * BOUNDARY_CONFIG.CORRECTION_FORCE;
         }
 
         // --- 6. Insert into Grid ---
@@ -209,7 +209,7 @@ export function resolveInteraction(r1, r2) {
         } else if (r1.isPlanet || r2.isPlanet) {
             force = (G_CONST * r1.mass * r2.mass) / Math.max(distSq, 500);
         } else {
-            const isGiant = (r1.r >= ASTEROID_MAX_SIZE || r2.r >= ASTEROID_MAX_SIZE);
+            const isGiant = (r1.r >= ASTEROID_CONFIG.MAX_SIZE || r2.r >= ASTEROID_CONFIG.MAX_SIZE);
             const G_ROIDS = isGiant ? 5.0 : 0.08;
             force = (G_ROIDS * r1.mass * r2.mass) / Math.max(distSq, 400);
         }
@@ -234,7 +234,7 @@ export function resolveInteraction(r1, r2) {
             createExplosion(midVpX, midVpY, 50, '#ffff00', 4, 'spark');
             AudioEngine.playPlanetExplosion(midX, midY, r1.z);
             if (r1.id === State.homePlanetId || r2.id === State.homePlanetId) triggerHomePlanetLost('collision');
-            State.pendingDebris.push({ x: midX, y: midY, count: Math.floor(ASTEROIDS * 0.8), isHot: true });
+            State.pendingDebris.push({ x: midX, y: midY, count: ASTEROID_CONFIG.PLANET_DEBRIS, isHot: true });
             createShockwave(midX, midY, true);
             createShockwave(midX, midY);
             for (let k = State.ships.length - 1; k >= 0; k--) {
@@ -252,7 +252,7 @@ export function resolveInteraction(r1, r2) {
         if (r1.isPlanet !== r2.isPlanet) {
             let planet = r1.isPlanet ? r1 : r2;
             let asteroid = r1.isPlanet ? r2 : r1;
-            if (asteroid.r <= ASTEROID_MIN_SIZE * 1.2) {
+            if (asteroid.r <= ASTEROID_CONFIG.MIN_SIZE * 1.2) {
                 const angle = Math.atan2(asteroid.y - planet.y, asteroid.x - planet.x);
                 const minDist = planet.r + asteroid.r + 5;
                 asteroid.x = planet.x + Math.cos(angle) * minDist;
@@ -268,7 +268,7 @@ export function resolveInteraction(r1, r2) {
             planet.targetR = Math.sqrt((Math.PI * planet.r * planet.r + Math.PI * asteroid.r * asteroid.r * 1.5) / Math.PI); // Slightly more growth
             planet.mass = totalMass;
 
-            if (planet.id === State.homePlanetId && asteroid.r > ASTEROID_MIN_SIZE * 2) {
+            if (planet.id === State.homePlanetId && asteroid.r > ASTEROID_CONFIG.MIN_SIZE * 2) {
                 createExplosion(midVpX, midVpY, 20, '#00ffaa', 3, 'spark');
             }
 
@@ -276,8 +276,8 @@ export function resolveInteraction(r1, r2) {
             return;
         }
 
-        const isGiant1 = r1.r >= ASTEROID_MAX_SIZE;
-        const isGiant2 = r2.r >= ASTEROID_MAX_SIZE;
+        const isGiant1 = r1.r >= ASTEROID_CONFIG.MAX_SIZE;
+        const isGiant2 = r2.r >= ASTEROID_CONFIG.MAX_SIZE;
 
         if (isGiant1 && isGiant2) {
             let totalMass = r1.mass + r2.mass;
@@ -288,33 +288,33 @@ export function resolveInteraction(r1, r2) {
             r1.yv = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass * 0.5;
             if (!r1.isPlanet) {
                 const currentPlanets = State.roids.filter(r => r.isPlanet && !r._destroyed).length;
-                if (currentPlanets < PLANETS_LIMIT) {
-                    r1.r = Math.max(newR, ASTEROID_MAX_SIZE + 10);
+                if (currentPlanets < PLANET_CONFIG.LIMIT) {
+                    r1.r = Math.max(newR, ASTEROID_CONFIG.MAX_SIZE + 10);
                     initializePlanetAttributes(r1);
                     r1.targetR = r1.r; r1.mass = totalMass * 0.05;
                     createExplosion(midVpX, midVpY, 60, '#00ffff', 10, 'spark');
                     AudioEngine.playPlanetExplosion(midX, midY, r1.z);
-                } else { r1.r = newR; r1.targetR = newR; }
+                } else { r1.r = newR; r1.targetR = null; }
             } else { r1.r = newR; r1.targetR = newR; r1.mass = totalMass * 0.05; }
             r2._destroyed = true;
         } else if (isGiant1 || isGiant2) {
             const giant = isGiant1 ? r1 : r2;
             const smaller = isGiant1 ? r2 : r1;
-            if (smaller.r <= ASTEROID_MIN_SIZE * 1.2) {
+            if (smaller.r <= ASTEROID_CONFIG.MIN_SIZE * 1.2) {
                 createExplosion(midVpX, midVpY, 15, '#fff', 2, 'debris');
                 AudioEngine.playSoftThud(midX, midY, giant.z);
                 smaller._destroyed = true;
             } else {
                 [r1, r2].forEach((r) => {
                     const newSize = r.r * 0.5;
-                    if (newSize >= ASTEROID_MIN_SIZE) {
-                        const off = r.r * (ASTEROID_SPLIT_OFFSET / ASTEROID_MAX_SIZE);
+                    if (newSize >= ASTEROID_CONFIG.MIN_SIZE) {
+                        const off = r.r * (ASTEROID_CONFIG.SPLIT_OFFSET / ASTEROID_CONFIG.MAX_SIZE);
                         const ang = Math.random() * Math.PI * 2;
                         let f1 = createAsteroid(r.x + Math.cos(ang) * off, r.y + Math.sin(ang) * off, newSize);
-                        f1.xv = r.xv + Math.cos(ang) * ASTEROID_SPLIT_SPEED; f1.yv = r.yv + Math.sin(ang) * ASTEROID_SPLIT_SPEED; f1.blinkNum = 30;
+                        f1.xv = r.xv + Math.cos(ang) * ASTEROID_CONFIG.MAX_SPEED; f1.yv = r.yv + Math.sin(ang) * ASTEROID_CONFIG.MAX_SPEED; f1.blinkNum = 30;
                         State.roids.push(f1);
                         let f2 = createAsteroid(r.x - Math.cos(ang) * off, r.y - Math.sin(ang) * off, newSize);
-                        f2.xv = r.xv - Math.cos(ang) * ASTEROID_SPLIT_SPEED; f2.yv = r.yv - Math.sin(ang) * ASTEROID_SPLIT_SPEED; f2.blinkNum = 30;
+                        f2.xv = r.xv - Math.cos(ang) * ASTEROID_CONFIG.MAX_SPEED; f2.yv = r.yv - Math.sin(ang) * ASTEROID_CONFIG.MAX_SPEED; f2.blinkNum = 30;
                         State.roids.push(f2);
                     }
                 });
@@ -328,7 +328,8 @@ export function resolveInteraction(r1, r2) {
             r1.y = (r1.y * r1.mass + r2.y * r2.mass) / totalMass;
             r1.xv = (r1.xv * r1.mass + r2.xv * r2.mass) / totalMass;
             r1.yv = (r1.yv * r1.mass + r2.yv * r2.mass) / totalMass;
-            r1.targetR = Math.sqrt(r1.r * r1.r + r2.r * r2.r) * 1.05;
+            r1.r = Math.sqrt(r1.r * r1.r + r2.r * r2.r) * 1.05;
+            r1.targetR = null;
             AudioEngine.playSoftThud(midX, midY, r1.z);
             r2._destroyed = true;
         }

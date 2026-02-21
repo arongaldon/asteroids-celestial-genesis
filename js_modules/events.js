@@ -1,6 +1,6 @@
 import { State } from './state.js';
 import { changeRadarZoom, shootLaser } from './input.js';
-import { MIN_DURATION_TAP_TO_MOVE } from './config.js';
+import { ASTEROID_CONFIG, BOUNDARY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
 
 export let isTouching = false;
 export let touchStartTime = 0;

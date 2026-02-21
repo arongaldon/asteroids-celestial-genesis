@@ -1,4 +1,4 @@
-import { ASTEROIDS, ASTEROIDS_INIT_INNER, ASTEROIDS_INIT_OUTER, ASTEROID_DESTROYED_REWARD, ASTEROID_MAX_SIZE, ASTEROID_MIN_SIZE, ASTEROID_SPEED_LIMIT, ASTEROID_SPLIT_OFFSET, ASTEROID_SPLIT_SPEED, BOUNDARY_CORRECTION_FORCE, BOUNDARY_DAMPENING, BOUNDARY_TOLERANCE, BOUNDARY_TOLERANCE_ROIDS, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, PLANETS_LIMIT, PLANET_MAX_SIZE, PLAYER_INITIAL_LIVES, PLAYER_RELOAD_TIME_MAX, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, SHIPS_COMBAT_ORBIT_DISTANCE, SHIPS_LIMIT, SHIPS_SEPARATION_DISTANCE, SHIPS_SPAWN_TIME, SHIP_BASE_MAX_SHIELD, SHIP_BULLET1_LIFETIME, SHIP_BULLET2_LIFETIME, SHIP_BULLET_FADE_FRAMES, SHIP_BULLET_GRAVITY_FACTOR, SHIP_EVOLUTION_SCORE_STEP, SHIP_FRIENDLY_BLUE_HUE, SHIP_KILLED_REWARD, SHIP_MAX_SPEED, SHIP_RESISTANCE, SHIP_SIGHT_RANGE, SHIP_SIZE, SHIP_THRUST, STATIONS_PER_PLANET, STATIONS_SPAWN_TIMER, STATION_KILLED_REWARD, STATION_RESISTANCE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
+import { ASTEROID_CONFIG, BOUNDARY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
 import { State } from './state.js';
 import { SpatialHash, mulberry32, getShapeName } from './utils.js';
 import { AudioEngine } from './audio.js';
@@ -37,31 +37,31 @@ export function createLevel() {
     State.roids = []; State.enemyShipBullets = []; State.playerShipBullets = []; State.shockwaves = [];
     // State.ships = []; // REMOVED: Don't clear State.ships here, clear it in startGame instead
 
-    if (PLANETS_LIMIT === 0) {
+    if (PLANET_CONFIG.LIMIT === 0) {
         State.homePlanetId = null;
     }
     else {
         let planetSpawned = false;
         let planetX = (Math.random() - 0.5) * 5000;
         let planetY = (Math.random() - 0.5) * 5000;
-        let firstPlanet = createAsteroid(planetX, planetY, ASTEROID_MAX_SIZE + 1, 0, "HOME");
+        let firstPlanet = createAsteroid(planetX, planetY, ASTEROID_CONFIG.MAX_SIZE + 1, 0, "HOME");
         State.roids.push(firstPlanet);
         State.homePlanetId = firstPlanet.id;
         firstPlanet.zSpeed = 0;
 
         if (firstPlanet.textureData) {
-            firstPlanet.textureData.waterColor = `hsl(${SHIP_FRIENDLY_BLUE_HUE}, 60%, 30%)`;
-            firstPlanet.textureData.atmosphereColor = `hsl(${SHIP_FRIENDLY_BLUE_HUE}, 80%, 60%)`;
-            firstPlanet.textureData.innerGradColor = `hsl(${SHIP_FRIENDLY_BLUE_HUE}, 10%, 2%)`;
+            firstPlanet.textureData.waterColor = `hsl(${SHIP_CONFIG.FRIENDLY_BLUE_HUE}, 60%, 30%)`;
+            firstPlanet.textureData.atmosphereColor = `hsl(${SHIP_CONFIG.FRIENDLY_BLUE_HUE}, 80%, 60%)`;
+            firstPlanet.textureData.innerGradColor = `hsl(${SHIP_CONFIG.FRIENDLY_BLUE_HUE}, 10%, 2%)`;
         }
 
         planetSpawned = true;
     }
 
-    createAsteroidBelt(0, 0, ASTEROIDS_INIT_INNER, WORLD_BOUNDS * 0.9, ASTEROIDS);
+    createAsteroidBelt(0, 0, ASTEROID_CONFIG.INIT_INNER, WORLD_BOUNDS * 0.9, ASTEROID_CONFIG.COUNT);
 
     State.roids.filter(r => r.isPlanet).forEach(planet => {
-        const stationCount = Math.floor(Math.random() * STATIONS_PER_PLANET) + 1;
+        const stationCount = Math.floor(Math.random() * STATION_CONFIG.PER_PLANET) + 1;
         for (let i = 0; i < stationCount; i++) {
             spawnStation(planet);
         }
@@ -105,7 +105,7 @@ export function killPlayerShip(reason = 'normal') {
 
     if (State.playerShip.lives > 0) setTimeout(() => {
         State.playerShip.dead = false;
-        State.playerShip.structureHP = SHIP_RESISTANCE;
+        State.playerShip.structureHP = SHIP_CONFIG.RESISTANCE;
 
         drawLives();
     }, 3000);
@@ -158,9 +158,9 @@ export function triggerHomePlanetLost(reason) {
 
     if (reason === 'player') {
         State.screenMessages = [];
-        addScreenMessage("Oh, no, you destroyed your own home!", "#ff0000");
+        addScreenMessage("Home destroyed by you!", "#ff0000");
     } else {
-        addScreenMessage("CRITICAL FAILURE: HOME PLANET DESTROYED", "#ff0000");
+        addScreenMessage("Home destroyed by a collision!", "#ff0000");
     }
 }
 
@@ -168,9 +168,8 @@ function handleVictoryInteraction() {
     if (!State.victoryState) return;
 
     // Show Congratulations
-    showInfoLEDText("CONGRATULATIONS: YOUR PLANET WILL LOVE YOU FOREVER.");
-    addScreenMessage("MISSION ACCOMPLISHED!", "#00ff00");
-    addScreenMessage("YOU HAVE CLEANED THE SYSTEM.", "#ffff00");
+    showInfoLEDText("Congratulations: your planet will love you forever.");
+    addScreenMessage("mission accomplished!", "#00ff00");
 
     DOM.startScreen.classList.remove('fade-out');
     DOM.startScreen.classList.add('victory');
@@ -276,6 +275,8 @@ export function loop() {
     State.ships = State.ships.filter(isSafe);
     State.playerShipBullets = State.playerShipBullets.filter(isSafe);
     State.enemyShipBullets = State.enemyShipBullets.filter(isSafe);
+
+    const activePlanets = State.roids.filter(r => r.isPlanet && !r._destroyed);
 
     // --- Tier 12 Godship Warning System ---
     if (!State.playerShip.dead && State.playerShip.tier >= 12) {
@@ -416,21 +417,21 @@ export function loop() {
         const strafeMultiplier = 0.7; // 70% power for strafing
 
         if (State.playerShip.thrusting) {
-            deltaX += SHIP_THRUST * Math.cos(State.playerShip.a);
-            deltaY += SHIP_THRUST * Math.sin(State.playerShip.a);
+            deltaX += SHIP_CONFIG.THRUST * Math.cos(State.playerShip.a);
+            deltaY += SHIP_CONFIG.THRUST * Math.sin(State.playerShip.a);
             if (Math.random() < 0.2) AudioEngine.playThrust(State.worldOffsetX, State.worldOffsetY);
         }
 
         if (State.keys.KeyA) { // Strafe Left
             const strafeAngle = State.playerShip.a - Math.PI / 2;
-            deltaX += SHIP_THRUST * strafeMultiplier * Math.cos(strafeAngle);
-            deltaY += SHIP_THRUST * strafeMultiplier * Math.sin(strafeAngle);
+            deltaX += SHIP_CONFIG.THRUST * strafeMultiplier * Math.cos(strafeAngle);
+            deltaY += SHIP_CONFIG.THRUST * strafeMultiplier * Math.sin(strafeAngle);
             if (Math.random() < 0.2) AudioEngine.playThrust(State.worldOffsetX, State.worldOffsetY);
         }
         if (State.keys.KeyD) { // Strafe Right
             const strafeAngle = State.playerShip.a + Math.PI / 2;
-            deltaX += SHIP_THRUST * strafeMultiplier * Math.cos(strafeAngle);
-            deltaY += SHIP_THRUST * strafeMultiplier * Math.sin(strafeAngle);
+            deltaX += SHIP_CONFIG.THRUST * strafeMultiplier * Math.cos(strafeAngle);
+            deltaY += SHIP_CONFIG.THRUST * strafeMultiplier * Math.sin(strafeAngle);
             if (Math.random() < 0.2) AudioEngine.playThrust(State.worldOffsetX, State.worldOffsetY);
         }
 
@@ -487,7 +488,7 @@ export function loop() {
 
         // Limit max speed
         const currentSpeed = Math.sqrt(State.velocity.x ** 2 + State.velocity.y ** 2);
-        if (currentSpeed > (State.playerShip.tier >= 12 ? SHIP_MAX_SPEED * 2 : SHIP_MAX_SPEED)) { const ratio = SHIP_MAX_SPEED / currentSpeed; State.velocity.x *= ratio; State.velocity.y *= ratio; }
+        if (currentSpeed > (State.playerShip.tier >= 12 ? SHIP_CONFIG.MAX_SPEED * 2 : SHIP_CONFIG.MAX_SPEED)) { const ratio = SHIP_CONFIG.MAX_SPEED / currentSpeed; State.velocity.x *= ratio; State.velocity.y *= ratio; }
 
         // 3. Update Player's World Position (State.worldOffsetX/Y)
         let nextWorldX = State.worldOffsetX + State.velocity.x;
@@ -499,8 +500,8 @@ export function loop() {
 
         const nextDist = Math.hypot(nextWorldX, nextWorldY);
         if (nextDist > WORLD_BOUNDS) {
-            State.velocity.x *= BOUNDARY_DAMPENING;
-            State.velocity.y *= BOUNDARY_DAMPENING;
+            State.velocity.x *= BOUNDARY_CONFIG.DAMPENING;
+            State.velocity.y *= BOUNDARY_CONFIG.DAMPENING;
 
             const currentDist = Math.hypot(State.worldOffsetX, State.worldOffsetY);
             if (currentDist >= WORLD_BOUNDS) {
@@ -521,7 +522,7 @@ export function loop() {
         // 4. Visual Boundary Alert (Directional)
         const currentDist = Math.hypot(State.worldOffsetX, State.worldOffsetY);
         const RED_GLOW = 'rgba(255, 0, 0, 0.7)';
-        if (currentDist >= WORLD_BOUNDS - BOUNDARY_TOLERANCE) {
+        if (currentDist >= WORLD_BOUNDS - BOUNDARY_CONFIG.TOLERANCE) {
             const angle = Math.atan2(State.worldOffsetY, State.worldOffsetX);
             const cos = Math.cos(angle);
             const sin = Math.sin(angle);
@@ -650,7 +651,7 @@ export function loop() {
                             createExplosion(vpX, vpY, 50, '#ffff00', 4, 'spark');
 
                             AudioEngine.playPlanetExplosion(obj.x, obj.y, obj.z || 0);
-                            State.pendingDebris.push({ x: obj.x, y: obj.y, count: Math.floor(ASTEROIDS * 0.8), isHot: true });
+                            State.pendingDebris.push({ x: obj.x, y: obj.y, count: ASTEROID_CONFIG.PLANET_DEBRIS, isHot: true });
                             createShockwave(obj.x, obj.y);
                             createShockwave(obj.x, obj.y);
 
@@ -661,7 +662,7 @@ export function loop() {
                                 triggerHomePlanetLost('player');
                             }
                         } else {
-                            increaseShipScore(State.playerShip, ASTEROID_DESTROYED_REWARD);
+                            increaseShipScore(State.playerShip, SCORE_REWARDS.ASTEROID_DESTROYED);
                         }
                     } else if (obj.type === 'ship' || obj.type === 'station') {
                         obj.structureHP = -1; // Force death
@@ -815,9 +816,10 @@ export function loop() {
                 ship.yv *= 0.8;
 
                 // Stations avoid crashing.
-                for (let r of State.roids) {
+                let stationNeighbors = spatialGrid.query(ship);
+                for (let r of stationNeighbors) {
                     if (r === host) continue; // Don't avoid host
-                    if (r.z > 0.5) continue;
+                    if (r.z > 0.5 || r.isPlanet) continue;
 
                     let dx = ship.x - r.x;
                     let dy = ship.y - r.y;
@@ -838,7 +840,7 @@ export function loop() {
 
                 // Recover shield and make station effectively "gone" if far away
                 if (ship.z >= 0.5) {
-                    ship.structureHP = STATION_RESISTANCE;
+                    ship.structureHP = STATION_CONFIG.RESISTANCE;
                 }
             }
         }
@@ -905,11 +907,11 @@ export function loop() {
 
             // Defenders prioritize their home planet, strays use nearest
             if (ship.assignment === 'DEFENDER' && ship.homeStation && ship.homeStation.hostPlanetId) {
-                nearestPlanet = State.roids.find(r => r.id === ship.homeStation.hostPlanetId);
+                nearestPlanet = activePlanets.find(r => r.id === ship.homeStation.hostPlanetId);
                 if (nearestPlanet) minDistSq = (nearestPlanet.x - ship.x) ** 2 + (nearestPlanet.y - ship.y) ** 2;
             } else {
-                for (const r of State.roids) {
-                    if (r.isPlanet && Math.abs(r.z) < 0.5) {
+                for (const r of activePlanets) {
+                    if (Math.abs(r.z) < 0.5) {
                         const dSq = (r.x - ship.x) ** 2 + (r.y - ship.y) ** 2;
                         if (dSq < minDistSq) {
                             minDistSq = dSq;
@@ -949,8 +951,8 @@ export function loop() {
         if (distFromCenter > WORLD_BOUNDS) {
             const angleToCenter = Math.atan2(ship.y, ship.x);
             // Apply a correction force back towards the center
-            ship.xv -= Math.cos(angleToCenter) * BOUNDARY_CORRECTION_FORCE * 2;
-            ship.yv -= Math.sin(angleToCenter) * BOUNDARY_CORRECTION_FORCE * 2;
+            ship.xv -= Math.cos(angleToCenter) * BOUNDARY_CONFIG.CORRECTION_FORCE * 2;
+            ship.yv -= Math.sin(angleToCenter) * BOUNDARY_CONFIG.CORRECTION_FORCE * 2;
         }
 
         // Calculate Viewport Position for drawing (WITH PARALLAX)
@@ -1026,10 +1028,10 @@ export function loop() {
             ship.spawnTimer--;
             if (ship.spawnTimer <= 0) {
                 const currentShips = State.ships.filter(en => en.type === 'ship').length;
-                if (currentShips <= SHIPS_LIMIT) {
+                if (currentShips <= SHIP_CONFIG.LIMIT) {
                     spawnShipsSquad(ship);
                 }
-                ship.spawnTimer = SHIPS_SPAWN_TIME + Math.random() * SHIPS_SPAWN_TIME;
+                ship.spawnTimer = SHIP_CONFIG.SPAWN_TIME + Math.random() * SHIP_CONFIG.SPAWN_TIME;
             }
 
             // Stations shoot at nearby asteroids
@@ -1049,9 +1051,9 @@ export function loop() {
             const distToPlayer = Math.hypot(State.worldOffsetX - ship.x, State.worldOffsetY - ship.y);
 
             // 1. STATE TRANSITION
-            if (!ship.isFriendly && distToPlayer < SHIP_SIGHT_RANGE && !State.playerShip.dead) { // Only State.ships auto-switch to combat by distance
+            if (!ship.isFriendly && distToPlayer < SHIP_CONFIG.SIGHT_RANGE && !State.playerShip.dead) { // Only State.ships auto-switch to combat by distance
                 ship.aiState = 'COMBAT';
-            } else if (distToPlayer > SHIP_SIGHT_RANGE * 1.5 && ship.aiState === 'COMBAT') {
+            } else if (distToPlayer > SHIP_CONFIG.SIGHT_RANGE * 1.5 && ship.aiState === 'COMBAT') {
                 ship.aiState = 'FORMATION';
             }
 
@@ -1237,7 +1239,8 @@ export function loop() {
                         let threateningAst = null;
                         let minAstDist = Infinity;
 
-                        for (let r of State.roids) {
+                        let stationHazards = spatialGrid.query(ship.homeStation);
+                        for (let r of stationHazards) {
                             if (r.z > 0.5 || r.isPlanet) continue;
                             const distToHome = Math.hypot(r.x - ship.homeStation.x, r.y - ship.homeStation.y);
 
@@ -1366,7 +1369,7 @@ export function loop() {
                             ship.yv += Math.sin(ang) * 1.5;
                         }
 
-                        // Separation from other State.ships (respect SHIPS_SEPARATION_DISTANCE)
+                        // Separation from other State.ships (respect SHIP_CONFIG.SEPARATION_DISTANCE)
                         let sepX = 0;
                         let sepY = 0;
                         let sepCount = 0;
@@ -1378,7 +1381,7 @@ export function loop() {
 
                             if (isTeammate) {
                                 let distToOther = Math.hypot(ship.x - other.x, ship.y - other.y);
-                                const requiredDist = SHIPS_SEPARATION_DISTANCE + (ship.r + other.r) * 0.5; // Ensure padding
+                                const requiredDist = SHIP_CONFIG.SEPARATION_DISTANCE + (ship.r + other.r) * 0.5; // Ensure padding
                                 if (distToOther < requiredDist) {
                                     let ang = Math.atan2(ship.y - other.y, ship.x - other.x);
                                     // Stronger separation force (0.05 instead of 0.01) to act as a hard buffer
@@ -1612,7 +1615,7 @@ export function loop() {
 
                 // Enemy State.ships can target alive player IF CLOSE ENOUGH
                 // This logic ensures they don't hunt across the map
-                if (!ship.isFriendly && !State.playerShip.dead && distToPlayer < SHIP_SIGHT_RANGE * 1.5) {
+                if (!ship.isFriendly && !State.playerShip.dead && distToPlayer < SHIP_CONFIG.SIGHT_RANGE * 1.5) {
                     target = { x: State.worldOffsetX, y: State.worldOffsetY, isRival: false, r: 0 };
                     minDist = distToPlayer;
                 }
@@ -1667,7 +1670,7 @@ export function loop() {
 
                 // 1. Radial Force (Push/Pull) - Proportional smooth spring
                 // Instead of hard ±0.8, we scale by distance diff
-                const distError = d - SHIPS_COMBAT_ORBIT_DISTANCE;
+                const distError = d - SHIP_CONFIG.COMBAT_ORBIT_DISTANCE;
                 // If positive (too far), pull in. If negative (too close), push out.
                 const radialForce = distError * 0.002; // Small spring constant
 
@@ -1690,11 +1693,11 @@ export function loop() {
                     if (other === ship || other.type !== 'ship') continue;
                     // Simple distance check
                     let distToOther = Math.hypot(ship.x - other.x, ship.y - other.y);
-                    if (distToOther < SHIPS_SEPARATION_DISTANCE) {
+                    if (distToOther < SHIP_CONFIG.SEPARATION_DISTANCE) {
                         // Push away relative to other
                         let ang = Math.atan2(ship.y - other.y, ship.x - other.x);
                         // Force stronger the closer they are
-                        let force = (SHIPS_SEPARATION_DISTANCE - distToOther) * 0.01;
+                        let force = (SHIP_CONFIG.SEPARATION_DISTANCE - distToOther) * 0.01;
                         sepX += Math.cos(ang) * force;
                         sepY += Math.sin(ang) * force;
                         count++;
@@ -1711,8 +1714,8 @@ export function loop() {
                 ship.yv *= 0.96;
 
                 let currentSpeed = Math.hypot(ship.xv, ship.yv);
-                if (currentSpeed > (ship.tier >= 12 ? SHIP_MAX_SPEED * 2 : SHIP_MAX_SPEED)) {
-                    let scale = (ship.tier >= 12 ? SHIP_MAX_SPEED * 2 : SHIP_MAX_SPEED) / currentSpeed;
+                if (currentSpeed > (ship.tier >= 12 ? SHIP_CONFIG.MAX_SPEED * 2 : SHIP_CONFIG.MAX_SPEED)) {
+                    let scale = (ship.tier >= 12 ? SHIP_CONFIG.MAX_SPEED * 2 : SHIP_CONFIG.MAX_SPEED) / currentSpeed;
                     ship.xv *= scale;
                     ship.yv *= scale;
                 }
@@ -1726,7 +1729,8 @@ export function loop() {
 
                 // Also shoot at nearby asteroids while in combat
                 if (ship.reloadTime <= 0) {
-                    for (let r of State.roids) {
+                    let combatThreats = spatialGrid.query(ship);
+                    for (let r of combatThreats) {
                         if (r.z > 0.5 || r.isPlanet) continue;
                         const distToRoid = Math.hypot(r.x - ship.x, r.y - ship.y);
                         if (distToRoid < 1000) {
@@ -1904,8 +1908,7 @@ export function loop() {
                 DOM.canvasContext.shadowColor = '#ff6600';
                 DOM.canvasContext.strokeStyle = '#ffcc00';
             } else {
-                DOM.canvasContext.shadowBlur = 10;
-                DOM.canvasContext.shadowColor = 'white';
+                DOM.canvasContext.shadowBlur = 0; // Optimization: Disable blur for standard asteroids
                 DOM.canvasContext.strokeStyle = 'white';
             }
             DOM.canvasContext.fillStyle = r.color; // Dark gray fill
@@ -1960,25 +1963,25 @@ export function loop() {
                     createExplosion(vpX, vpY, 8, '#fff', 1, 'debris');
 
                     const newSize = r.r * 0.5;
-                    if (newSize >= ASTEROID_MIN_SIZE) {
-                        const dynamicOffset = r.r * (ASTEROID_SPLIT_OFFSET / ASTEROID_MAX_SIZE);
+                    if (newSize >= ASTEROID_CONFIG.MIN_SIZE) {
+                        const dynamicOffset = r.r * (ASTEROID_CONFIG.SPLIT_OFFSET / ASTEROID_CONFIG.MAX_SIZE);
                         // West asteroid
                         let westAst = createAsteroid(r.x - dynamicOffset, r.y, newSize);
-                        westAst.xv = r.xv - ASTEROID_SPLIT_SPEED;
+                        westAst.xv = r.xv - ASTEROID_CONFIG.MAX_SPEED;
                         westAst.yv = r.yv;
                         westAst.blinkNum = 30;
                         State.roids.push(westAst);
 
                         // East asteroid
                         let eastAst = createAsteroid(r.x + dynamicOffset, r.y, newSize);
-                        eastAst.xv = r.xv + ASTEROID_SPLIT_SPEED;
+                        eastAst.xv = r.xv + ASTEROID_CONFIG.MAX_SPEED;
                         eastAst.yv = r.yv;
                         eastAst.blinkNum = 30;
                         State.roids.push(eastAst);
                         updateAsteroidCounter();
                     }
 
-                    if (State.playerShip.tier >= 12) increaseShipScore(State.playerShip, ASTEROID_DESTROYED_REWARD);
+                    if (State.playerShip.tier >= 12) increaseShipScore(State.playerShip, SCORE_REWARDS.ASTEROID_DESTROYED);
                     State.roids.splice(i, 1);
                     updateAsteroidCounter();
 
@@ -2028,7 +2031,7 @@ export function loop() {
         if (shipToDraw.type === 'ship') {
 
             // Individual evolution: State.ships match their OWN score visuals
-            const tier = Math.floor((shipToDraw.score || 0) / SHIP_EVOLUTION_SCORE_STEP);
+            const tier = Math.floor((shipToDraw.score || 0) / SHIP_CONFIG.EVOLUTION_SCORE_STEP);
             const r = shipToDraw.r;
 
             // Generate Palette based on fleetHue (Host Planet)
@@ -2368,7 +2371,7 @@ export function loop() {
         DOM.canvasContext.globalAlpha = 1;
 
         let currentHP = shipToDraw.structureHP;
-        let maxHP = shipToDraw.type === 'station' ? STATION_RESISTANCE : SHIP_RESISTANCE;
+        let maxHP = shipToDraw.type === 'station' ? STATION_CONFIG.RESISTANCE : SHIP_CONFIG.RESISTANCE;
         let shieldOpacity = 0;
         let r, g, b;
 
@@ -2384,10 +2387,10 @@ export function loop() {
             if (shipToDraw.z >= 0.5) {
                 return;
             }
-            if (currentHP >= STATION_RESISTANCE * 2 / 3) { // Phase 1: Green/Blue - High Shield
+            if (currentHP >= STATION_CONFIG.RESISTANCE * 2 / 3) { // Phase 1: Green/Blue - High Shield
                 r = 0; g = 255; b = 255; // Cian
                 shieldOpacity = 1.0;
-            } else if (currentHP >= STATION_RESISTANCE / 2) { // Phase 2: Yellow/Orange - Mid Shield/Warning
+            } else if (currentHP >= STATION_CONFIG.RESISTANCE / 2) { // Phase 2: Yellow/Orange - Mid Shield/Warning
                 r = 255; g = 165; b = 0;
                 shieldOpacity = 0.7;
             } else { // Phase 3: Red - Critical Structure
@@ -2419,11 +2422,11 @@ export function loop() {
         // Regeneration is now solely for visual/Tesla effect, as structureHP manages hits
         if (State.playerShip.shield < State.playerShip.maxShield) State.playerShip.shield += 0.05;
 
-        let isTesla = State.playerShip.maxShield > SHIP_BASE_MAX_SHIELD;
+        let isTesla = State.playerShip.maxShield > SHIP_CONFIG.BASE_MAX_SHIELD;
 
         const tier = State.playerShip.tier;
 
-        const BASE_SHIP_RADIUS = SHIP_SIZE / 2;
+        const BASE_SHIP_RADIUS = SHIP_CONFIG.SIZE / 2;
         const MAX_TIER_RADIUS = BASE_SHIP_RADIUS + (7 * 2); // Tier 7 size
         if (tier >= 8) State.playerShip.effectiveR = MAX_TIER_RADIUS;
         else State.playerShip.effectiveR = BASE_SHIP_RADIUS + (tier * 2);
@@ -2443,7 +2446,7 @@ export function loop() {
                 shieldRadius = State.playerShip.effectiveR * EPIC_SHIELD_FACTOR;
             }
 
-            if (State.playerShip.structureHP === SHIP_RESISTANCE) {
+            if (State.playerShip.structureHP === SHIP_CONFIG.RESISTANCE) {
                 shieldAlpha = isTesla ? (0.5 + Math.random() * 0.2) : 0.5;
                 strokeWidth = isTesla ? 1.5 : 1;
             }
@@ -2454,7 +2457,7 @@ export function loop() {
 
                 let baseColor, shadowColor;
 
-                if (State.playerShip.structureHP <= SHIP_RESISTANCE && tier < 8) {
+                if (State.playerShip.structureHP <= SHIP_CONFIG.RESISTANCE && tier < 8) {
                     baseColor = '#0ff'; shadowColor = 'rgba(0, 255, 255, 0.7)';
                 } else if (State.playerShip.structureHP >= 7) {
                     baseColor = '#0ff'; shadowColor = 'rgba(0, 255, 255, 0.7)';
@@ -2479,7 +2482,7 @@ export function loop() {
             DOM.canvasContext.globalAlpha = 1;
 
             // --- Drawing logic for Ship Tiers ---
-            const PLAYER_HUE = SHIP_FRIENDLY_BLUE_HUE; // 210 (cyan/blue)
+            const PLAYER_HUE = SHIP_CONFIG.FRIENDLY_BLUE_HUE; // 210 (cyan/blue)
             if (tier >= 12) {
                 // THE GODSHIP: Massive, glowing, advanced
                 let norm = 1.2; // Adjusted target size (Reduced from 1.5)
@@ -2787,14 +2790,14 @@ export function loop() {
         let enemyShipBullet = State.enemyShipBullets[i];
 
         // Gravity (World Coords)
-        for (let r of State.roids) {
-            if (r.isPlanet && r.z < 0.5) { // Near planet
+        for (let r of activePlanets) {
+            if (r.z < 0.5) { // Near planet
                 let dx = r.x - enemyShipBullet.x; let dy = r.y - enemyShipBullet.y; // World Distance Vector
                 let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
                 let force = (G_CONST * r.mass) / Math.max(distSq, 1000);
                 if (dist < r.r * 8 && dist > 1) {
-                    enemyShipBullet.xv += (dx / dist) * force * SHIP_BULLET_GRAVITY_FACTOR;
-                    enemyShipBullet.yv += (dy / dist) * force * SHIP_BULLET_GRAVITY_FACTOR;
+                    enemyShipBullet.xv += (dx / dist) * force * SHIP_CONFIG.BULLET_GRAVITY_FACTOR;
+                    enemyShipBullet.yv += (dy / dist) * force * SHIP_CONFIG.BULLET_GRAVITY_FACTOR;
                 }
             }
         }
@@ -2810,8 +2813,8 @@ export function loop() {
         const vpY = enemyShipBullet.y - State.worldOffsetY + State.height / 2;
 
         let alpha = 1.0;
-        if (enemyShipBullet.life < SHIP_BULLET_FADE_FRAMES) {
-            alpha = enemyShipBullet.life / SHIP_BULLET_FADE_FRAMES;
+        if (enemyShipBullet.life < SHIP_CONFIG.BULLET_FADE_FRAMES) {
+            alpha = enemyShipBullet.life / SHIP_CONFIG.BULLET_FADE_FRAMES;
         }
         DOM.canvasContext.globalAlpha = alpha;
 
@@ -2868,7 +2871,7 @@ export function loop() {
 
             // INDIVIDUAL EVOLUTION: Gain score for hitting/killing player
             if (enemyShipBullet.owner && State.ships.includes(enemyShipBullet.owner)) {
-                enemyShipBullet.owner.score += SHIP_KILLED_REWARD;
+                enemyShipBullet.owner.score += SCORE_REWARDS.SHIP_KILLED;
             }
 
             State.enemyShipBullets.splice(i, 1);
@@ -2899,7 +2902,7 @@ export function loop() {
 
                     // INDIVIDUAL EVOLUTION: Gain score for killing rival
                     if (enemyShipBullet.owner && State.ships.includes(enemyShipBullet.owner)) {
-                        enemyShipBullet.owner.score += (e.type === 'station') ? STATION_KILLED_REWARD : SHIP_KILLED_REWARD;
+                        enemyShipBullet.owner.score += (e.type === 'station') ? SCORE_REWARDS.STATION_KILLED : SCORE_REWARDS.SHIP_KILLED;
                     }
 
                     State.ships.splice(k, 1);
@@ -2914,8 +2917,9 @@ export function loop() {
         if (hit) continue;
 
         // Collision with asteroids (World Coords)
-        for (let j = State.roids.length - 1; j >= 0; j--) {
-            let r = State.roids[j];
+        let nearbyRoids = spatialGrid.query(enemyShipBullet);
+        for (let j = nearbyRoids.length - 1; j >= 0; j--) {
+            let r = nearbyRoids[j];
             if (r.z > 0.5) continue;
             if (Math.hypot(enemyShipBullet.x - r.x, enemyShipBullet.y - r.y) < r.r) {
                 const rVpX = r.x - State.worldOffsetX + State.width / 2;
@@ -2929,31 +2933,32 @@ export function loop() {
 
                     // INDIVIDUAL EVOLUTION: Gain score for destroying asteroids
                     if (enemyShipBullet.owner && State.ships.includes(enemyShipBullet.owner)) {
-                        enemyShipBullet.owner.score += ASTEROID_DESTROYED_REWARD;
+                        enemyShipBullet.owner.score += SCORE_REWARDS.ASTEROID_DESTROYED;
                     }
 
                     const newSize = r.r * 0.5;
-                    if (newSize >= ASTEROID_MIN_SIZE) {
+                    if (newSize >= ASTEROID_CONFIG.MIN_SIZE) {
                         const bulletAngle = Math.atan2(enemyShipBullet.yv, enemyShipBullet.xv);
                         const perpAngle1 = bulletAngle + Math.PI / 2;
                         const perpAngle2 = bulletAngle - Math.PI / 2;
-                        const dynamicOffset = r.r * (ASTEROID_SPLIT_OFFSET / ASTEROID_MAX_SIZE);
+                        const dynamicOffset = r.r * (ASTEROID_CONFIG.SPLIT_OFFSET / ASTEROID_CONFIG.MAX_SIZE);
 
                         let frag1 = createAsteroid(r.x + Math.cos(perpAngle1) * dynamicOffset, r.y + Math.sin(perpAngle1) * dynamicOffset, newSize);
-                        frag1.xv = r.xv + Math.cos(perpAngle1) * ASTEROID_SPLIT_SPEED;
-                        frag1.yv = r.yv + Math.sin(perpAngle1) * ASTEROID_SPLIT_SPEED;
+                        frag1.xv = r.xv + Math.cos(perpAngle1) * ASTEROID_CONFIG.MAX_SPEED;
+                        frag1.yv = r.yv + Math.sin(perpAngle1) * ASTEROID_CONFIG.MAX_SPEED;
                         frag1.blinkNum = 30;
                         State.roids.push(frag1);
 
                         let frag2 = createAsteroid(r.x + Math.cos(perpAngle2) * dynamicOffset, r.y + Math.sin(perpAngle2) * dynamicOffset, newSize);
-                        frag2.xv = r.xv + Math.cos(perpAngle2) * ASTEROID_SPLIT_SPEED;
-                        frag2.yv = r.yv + Math.sin(perpAngle2) * ASTEROID_SPLIT_SPEED;
+                        frag2.xv = r.xv + Math.cos(perpAngle2) * ASTEROID_CONFIG.MAX_SPEED;
+                        frag2.yv = r.yv + Math.sin(perpAngle2) * ASTEROID_CONFIG.MAX_SPEED;
                         frag2.blinkNum = 30;
                         State.roids.push(frag2);
 
                         updateAsteroidCounter();
                     }
-                    State.roids.splice(j, 1);
+                    const roidIdx = State.roids.indexOf(r);
+                    if (roidIdx !== -1) State.roids.splice(roidIdx, 1);
                     updateAsteroidCounter();
                     AudioEngine.playExplosion('small', r.x, r.y, r.z); // Added for asteroid destruction by enemy
                 }
@@ -2967,14 +2972,14 @@ export function loop() {
     for (let i = State.playerShipBullets.length - 1; i >= 0; i--) {
         let playerShipBullet = State.playerShipBullets[i];
 
-        for (let r of State.roids) {
-            if (r.isPlanet && r.z < 0.5) {
+        for (let r of activePlanets) {
+            if (r.z < 0.5) {
                 let dx = r.x - playerShipBullet.x; let dy = r.y - playerShipBullet.y;
                 let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
                 let force = (G_CONST * r.mass) / Math.max(distSq, 1000);
-                if (dist < r.r * 8 && dist > 1) {
-                    playerShipBullet.xv += (dx / dist) * force * SHIP_BULLET_GRAVITY_FACTOR;
-                    playerShipBullet.yv += (dy / dist) * force * SHIP_BULLET_GRAVITY_FACTOR;
+                if (dist < r.r * 8 && dist > 1) { // Same gravity reach
+                    playerShipBullet.xv += (dx / dist) * force * SHIP_CONFIG.BULLET_GRAVITY_FACTOR;
+                    playerShipBullet.yv += (dy / dist) * force * SHIP_CONFIG.BULLET_GRAVITY_FACTOR;
                 }
             }
         }
@@ -2991,8 +2996,8 @@ export function loop() {
 
         // NEW: Bullet Fade Effect
         let alpha = 1.0;
-        if (playerShipBullet.life < SHIP_BULLET_FADE_FRAMES) {
-            alpha = playerShipBullet.life / SHIP_BULLET_FADE_FRAMES;
+        if (playerShipBullet.life < SHIP_CONFIG.BULLET_FADE_FRAMES) {
+            alpha = playerShipBullet.life / SHIP_CONFIG.BULLET_FADE_FRAMES;
         }
         DOM.canvasContext.globalAlpha = alpha;
 
@@ -3047,8 +3052,9 @@ export function loop() {
         let hit = false;
 
         // Collision with asteroids/planets (World Coords)
-        for (let j = State.roids.length - 1; j >= 0; j--) {
-            let r = State.roids[j];
+        let playerNearbyRoids = spatialGrid.query(playerShipBullet);
+        for (let j = playerNearbyRoids.length - 1; j >= 0; j--) {
+            let r = playerNearbyRoids[j];
             if (r.z > 0.5) continue;
 
             // Use bullet size for effective collision radius
@@ -3084,33 +3090,34 @@ export function loop() {
                     createExplosion(rVpX, rVpY, 5, '#888', 2, 'debris');
 
                     const newSize = r.r * 0.5;
-                    if (newSize >= ASTEROID_MIN_SIZE) {
+                    if (newSize >= ASTEROID_CONFIG.MIN_SIZE) {
                         const bulletAngle = Math.atan2(playerShipBullet.yv, playerShipBullet.xv);
                         const perpAngle1 = bulletAngle + Math.PI / 2;
                         const perpAngle2 = bulletAngle - Math.PI / 2;
-                        const dynamicOffset = r.r * (ASTEROID_SPLIT_OFFSET / ASTEROID_MAX_SIZE);
+                        const dynamicOffset = r.r * (ASTEROID_CONFIG.SPLIT_OFFSET / ASTEROID_CONFIG.MAX_SIZE);
 
                         let frag1 = createAsteroid(r.x + Math.cos(perpAngle1) * dynamicOffset, r.y + Math.sin(perpAngle1) * dynamicOffset, newSize);
-                        frag1.xv = r.xv + Math.cos(perpAngle1) * ASTEROID_SPLIT_SPEED;
-                        frag1.yv = r.yv + Math.sin(perpAngle1) * ASTEROID_SPLIT_SPEED;
+                        frag1.xv = r.xv + Math.cos(perpAngle1) * ASTEROID_CONFIG.MAX_SPEED;
+                        frag1.yv = r.yv + Math.sin(perpAngle1) * ASTEROID_CONFIG.MAX_SPEED;
                         frag1.blinkNum = 30;
                         State.roids.push(frag1);
 
                         let frag2 = createAsteroid(r.x + Math.cos(perpAngle2) * dynamicOffset, r.y + Math.sin(perpAngle2) * dynamicOffset, newSize);
-                        frag2.xv = r.xv + Math.cos(perpAngle2) * ASTEROID_SPLIT_SPEED;
-                        frag2.yv = r.yv + Math.sin(perpAngle2) * ASTEROID_SPLIT_SPEED;
+                        frag2.xv = r.xv + Math.cos(perpAngle2) * ASTEROID_CONFIG.MAX_SPEED;
+                        frag2.yv = r.yv + Math.sin(perpAngle2) * ASTEROID_CONFIG.MAX_SPEED;
                         frag2.blinkNum = 30;
                         State.roids.push(frag2);
 
                         updateAsteroidCounter();
                     }
 
-                    State.roids.splice(j, 1);
+                    const roidIdx = State.roids.indexOf(r);
+                    if (roidIdx !== -1) State.roids.splice(roidIdx, 1);
                     updateAsteroidCounter();
                     AudioEngine.playExplosion('small', r.x, r.y, r.z);
                 }
                 if (!r.isPlanet) {
-                    increaseShipScore(State.playerShip, ASTEROID_DESTROYED_REWARD);
+                    increaseShipScore(State.playerShip, SCORE_REWARDS.ASTEROID_DESTROYED);
                 }
                 State.playerShipBullets.splice(i, 1); hit = true; break;
             }
@@ -3301,67 +3308,7 @@ export function loop() {
             }
         });
 
-        // --- Off-Screen Asteroid Indicators ---
-        // Show gray indicators at screen borders for asteroids that are approaching but not visible
-        State.roids.forEach(r => {
-            if (r.isPlanet || r.z > 0.5) return; // Skip planets and far-away asteroids
 
-            // Calculate viewport position (in world viewport space)
-            const depthScale = 1 / (1 + r.z);
-            const worldVpX = (r.x - State.worldOffsetX) * depthScale + State.width / 2;
-            const worldVpY = (r.y - State.worldOffsetY) * depthScale + State.height / 2;
-
-            // Apply State.viewScale transformation to get screen position
-            const vpX = worldVpX * State.viewScale + State.width / 2 * (1 - State.viewScale);
-            const vpY = worldVpY * State.viewScale + State.height / 2 * (1 - State.viewScale);
-
-            const screenLeft = 0;
-            const screenRight = State.width;
-            const screenTop = 0;
-            const screenBottom = State.height;
-
-            // Check if asteroid is off-screen but within detection range
-            const isOffScreen = vpX < screenLeft || vpX > screenRight || vpY < screenTop || vpY > screenBottom;
-            const distToPlayer = Math.hypot(r.x - State.worldOffsetX, r.y - State.worldOffsetY);
-
-            if (isOffScreen && distToPlayer < DETECTION_RANGE) {
-                // Calculate indicator position at screen border
-                let indicatorX = vpX;
-                let indicatorY = vpY;
-
-                // Clamp to screen borders with padding
-                if (vpX < screenLeft) indicatorX = screenLeft + BORDER_PADDING;
-                else if (vpX > screenRight) indicatorX = screenRight - BORDER_PADDING;
-
-                if (vpY < screenTop) indicatorY = screenTop + BORDER_PADDING;
-                else if (vpY > screenBottom) indicatorY = screenBottom - BORDER_PADDING;
-
-                // Draw subtle gray indicator
-                const pulseAlpha = 0.4 + Math.sin(Date.now() / 250) * 0.2;
-                DOM.canvasContext.globalAlpha = pulseAlpha;
-                DOM.canvasContext.fillStyle = '#AAAAAA';
-                DOM.canvasContext.shadowColor = '#AAAAAA';
-                DOM.canvasContext.shadowBlur = 8;
-
-                // Draw arrow pointing towards asteroid
-                const angleToAsteroid = Math.atan2(vpY - indicatorY, vpX - indicatorX);
-                DOM.canvasContext.save();
-                DOM.canvasContext.translate(indicatorX, indicatorY);
-                DOM.canvasContext.rotate(angleToAsteroid);
-
-                // Draw triangle arrow (slightly smaller than enemy indicators)
-                const asteroidIndicatorSize = INDICATOR_SIZE * 0.75;
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(asteroidIndicatorSize, 0);
-                DOM.canvasContext.lineTo(-asteroidIndicatorSize / 2, -asteroidIndicatorSize / 2);
-                DOM.canvasContext.lineTo(-asteroidIndicatorSize / 2, asteroidIndicatorSize / 2);
-                DOM.canvasContext.closePath();
-                DOM.canvasContext.fill();
-
-                DOM.canvasContext.restore();
-                DOM.canvasContext.globalAlpha = 1;
-            }
-        });
 
         DOM.canvasContext.restore();
         DOM.canvasContext.shadowBlur = 0;
@@ -3436,7 +3383,7 @@ export function startGame() {
     State.velocity = { x: 0, y: 0 };
     State.worldOffsetX = 0;
     State.worldOffsetY = 0;
-    State.stationSpawnTimer = STATIONS_SPAWN_TIMER;
+    State.stationSpawnTimer = STATION_CONFIG.SPAWN_TIMER;
     stationsDestroyedCount = 0;
     State.playerReloadTime = 0; // Reset reload timer
 

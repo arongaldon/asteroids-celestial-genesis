@@ -1,50 +1,75 @@
-export const ASTEROIDS = 2000;
-export const ASTEROIDS_INIT_INNER = 10000;
-export const ASTEROIDS_INIT_OUTER = 50000;
-export const ASTEROID_DESTROYED_REWARD = 100;
-export const ASTEROID_MAX_SIZE = 200;
-export const ASTEROID_MIN_SIZE = ASTEROID_MAX_SIZE / 4;
-export const ASTEROID_SPEED_LIMIT = 20;
-export const ASTEROID_SPLIT_OFFSET = 200;
-export const ASTEROID_SPLIT_SPEED = 40;
-export const BOUNDARY_CORRECTION_FORCE = 0.05;
-export const BOUNDARY_DAMPENING = 0.5;
-export const BOUNDARY_TOLERANCE = 100;
-export const BOUNDARY_TOLERANCE_ROIDS = 1000;
+
+export const ASTEROID_CONFIG = {
+   COUNT: 1000,
+   INIT_INNER: 10000,
+   INIT_OUTER: 50000,
+   MAX_SIZE: 400,
+   MAX_SPEED: 10,
+   MIN_SIZE: 100,
+   PLANET_DEBRIS: 25,
+   SPLIT_OFFSET: 300
+};
+
+export const BOUNDARY_CONFIG = {
+   CORRECTION_FORCE: 0.05,
+   DAMPENING: 0.5,
+   TOLERANCE: 100,
+   TOLERANCE_ROIDS: 1000
+};
+
 export const FPS = 60;
 export const FRICTION = 0.99;
 export const G_CONST = 0.9;
 export const MAX_Z_DEPTH = 1.0;
 export const MIN_DURATION_TAP_TO_MOVE = 200;
-export const PLANETS_LIMIT = 20;
-export const PLANET_MAX_SIZE = 5000;
-export const PLAYER_INITIAL_LIVES = 3;
-export const PLAYER_RELOAD_TIME_MAX = 8;
+
+export const PLANET_CONFIG = {
+   LIMIT: 10,
+   MAX_SIZE: 4000
+};
+
+export const PLAYER_CONFIG = {
+   INITIAL_LIVES: 3,
+   RELOAD_TIME_MAX: 8
+};
+
+export const SHIP_CONFIG = {
+   BASE_MAX_SHIELD: 100,
+   BULLET1_LIFETIME: 60,
+   BULLET2_LIFETIME: 20,
+   BULLET_FADE_FRAMES: 5,
+   BULLET_GRAVITY_FACTOR: 90,
+   COMBAT_ORBIT_DISTANCE: 340,
+   EVOLUTION_SCORE_STEP: 1000,
+   FRIENDLY_BLUE_HUE: 210,
+   LIMIT: 70,
+   MAX_SPEED: 100,
+   RESISTANCE: 2,
+   SEPARATION_DISTANCE: 30,
+   SIGHT_RANGE: 2000,
+   SIZE: 50,
+   SPAWN_TIME: 1000,
+   THRUST: 0.9
+};
+
 export const SCALE_IN_MOUSE_MODE = 1.0;
 export const SCALE_IN_TOUCH_MODE = 0.5;
-export const SHIPS_COMBAT_ORBIT_DISTANCE = 340;
-export const SHIPS_LIMIT = 2 * 7 * PLANETS_LIMIT;
-export const SHIPS_SEPARATION_DISTANCE = 30;
-export const SHIPS_SPAWN_TIME = 1000;
-export const SHIP_BASE_MAX_SHIELD = 100;
-export const SHIP_BULLET1_LIFETIME = 60;
-export const SHIP_BULLET2_LIFETIME = SHIP_BULLET1_LIFETIME / 3;
-export const SHIP_BULLET_FADE_FRAMES = 5;
-export const SHIP_BULLET_GRAVITY_FACTOR = 90;
-export const SHIP_EVOLUTION_SCORE_STEP = 1000;
-export const SHIP_FRIENDLY_BLUE_HUE = 210;
-export const SHIP_KILLED_REWARD = 200;
-export const SHIP_MAX_SPEED = 70;
-export const SHIP_RESISTANCE = 2;
-export const SHIP_SIGHT_RANGE = 2000;
-export const SHIP_SIZE = 50;
-export const SHIP_THRUST = 0.9;
-export const STATIONS_PER_PLANET = 1;
-export const STATIONS_SPAWN_TIMER = 300;
-export const STATION_KILLED_REWARD = 500;
-export const STATION_RESISTANCE = 6;
+
+export const SCORE_REWARDS = {
+   ASTEROID_DESTROYED: 100,
+   SHIP_KILLED: 200,
+   STATION_KILLED: 500
+};
+
+export const STATION_CONFIG = {
+   PER_PLANET: 1,
+   SPAWN_TIMER: 300,
+   RESISTANCE: 6
+};
+
 export const WORLD_BOUNDS = 20000;
 export const ZOOM_LEVELS = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000];
+
 export const suffixes = ["PRIME", "IV", "X", "ALPHA", "BETA", "MAJOR", "MINOR", "ZERO", "AEON"];
 export const syllables = ["KRON", "XER", "ZAN", "TOR", "AER", "ION", "ULA", "PROX", "VEX", "NOV", "SOL", "LUNA", "TER", "MAR", "JUP"];
 

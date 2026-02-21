@@ -1,26 +1,26 @@
-import { ASTEROID_MAX_SIZE, ASTEROID_MIN_SIZE, ASTEROID_SPEED_LIMIT, ASTEROID_SPLIT_OFFSET, ASTEROID_SPLIT_SPEED, FPS, PLANETS_LIMIT, PLAYER_INITIAL_LIVES, SHIPS_LIMIT, SHIP_BASE_MAX_SHIELD, SHIP_EVOLUTION_SCORE_STEP, SHIP_FRIENDLY_BLUE_HUE, SHIP_KILLED_REWARD, SHIP_RESISTANCE, SHIP_SIZE, STATIONS_SPAWN_TIMER, STATION_KILLED_REWARD, STATION_RESISTANCE, WORLD_BOUNDS, suffixes, syllables } from './config.js';
+import { ASTEROID_CONFIG, BOUNDARY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
 import { State } from './state.js';
 import { mulberry32, getShapeName } from './utils.js';
 import { addScreenMessage, updateAsteroidCounter, drawLives } from './render.js';
 
 export function newPlayerShip() {
-    const startingHP = SHIP_RESISTANCE;
+    const startingHP = SHIP_CONFIG.RESISTANCE;
     return {
         a: 90 / 180 * Math.PI,
         blinkNum: 30,
         blinkTime: 6,
         dead: false,
-        effectiveR: SHIP_SIZE / 2,
+        effectiveR: SHIP_CONFIG.SIZE / 2,
         isFriendly: true,
         leaderRef: null,
-        lives: PLAYER_INITIAL_LIVES,
+        lives: PLAYER_CONFIG.INITIAL_LIVES,
         loneWolf: false,
         mass: 20,
-        maxShield: SHIP_BASE_MAX_SHIELD,
-        r: SHIP_SIZE / 2,
+        maxShield: SHIP_CONFIG.BASE_MAX_SHIELD,
+        r: SHIP_CONFIG.SIZE / 2,
         role: 'leader',
         score: 0,
-        shield: SHIP_BASE_MAX_SHIELD,
+        shield: SHIP_CONFIG.BASE_MAX_SHIELD,
         squadId: null,
         squadSlots: [
             { x: -150, y: -150, occupant: null }, { x: 150, y: -150, occupant: null },
@@ -42,12 +42,12 @@ export function newPlayerShip() {
 
 export function createAsteroid(x, y, r, z = 0, forcedName = null) {
     let isPlanet = false;
-    if (r > ASTEROID_MAX_SIZE) {
+    if (r > ASTEROID_CONFIG.MAX_SIZE) {
         const currentPlanets = State.roids.filter(ro => ro.isPlanet && !ro._destroyed).length;
-        if (currentPlanets < PLANETS_LIMIT) {
+        if (currentPlanets < PLANET_CONFIG.LIMIT) {
             isPlanet = true;
         } else {
-            r = ASTEROID_MAX_SIZE;
+            r = ASTEROID_CONFIG.MAX_SIZE;
         }
     }
 
@@ -168,7 +168,7 @@ export function initializePlanetAttributes(roid, forcedHue = null, forcedName = 
     }
     roid.zWait = 0;
     roid.textureData = textureData;
-    if (Math.random() < 0.25 || r > ASTEROID_MAX_SIZE + 100) {
+    if (Math.random() < 0.25 || r > ASTEROID_CONFIG.MAX_SIZE + 100) {
         roid.rings = {
             tilt: (rng() * 0.4 - 0.2) + (Math.PI / 2),
             bands: [
@@ -244,7 +244,7 @@ export function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
         const dist = innerRadius + Math.random() * (outerRadius - innerRadius);
         const x = cx + Math.cos(angle) * dist;
         const y = cy + Math.sin(angle) * dist;
-        const r = (Math.random() < 0.5 ? 0.5 : 0.25) * ASTEROID_MAX_SIZE;
+        const r = (Math.random() < 0.5 ? 0.5 : 0.25) * ASTEROID_CONFIG.MAX_SIZE;
         const roid = createAsteroid(x, y, r);
 
         // Small tangential State.velocity to give a sense of belt movement
@@ -288,14 +288,14 @@ export function spawnStation(hostPlanet = null) {
         xv: hostPlanet.xv, // Inherit planet State.velocity
         yv: hostPlanet.yv,
         r: STATION_R, a: Math.random() * Math.PI * 2, rotSpeed: 0.005,
-        structureHP: STATION_RESISTANCE,
+        structureHP: STATION_CONFIG.RESISTANCE,
         shieldHitTimer: 0,
         spawnTimer: 180, reloadTime: 120, mass: 500,
         hostPlanet: hostPlanet, // Reference to the planet object
         orbitDistance: orbitDistance,
         orbitAngle: orbitAngle,
         orbitSpeed: (Math.random() > 0.5 ? 1 : -1) * 0.002, // Slow orbital rotation
-        fleetHue: friendly ? SHIP_FRIENDLY_BLUE_HUE : Math.floor(Math.random() * 360),
+        fleetHue: friendly ? SHIP_CONFIG.FRIENDLY_BLUE_HUE : Math.floor(Math.random() * 360),
         blinkNum: 60,
         z: 0, // Always at default Z-depth for radar visibility
         hostPlanetId: hostPlanet.id, // Store ID instead of reference
@@ -306,18 +306,18 @@ export function spawnStation(hostPlanet = null) {
         bulletLife: 50,
         effectiveR: STATION_R // Use station radius for bullet spawn offset
     });
-    State.stationSpawnTimer = STATIONS_SPAWN_TIMER + Math.random() * STATIONS_SPAWN_TIMER;
+    State.stationSpawnTimer = STATION_CONFIG.SPAWN_TIMER + Math.random() * STATION_CONFIG.SPAWN_TIMER;
 }
 
 export function spawnShipsSquad(station) {
-    // Avoid spawning more than SHIPS_LIMIT total State.ships (including players for friendly squads)
+    // Avoid spawning more than SHIP_CONFIG.LIMIT total State.ships (including players for friendly squads)
     if (station.isFriendly) {
         const currentFriendlyShips = State.ships.filter(en => en.type === 'ship' && en.isFriendly === true).length;
-        if (currentFriendlyShips >= SHIPS_LIMIT) { return; }
+        if (currentFriendlyShips >= SHIP_CONFIG.LIMIT) { return; }
     } else {
         const currentHostileShips = State.ships.filter(en => en.type === 'ship' && en.isFriendly === false).length;
-        // Hostile stations have their own local limit based on SHIPS_LIMIT
-        if (currentHostileShips >= SHIPS_LIMIT * 3) { return; } // Allowing more hostiles than friends for balance
+        // Hostile stations have their own local limit based on SHIP_CONFIG.LIMIT
+        if (currentHostileShips >= SHIP_CONFIG.LIMIT * 3) { return; } // Allowing more hostiles than friends for balance
     }
     const squadId = Math.random();
 
@@ -328,8 +328,8 @@ export function spawnShipsSquad(station) {
         { role: 'wingman', x: -450, y: -450 }, { role: 'wingman', x: 450, y: -450 }
     ];
 
-    // Limit squad size to SHIPS_LIMIT (accounting for player if friendly)
-    formationData = formationData.slice(0, SHIPS_LIMIT);
+    // Limit squad size to SHIP_CONFIG.LIMIT (accounting for player if friendly)
+    formationData = formationData.slice(0, SHIP_CONFIG.LIMIT);
 
     const spawnDist = station.r * 2.0;
     const spawnAngle = Math.random() * Math.PI * 2;
@@ -356,13 +356,13 @@ export function spawnShipsSquad(station) {
                 isFriendly: station.isFriendly,
                 leaderRef: null,
                 mass: 30,
-                r: SHIP_SIZE / 2,
+                r: SHIP_CONFIG.SIZE / 2,
                 reloadTime: 100 + Math.random() * 100,
                 role: slot.role,
                 score: 0,
                 shieldHitTimer: 0,
                 squadId: squadId,
-                structureHP: SHIP_RESISTANCE,
+                structureHP: SHIP_CONFIG.RESISTANCE,
                 thrusting: false,
                 tier: 0,
                 // Weapon Properties (Default for Player)
@@ -426,7 +426,7 @@ export function spawnShipsSquad(station) {
 }
 
 export function getShipTier(ship) {
-    return Math.max(0, Math.floor(ship.score / SHIP_EVOLUTION_SCORE_STEP));
+    return Math.max(0, Math.floor(ship.score / SHIP_CONFIG.EVOLUTION_SCORE_STEP));
 }
 
 export function generatePlanetName() {
@@ -471,14 +471,14 @@ export function onShipDestroyed(ship, killerShip = null) {
             return;
         }
 
-        increaseShipScore(killerShip, SHIP_KILLED_REWARD);
+        increaseShipScore(killerShip, SCORE_REWARDS.SHIP_KILLED);
     }
 }
 
 export function onStationDestroyed(station, killerShip = null) {
     if (station) {
-        let junkAst = createAsteroid(station.x + ASTEROID_SPLIT_OFFSET, station.y, ASTEROID_MIN_SIZE);
-        junkAst.xv = station.xv + ASTEROID_SPLIT_SPEED;
+        let junkAst = createAsteroid(station.x + ASTEROID_CONFIG.SPLIT_OFFSET, station.y, ASTEROID_CONFIG.MIN_SIZE);
+        junkAst.xv = station.xv + ASTEROID_CONFIG.MAX_SPEED;
         junkAst.yv = station.yv;
         junkAst.blinkNum = 30;
         State.roids.push(junkAst);
@@ -492,14 +492,14 @@ export function onStationDestroyed(station, killerShip = null) {
         }
 
         State.playerShip.shield = State.playerShip.maxShield;
-        increaseShipScore(killerShip, STATION_KILLED_REWARD);
+        increaseShipScore(killerShip, SCORE_REWARDS.STATION_KILLED);
         // stationsDestroyedCount handled locally in main.js if needed, or moved to State
 
         State.playerShip.lives++;
         drawLives();
         addScreenMessage("EXTRA LIFE!");
 
-        State.playerShip.structureHP = SHIP_RESISTANCE;
+        State.playerShip.structureHP = SHIP_CONFIG.RESISTANCE;
         State.playerShip.shield = State.playerShip.maxShield;
     }
 }
@@ -511,7 +511,7 @@ export function createExplosionDebris(cx, cy, count, isHot = false) {
         const x = cx + Math.cos(angle) * offset;
         const y = cy + Math.sin(angle) * offset;
 
-        const r = ASTEROID_MIN_SIZE + Math.random() * (ASTEROID_MAX_SIZE - ASTEROID_MIN_SIZE);
+        const r = ASTEROID_CONFIG.MIN_SIZE + Math.random() * (ASTEROID_CONFIG.MAX_SIZE - ASTEROID_CONFIG.MIN_SIZE);
         const roid = createAsteroid(x, y, r);
 
         if (isHot) {
@@ -519,7 +519,7 @@ export function createExplosionDebris(cx, cy, count, isHot = false) {
             roid.color = `hsl(${20 + Math.random() * 30}, 80%, 30%)`;
         }
 
-        const speedBase = isHot ? ASTEROID_SPEED_LIMIT * 4.0 : ASTEROID_SPEED_LIMIT * 2.0;
+        const speedBase = isHot ? ASTEROID_CONFIG.MAX_SPEED * 4.0 : ASTEROID_CONFIG.MAX_SPEED * 2.0;
         const speed = (0.5 + Math.random() * 0.5) * speedBase;
 
         roid.xv = Math.cos(angle) * speed;
