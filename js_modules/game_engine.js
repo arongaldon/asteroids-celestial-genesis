@@ -136,6 +136,8 @@ export function killPlayerShip(reason = 'normal') {
             // Philosophical Game Over Messages
             if (reason === 'player') {
                 showInfoLEDText("The universe trembles at your power, but who are you now without a home? You reached for divinity and crushed the cradle that once held you.");
+            } else if (reason === 'enemy') {
+                showInfoLEDText("An organized malice fell upon your cradle. Your homeworld was overwhelmed by a synchronized enemy advance, and the sky burned before the void claimed all.");
             } else if (reason === 'collision') {
                 showInfoLEDText("A cosmic dance turned into tragedy. Two worlds collided in the cold silence of space, and your history was erased in an instant flash of light.");
             } else {
@@ -159,6 +161,9 @@ export function triggerHomePlanetLost(reason) {
     if (reason === 'player') {
         State.screenMessages = [];
         addScreenMessage("Home destroyed by you!", "#ff0000");
+    } else if (reason === 'enemy') {
+        State.screenMessages = [];
+        addScreenMessage("Home crushed by enemy invasion!", "#ff0000");
     } else {
         addScreenMessage("Home destroyed by a collision!", "#ff0000");
     }
