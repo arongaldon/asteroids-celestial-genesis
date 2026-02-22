@@ -237,9 +237,6 @@ export function resolveInteraction(r1, r2) {
             State.pendingDebris.push({ x: midX, y: midY, count: ASTEROID_CONFIG.PLANET_DEBRIS, isHot: true });
             createShockwave(midX, midY, true);
             createShockwave(midX, midY);
-            for (let k = State.ships.length - 1; k >= 0; k--) {
-                if (State.ships[k].hostPlanet === r1 || State.ships[k].hostPlanet === r2) State.ships.splice(k, 1);
-            }
             const planetsBefore = State.roids.filter(r => r.isPlanet && !r._destroyed).length;
             if (State.gameRunning) {
                 console.log("Planet " + r1.name + " destroyed. Total planets " + (planetsBefore - 1));

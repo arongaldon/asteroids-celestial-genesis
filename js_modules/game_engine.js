@@ -15,10 +15,6 @@ import { spatialGrid, updatePhysics, resolveInteraction } from './physics.js';
 
 let stationsDestroyedCount = 0;
 
-
-
-
-
 export function initBackground() {
     // Resets and populates background layers for parallax
     State.backgroundLayers = { nebulas: [], galaxies: [], starsNear: [], starsMid: [], starsFar: [] };
@@ -249,7 +245,7 @@ export function loop() {
 
         if (State.playerShip.transformationTimer % 60 === 0 && State.playerShip.transformationTimer > 0) {
             const secondsLeft = Math.ceil(State.playerShip.transformationTimer / 60);
-            addScreenMessage(`METAMORPHOSIS: ${secondsLeft} SECONDS REMAINING...`, "#00ffff");
+            addScreenMessage(`Metamorphosis: ${secondsLeft} seconds remaining...`, "#00ffff");
         }
 
         // COMPLETION
@@ -282,6 +278,15 @@ export function loop() {
     State.enemyShipBullets = State.enemyShipBullets.filter(isSafe);
 
     const activePlanets = State.roids.filter(r => r.isPlanet && !r._destroyed);
+
+    // Track last known home planet position for cinematic camera
+    if (State.homePlanetId) {
+        const homeNode = State.roids.find(r => r.id === State.homePlanetId);
+        if (homeNode) {
+            State.lastHomeX = homeNode.x;
+            State.lastHomeY = homeNode.y;
+        }
+    }
 
     // --- Tier 12 Godship Warning System ---
     if (!State.playerShip.dead && State.playerShip.tier >= 12) {
@@ -480,7 +485,8 @@ export function loop() {
 
                     // Distance correction: maintain orbit State.height
                     const distError = dist - orbitRadius;
-                    const correction = distError * 0.005;
+                    const maxCorrection = 0.15; // Limit max acceleration towards orbit
+                    const correction = Math.sign(distError) * Math.min(Math.abs(distError * 0.001), maxCorrection);
                     State.velocity.x += (dx / Math.max(dist, 1)) * correction;
                     State.velocity.y += (dy / Math.max(dist, 1)) * correction;
                 }
@@ -545,13 +551,16 @@ export function loop() {
         }
     } else {
         // --- CINEMATIC CAMERA TRAVEL ---
-        // Smoothly move the camera to the Home Planet when dead
+        // Smoothly move the camera to the Home Planet when dead, or fast if destroyed
         if (State.homePlanetId) {
             const home = State.roids.find(r => r.id === State.homePlanetId);
-            if (home) {
-                const travelSpeed = 0.02;
-                State.worldOffsetX += (home.x - State.worldOffsetX) * travelSpeed;
-                State.worldOffsetY += (home.y - State.worldOffsetY) * travelSpeed;
+            const targetX = home ? home.x : State.lastHomeX;
+            const targetY = home ? home.y : State.lastHomeY;
+
+            if (targetX !== undefined && targetY !== undefined) {
+                const travelSpeed = home ? 0.02 : 0.15; // Fast travel if destroyed
+                State.worldOffsetX += (targetX - State.worldOffsetX) * travelSpeed;
+                State.worldOffsetY += (targetY - State.worldOffsetY) * travelSpeed;
             }
         }
         // Clear boundary shadow when dead
@@ -757,6 +766,23 @@ export function loop() {
     let shipsToDraw = [];
     for (let i = State.ships.length - 1; i >= 0; i--) {
         let ship = State.ships[i];
+
+        if (!ship.vaporized && ship.structureHP > 0) {
+            let factionPlanetDestroyed = false;
+            if (ship.type === 'station' && ship.hostPlanetId) {
+                if (!State.roids.some(r => r.id === ship.hostPlanetId && r.isPlanet)) factionPlanetDestroyed = true;
+            } else if (ship.type === 'ship' && ship.homeStation && ship.homeStation.hostPlanetId) {
+                if (!State.roids.some(r => r.id === ship.homeStation.hostPlanetId && r.isPlanet)) factionPlanetDestroyed = true;
+            }
+            if (ship.isFriendly && State.homePlanetId) {
+                if (!State.roids.some(r => r.id === State.homePlanetId && r.isPlanet)) factionPlanetDestroyed = true;
+            }
+
+            if (factionPlanetDestroyed) {
+                ship.vaporized = true;
+                ship.structureHP = -1;
+            }
+        }
 
         if (ship.vaporized || ship.structureHP <= -1) {
             let vpX = (ship.x - State.worldOffsetX) + State.width / 2;
@@ -2853,17 +2879,17 @@ export function loop() {
 
                 if (r.isPlanet) {
                     let planet = r;
-                    let isFullSquad = false;
+                    let hasSquad = false;
                     let shooter = enemyShipBullet.owner;
                     if (shooter && shooter.squadId !== null && shooter.squadId !== undefined) {
                         let squadCount = 0;
                         for (let s of State.ships) {
                             if (!s.dead && s.squadId === shooter.squadId) squadCount++;
                         }
-                        if (squadCount >= 7) isFullSquad = true;
+                        if (squadCount >= 2) hasSquad = true;
                     }
 
-                    if (isFullSquad) {
+                    if (hasSquad) {
                         if (planet.hp === undefined) planet.hp = 70;
                         planet.hp--;
                         planet.blinkNum = 10;
@@ -3026,17 +3052,17 @@ export function loop() {
 
                 if (r.isPlanet) {
                     let planet = r;
-                    let isFullSquad = false;
+                    let hasSquad = false;
                     let shooter = playerShipBullet.owner;
                     if (shooter && shooter.squadId !== null && shooter.squadId !== undefined) {
                         let squadCount = 0;
                         for (let s of State.ships) {
                             if (!s.dead && s.squadId === shooter.squadId) squadCount++;
                         }
-                        if (squadCount >= 7) isFullSquad = true;
+                        if (squadCount >= 2) hasSquad = true;
                     }
 
-                    if (isFullSquad) {
+                    if (hasSquad) {
                         if (planet.hp === undefined) planet.hp = 70;
                         planet.hp--;
                         planet.blinkNum = 10;

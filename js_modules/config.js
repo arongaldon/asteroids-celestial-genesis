@@ -1,8 +1,8 @@
 
 export const ASTEROID_CONFIG = {
    COUNT: 1000,
-   INIT_INNER: 10000,
-   INIT_OUTER: 50000,
+   INIT_INNER: 5000,
+   INIT_OUTER: 100000,
    MAX_SIZE: 400,
    MAX_SPEED: 10,
    MIN_SIZE: 100,
@@ -24,8 +24,8 @@ export const MAX_Z_DEPTH = 1.0;
 export const MIN_DURATION_TAP_TO_MOVE = 200;
 
 export const PLANET_CONFIG = {
-   LIMIT: 10,
-   MAX_SIZE: 4000
+   LIMIT: 4,
+   MAX_SIZE: 3000
 };
 
 export const PLAYER_CONFIG = {

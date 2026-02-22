@@ -362,7 +362,24 @@ export function spawnShipsSquad(station) {
 }
 
 export function getShipTier(ship) {
-    return Math.max(0, Math.floor(ship.score / SHIP_CONFIG.EVOLUTION_SCORE_STEP));
+    let score = Math.max(0, ship.score);
+    let step = SHIP_CONFIG.EVOLUTION_SCORE_STEP || 1000;
+
+    let tier = 0;
+    let requiredScoreForNextTier = step;
+    let currentTierThreshold = 0;
+
+    while (score >= currentTierThreshold + requiredScoreForNextTier) {
+        currentTierThreshold += requiredScoreForNextTier;
+        tier++;
+        if (tier >= 7) {
+            requiredScoreForNextTier = (tier - 5) * step; // Tier 7->8: 2000, Tier 8->9: 3000...
+        } else {
+            requiredScoreForNextTier = step;
+        }
+    }
+
+    return tier;
 }
 
 export function generatePlanetName() {
