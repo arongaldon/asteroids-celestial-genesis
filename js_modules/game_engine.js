@@ -2872,7 +2872,7 @@ export function loop() {
         let nearbyRoids = spatialGrid.query(enemyShipBullet);
         for (let j = nearbyRoids.length - 1; j >= 0; j--) {
             let r = nearbyRoids[j];
-            if (r.z > 0.5) continue;
+            if (r.z > 0.5 || r._destroyed) continue;
             if (Math.hypot(enemyShipBullet.x - r.x, enemyShipBullet.y - r.y) < r.r + enemyShipBullet.size) {
                 const rVpX = r.x - State.worldOffsetX + State.width / 2;
                 const rVpY = r.y - State.worldOffsetY + State.height / 2;
@@ -2947,6 +2947,7 @@ export function loop() {
                     }
                     const roidIdx = State.roids.indexOf(r);
                     if (roidIdx !== -1) State.roids.splice(roidIdx, 1);
+                    r._destroyed = true;
                     updateAsteroidCounter();
                     AudioEngine.playExplosion('small', r.x, r.y, r.z); // Added for asteroid destruction by enemy
                 }
@@ -3043,7 +3044,7 @@ export function loop() {
         let playerNearbyRoids = spatialGrid.query(playerShipBullet);
         for (let j = playerNearbyRoids.length - 1; j >= 0; j--) {
             let r = playerNearbyRoids[j];
-            if (r.z > 0.5) continue;
+            if (r.z > 0.5 || r._destroyed) continue;
 
             // Use bullet size for effective collision radius
             if (Math.hypot(playerShipBullet.x - r.x, playerShipBullet.y - r.y) < r.r + playerShipBullet.size) {
@@ -3132,6 +3133,7 @@ export function loop() {
 
                     const roidIdx = State.roids.indexOf(r);
                     if (roidIdx !== -1) State.roids.splice(roidIdx, 1);
+                    r._destroyed = true;
                     updateAsteroidCounter();
                     AudioEngine.playExplosion('small', r.x, r.y, r.z);
                 }
