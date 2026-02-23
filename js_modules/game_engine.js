@@ -2926,12 +2926,21 @@ export function loop() {
                     let planet = r;
                     let hasSquad = false;
                     let shooter = enemyShipBullet.owner;
-                    if (shooter && shooter.squadId !== null && shooter.squadId !== undefined) {
-                        let squadCount = 0;
-                        for (let s of State.ships) {
-                            if (!s.dead && s.squadId === shooter.squadId) squadCount++;
+                    if (shooter) {
+                        let leader = shooter.role === 'leader' ? shooter : shooter.leaderRef;
+                        if (leader && leader.squadSlots) {
+                            let squadCount = 1;
+                            leader.squadSlots.forEach(s => {
+                                if (s.occupant && !s.occupant.dead && State.ships.includes(s.occupant)) squadCount++;
+                            });
+                            if (squadCount >= 2) hasSquad = true;
+                        } else if (shooter.squadId !== null && shooter.squadId !== undefined) {
+                            let squadCount = 0;
+                            for (let s of State.ships) {
+                                if (!s.dead && s.squadId === shooter.squadId) squadCount++;
+                            }
+                            if (squadCount >= 2) hasSquad = true;
                         }
-                        if (squadCount >= 2) hasSquad = true;
                     }
 
                     if (hasSquad) {
@@ -3100,12 +3109,21 @@ export function loop() {
                     let planet = r;
                     let hasSquad = false;
                     let shooter = playerShipBullet.owner;
-                    if (shooter && shooter.squadId !== null && shooter.squadId !== undefined) {
-                        let squadCount = 0;
-                        for (let s of State.ships) {
-                            if (!s.dead && s.squadId === shooter.squadId) squadCount++;
+                    if (shooter) {
+                        let leader = shooter.role === 'leader' ? shooter : shooter.leaderRef;
+                        if (leader && leader.squadSlots) {
+                            let squadCount = 1;
+                            leader.squadSlots.forEach(s => {
+                                if (s.occupant && !s.occupant.dead && State.ships.includes(s.occupant)) squadCount++;
+                            });
+                            if (squadCount >= 2) hasSquad = true;
+                        } else if (shooter.squadId !== null && shooter.squadId !== undefined) {
+                            let squadCount = 0;
+                            for (let s of State.ships) {
+                                if (!s.dead && s.squadId === shooter.squadId) squadCount++;
+                            }
+                            if (squadCount >= 2) hasSquad = true;
                         }
-                        if (squadCount >= 2) hasSquad = true;
                     }
 
                     if (hasSquad) {
