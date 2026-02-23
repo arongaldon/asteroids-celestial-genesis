@@ -294,7 +294,7 @@ export function spawnStation(hostPlanet = null) {
         orbitDistance: orbitDistance,
         orbitAngle: orbitAngle,
         orbitSpeed: (Math.random() > 0.5 ? 1 : -1) * 0.002, // Slow orbital rotation
-        fleetHue: friendly ? SHIP_CONFIG.FRIENDLY_BLUE_HUE : Math.floor(Math.random() * 360),
+        fleetHue: friendly ? SHIP_CONFIG.FRIENDLY_BLUE_HUE : (Math.floor(Math.random() * 260) + 260) % 360, // Avoid blue (160-260)
         blinkNum: 60,
         z: 0, // Always at default Z-depth for radar visibility
         hostPlanetId: hostPlanet.id, // Store ID instead of reference

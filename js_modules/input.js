@@ -39,7 +39,7 @@ export function fireEntityWeapon(ship, bulletList, isEnemy = true) {
         return;
     }
 
-    const hue = ship.fleetHue !== undefined ? ship.fleetHue : 200;
+    const hue = ship.fleetHue !== undefined ? ship.fleetHue : ((isPlayer || ship.isFriendly) ? SHIP_CONFIG.FRIENDLY_BLUE_HUE : 0);
     const a = isPlayer ? State.playerShip.a : ship.a;
 
     const pushBullet = (angleOffset, isPrimary = true) => {
