@@ -1870,9 +1870,10 @@ export function loop() {
                 DOM.canvasContext.strokeStyle = '#ffcc00';
             } else {
                 DOM.canvasContext.shadowBlur = 0; // Optimization: Disable blur for standard asteroids
-                DOM.canvasContext.strokeStyle = 'white';
+                DOM.canvasContext.strokeStyle = 'rgba(255, 255, 255, 0.4)'; // Softer outline for more realistic feel
             }
-            DOM.canvasContext.fillStyle = r.color; // Dark gray fill
+
+            DOM.canvasContext.fillStyle = r.color; // Dark gray base fill
             DOM.canvasContext.beginPath();
             for (let j = 0; j < r.vert; j++) {
                 const px = r.r * r.offs[j] * Math.cos(r.a + j * Math.PI * 2 / r.vert);
@@ -1881,7 +1882,42 @@ export function loop() {
             }
             DOM.canvasContext.closePath();
             DOM.canvasContext.fill();
+
+            // Soft gradient shadow overlay for volumetric 3D feel
+            let shadowGrad = DOM.canvasContext.createRadialGradient(
+                -r.r * 0.3, -r.r * 0.3, 0,
+                0, 0, r.r
+            );
+            shadowGrad.addColorStop(0, 'rgba(255, 255, 255, 0.15)'); // Soft highlight on top left
+            shadowGrad.addColorStop(0.4, 'rgba(0, 0, 0, 0)');        // Transparent mid
+            shadowGrad.addColorStop(1, 'rgba(0, 0, 0, 0.7)');        // Deep shadow on bottom right edge
+            DOM.canvasContext.fillStyle = shadowGrad;
+            DOM.canvasContext.fill();
             DOM.canvasContext.stroke();
+
+            // Draw Craters
+            DOM.canvasContext.fillStyle = 'rgba(0, 0, 0, 0.4)';
+            DOM.canvasContext.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+            DOM.canvasContext.lineWidth = 1;
+            // Deterministic pseudo-random generation to keep craters bound to specific asteroid ID
+            const craterCount = 2 + (r.id % 3);
+            for (let c = 0; c < craterCount; c++) {
+                let pseudoRand1 = ((r.id * 13 + c * 29) % 100) / 100;
+                let pseudoRand2 = ((r.id * 17 + c * 31) % 100) / 100;
+                let pseudoRand3 = ((r.id * 19 + c * 37) % 100) / 100;
+
+                let dist = r.r * 0.5 * pseudoRand1;
+                let angle = pseudoRand2 * Math.PI * 2 + r.a; // Revolve with asteroid rotation
+                let crx = Math.cos(angle) * dist;
+                let cry = Math.sin(angle) * dist;
+                let crr = r.r * 0.08 + (pseudoRand3 * r.r * 0.15); // Scale crater size relative to asteroid
+
+                DOM.canvasContext.beginPath();
+                // Perspective crater ellipse orienting towards center
+                DOM.canvasContext.ellipse(crx, cry, crr, crr * 0.85, angle, 0, Math.PI * 2);
+                DOM.canvasContext.fill();
+                DOM.canvasContext.stroke();
+            }
 
             // Draw lava veins if hot
             if (r.isHot) {
