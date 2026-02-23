@@ -75,7 +75,8 @@ export function drawRadar() {
 
             let dist = Math.sqrt(dx * dx + dy * dy);
 
-            if (dist > State.RADAR_RANGE || !isFinite(dist)) return;
+            // Ensure large objects like planets are drawn if their edge touches the radar range
+            if (dist - size > State.RADAR_RANGE || !isFinite(dist)) return;
 
             let angle = Math.atan2(dy, dx);
             let radarDist = dist * scale;
@@ -89,7 +90,8 @@ export function drawRadar() {
             // Safety check for radarSize
             if (isNaN(radarSize) || !isFinite(radarSize)) radarSize = 2;
 
-            if (radarDist > radarRadius - radarSize) {
+            // Snap small objects to the radar border, but let massive planets overflow naturally
+            if (type !== 'planet' && type !== 'asteroid' && radarDist > radarRadius - radarSize) {
                 radarDist = Math.max(0, radarRadius - radarSize - 1);
             }
 

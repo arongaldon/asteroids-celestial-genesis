@@ -3,10 +3,10 @@ export const ASTEROID_CONFIG = {
    COUNT: 1000,
    INIT_INNER: 5000,
    INIT_OUTER: 100000,
-   MAX_SIZE: 400,
+   MAX_SIZE: 450,
    MAX_SPEED: 10,
-   MIN_SIZE: 100,
-   PLANET_DEBRIS: 25,
+   MIN_SIZE: 90,
+   PLANET_DEBRIS: 15,
    SPLIT_OFFSET: 300
 };
 
@@ -20,7 +20,7 @@ export const BOUNDARY_CONFIG = {
 export const FPS = 60;
 export const FRICTION = 0.99;
 export const G_CONST = 0.9;
-export const MAX_Z_DEPTH = 1.0;
+export const MAX_Z_DEPTH = 2.0;
 export const MIN_DURATION_TAP_TO_MOVE = 200;
 
 export const PLANET_CONFIG = {
@@ -68,7 +68,9 @@ export const STATION_CONFIG = {
 };
 
 export const WORLD_BOUNDS = 20000;
-export const ZOOM_LEVELS = [1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000];
+
+// Generates [500, 800, 1300, 2000, 2900, 4000, 5300, 6800, 8500, 10400, 12500, 14800, 17300, 20000, 22900]
+export const ZOOM_LEVELS = Array.from({ length: 15 }, (_, i) => 500 + (i * 200) + (i * i * 100));
 
 export const suffixes = ["PRIME", "IV", "X", "ALPHA", "BETA", "MAJOR", "MINOR", "ZERO", "AEON"];
 export const syllables = ["KRON", "XER", "ZAN", "TOR", "AER", "ION", "ULA", "PROX", "VEX", "NOV", "SOL", "LUNA", "TER", "MAR", "JUP"];

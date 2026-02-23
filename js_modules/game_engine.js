@@ -165,6 +165,15 @@ export function triggerHomePlanetLost(reason) {
     }
 }
 
+function handleTouchVictoryInteraction(e) {
+    if (!State.victoryState) return;
+    const duration = Date.now() - touchStartTime;
+    // Only trigger Congratulations if it was a short tap
+    if (duration < MIN_DURATION_TAP_TO_MOVE && e.changedTouches && e.changedTouches.length === 1) {
+        handleVictoryInteraction();
+    }
+}
+
 function handleVictoryInteraction() {
     if (!State.victoryState) return;
 
@@ -185,7 +194,7 @@ function handleVictoryInteraction() {
     };
 
     window.removeEventListener('mousedown', handleVictoryInteraction);
-    window.removeEventListener('touchstart', handleVictoryInteraction);
+    window.removeEventListener('touchend', handleTouchVictoryInteraction);
 };
 
 export function winGame() {
@@ -216,7 +225,7 @@ export function winGame() {
     // Wait a short bit to avoid capturing the click that destroyed the last asteroid
     setTimeout(() => {
         window.addEventListener('mousedown', handleVictoryInteraction);
-        window.addEventListener('touchstart', handleVictoryInteraction);
+        window.addEventListener('touchend', handleTouchVictoryInteraction);
     }, 1000);
 }
 
