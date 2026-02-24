@@ -124,8 +124,11 @@ export function drawRadar() {
         State.roids.forEach(r => {
             if (r.isPlanet) {
                 const color = r.textureData ? r.textureData.waterColor : 'rgba(0, 150, 255, 0.7)';
-                const radarSize = r.r;
-                drawBlip(r.x, r.y, 'planet', color, radarSize, r.z);
+                if (r.z < 0.5) {
+                    drawBlip(r.x, r.y, 'planet', color, r.r, r.z);
+                } else {
+                    drawBlip(r.x, r.y, 'background_planet', color, 4, r.z); // Small dot for far away planets
+                }
             }
         });
 

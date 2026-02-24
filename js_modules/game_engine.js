@@ -300,7 +300,7 @@ export function loop() {
     // --- Tier 12 Godship Warning System ---
     if (!State.playerShip.dead && State.playerShip.tier >= 12) {
         let warningNeeded = false;
-        const lethalRange = Math.max(State.width, State.height) * 2;
+        const lethalRange = Math.max(State.width, State.height) * 3; // Synced with the shockwave's maxR
 
         // Check Home Planet
         if (State.homePlanetId) {
@@ -658,6 +658,7 @@ export function loop() {
                     if (obj === State.playerShip) return;
 
                     if (obj.r !== undefined && !obj.type) { // Asteroid or Planet
+                        if (obj.vaporized || obj.blinkNum > 0) return;
                         obj.r = 0; // Marked for instant removal (no split)
                         obj.vaporized = true;
 
@@ -1005,16 +1006,72 @@ export function loop() {
             if (ship.aiState === 'FORMATION') {
                 let isRetreating = false;
                 if (ship.isFriendly && State.playerShip.tier >= 12 && State.homePlanetId) {
-                    // WINGMAN RETREAT: Run to home when the player is a Godship to avoid the ring
+                    // WINGMAN RETREAT: Orbit home when the player is a Godship to avoid the ring
                     const home = State.roids.find(r => r.id === State.homePlanetId);
                     if (home) {
                         const dx = home.x - ship.x;
                         const dy = home.y - ship.y;
                         const dist = Math.hypot(dx, dy);
-                        if (dist > 500) {
+                        const ORBIT_RADIUS = home.r * 1.5 + ship.r;
+
+                        if (dist > ORBIT_RADIUS + 100) {
                             ship.xv += (dx / dist) * 1.5;
                             ship.yv += (dy / dist) * 1.5;
-                            ship.a = Math.atan2(ship.yv, ship.xv);
+                            let angleDiff = Math.atan2(ship.yv, ship.xv) - ship.a;
+                            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                            ship.a += angleDiff * 0.1;
+                        } else if (dist < ORBIT_RADIUS - 100) {
+                            ship.xv -= (dx / dist) * 1.5;
+                            ship.yv -= (dy / dist) * 1.5;
+                            let angleDiff = Math.atan2(ship.yv, ship.xv) - ship.a;
+                            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                            ship.a += angleDiff * 0.1;
+                        } else {
+                            if (!ship.orbitDir) ship.orbitDir = (Math.random() > 0.5 ? 1 : -1);
+                            const orbitAngle = Math.atan2(dy, dx) + (Math.PI / 2) * ship.orbitDir;
+                            ship.xv += Math.cos(orbitAngle) * 1.0;
+                            ship.yv += Math.sin(orbitAngle) * 1.0;
+
+                            let targetAngle = Math.atan2(ship.yv, ship.xv); // Default: face movement direction
+
+                            // Scan for danger to put attention
+                            let nearestThreat = null;
+                            let minThreatDist = Infinity;
+                            for (let r of State.roids) {
+                                if (r.z > 0.5 || r.isPlanet) continue;
+                                const distToStation = Math.hypot(r.x - home.x, r.y - home.y);
+                                if (distToStation < home.r * 8.0) {
+                                    const distToShip = Math.hypot(r.x - ship.x, r.y - ship.y);
+                                    if (distToShip < minThreatDist && distToShip < 2000) {
+                                        nearestThreat = r;
+                                        minThreatDist = distToShip;
+                                    }
+                                }
+                            }
+                            for (let target of State.ships) {
+                                if (target === ship || target.type === 'station') continue;
+                                if (ship.isFriendly && !target.isFriendly) {
+                                    const distToStation = Math.hypot(target.x - home.x, target.y - home.y);
+                                    if (distToStation < home.r * 8.0) {
+                                        const distToShip = Math.hypot(target.x - ship.x, target.y - ship.y);
+                                        if (distToShip < minThreatDist && distToShip < 2000) {
+                                            nearestThreat = target;
+                                            minThreatDist = distToShip;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (nearestThreat) {
+                                targetAngle = Math.atan2(nearestThreat.y - ship.y, nearestThreat.x - ship.x);
+                            }
+
+                            let angleDiff = targetAngle - ship.a;
+                            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                            ship.a += angleDiff * 0.15;
                         }
                         ship.xv *= 0.95; ship.yv *= 0.95;
                         isRetreating = true;
@@ -2961,6 +3018,8 @@ export function loop() {
                                 const pVpY = planet.y - State.worldOffsetY + State.height / 2;
                                 createExplosion(pVpX, pVpY, 150, '#ffaa00', 8, 'flame');
                                 createExplosion(pVpX, pVpY, 100, '#ff4400', 12, 'flame');
+                                createExplosion(pVpX, pVpY, 80, '#550000', 15, 'smoke');
+                                createExplosion(pVpX, pVpY, 50, '#ffff00', 4, 'spark');
                                 AudioEngine.playPlanetExplosion(planet.x, planet.y, planet.z || 0);
                                 State.pendingDebris.push({ x: planet.x, y: planet.y, count: ASTEROID_CONFIG.PLANET_DEBRIS, isHot: true });
                                 createShockwave(planet.x, planet.y);
@@ -3158,7 +3217,7 @@ export function loop() {
 
                         let totalMass = planet.mass + asteroidMass;
 
-                        planet.targetR = newR;
+                        planet.targetR = Math.min(newR, PLANET_CONFIG.MAX_SIZE);
                         planet.mass = totalMass * 0.05;
 
                         createExplosion(vpX, vpY, 10, '#00ffff', 2);

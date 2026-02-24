@@ -6,7 +6,7 @@ export const ASTEROID_CONFIG = {
    MAX_SIZE: 450,
    MAX_SPEED: 10,
    MIN_SIZE: 90,
-   PLANET_DEBRIS: 15,
+   PLANET_DEBRIS: 25,
    SPLIT_OFFSET: 300
 };
 
@@ -24,8 +24,8 @@ export const MAX_Z_DEPTH = 2.0;
 export const MIN_DURATION_TAP_TO_MOVE = 200;
 
 export const PLANET_CONFIG = {
-   LIMIT: 4,
-   MAX_SIZE: 3000
+   LIMIT: 12,
+   MAX_SIZE: 1200
 };
 
 export const PLAYER_CONFIG = {
@@ -38,7 +38,7 @@ export const SHIP_CONFIG = {
    BULLET1_LIFETIME: 60,
    BULLET2_LIFETIME: 20,
    BULLET_FADE_FRAMES: 5,
-   BULLET_GRAVITY_FACTOR: 90,
+   BULLET_GRAVITY_FACTOR: 10,
    COMBAT_ORBIT_DISTANCE: 340,
    EVOLUTION_SCORE_STEP: 1000,
    FRIENDLY_BLUE_HUE: 210,
@@ -70,7 +70,7 @@ export const STATION_CONFIG = {
 export const WORLD_BOUNDS = 20000;
 
 // Generates [500, 800, 1300, 2000, 2900, 4000, 5300, 6800, 8500, 10400, 12500, 14800, 17300, 20000, 22900]
-export const ZOOM_LEVELS = Array.from({ length: 15 }, (_, i) => 500 + (i * 200) + (i * i * 100));
+export const ZOOM_LEVELS = Array.from({ length: 15 }, (_, i) => 1000 + (i * 200) + (i * i * 100));
 
 export const suffixes = ["PRIME", "IV", "X", "ALPHA", "BETA", "MAJOR", "MINOR", "ZERO", "AEON"];
 export const syllables = ["KRON", "XER", "ZAN", "TOR", "AER", "ION", "ULA", "PROX", "VEX", "NOV", "SOL", "LUNA", "TER", "MAR", "JUP"];

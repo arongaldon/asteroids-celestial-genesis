@@ -86,20 +86,19 @@ export function fireEntityWeapon(ship, bulletList, isEnemy = true) {
     // --- TIER PATTERNS (Clearly more powerful with each step) ---
     if (tier === 11) { // THE HYPERION: Massive Arc & Defense
         pushBullet(0, true);
-        for (let i = 1; i <= 6; i++) {
-            pushBullet(i * 0.1, true); pushBullet(-i * 0.1, true);
+        for (let i = 1; i <= 20; i++) {
+            pushBullet(i * 0.01, true); pushBullet(-i * 0.01, true);
         }
-        pushBullet(Math.PI, false); // Rear guard
     } else if (tier === 10) { // THE TITAN: Heavy Frontal Wall
+        pushBullet(0, true);
+        for (let i = 1; i <= 10; i++) {
+            pushBullet(i * 0.03, true); pushBullet(-i * 0.03, true);
+        }
+    } else if (tier === 9) { // THE CELESTIAL: Wide Radiant Spray
         pushBullet(0, true);
         for (let i = 1; i <= 5; i++) {
             pushBullet(i * 0.05, true); pushBullet(-i * 0.05, true);
         }
-    } else if (tier === 9) { // THE CELESTIAL: Wide Radiant Spray
-        pushBullet(0, true);
-        pushBullet(0.15, true); pushBullet(-0.15, true);
-        pushBullet(0.3, false); pushBullet(-0.3, false);
-        pushBullet(0.45, false); pushBullet(-0.45, false);
     } else if (tier === 8) { // THE SPHERE: 7 Strong Frontal
         pushBullet(0, true);
         pushBullet(0.1, true); pushBullet(-0.1, true);
@@ -150,7 +149,7 @@ export function fireGodWeapon(ship) {
         x: State.worldOffsetX,
         y: State.worldOffsetY,
         r: 100,
-        maxR: Math.max(State.width, State.height) * 4, // Reach 4 times the visible viewport (~4000 units)
+        maxR: Math.max(State.width, State.height) * 3, // Reach 3 times the visible viewport
         strength: 2000,
         alpha: 3.0,
         isGodRing: true,
@@ -266,7 +265,20 @@ export function proactiveCombatScanner(e) {
         }
     }
 
-    // 2. SCAN FOR ASTEROID_CONFIG.COUNT (Defend Home Station)
+    // 2. SCAN FOR ENEMY PLANETS (Friendly Wingmen)
+    if (e.isFriendly) {
+        for (let r of State.roids) {
+            if (r.isPlanet && r.z < 0.5 && r.id !== State.homePlanetId && !r._destroyed) {
+                const dist = Math.hypot(r.x - e.x, r.y - e.y);
+                if (dist < 2000) {
+                    enemyShoot(e, r.x, r.y);
+                    if (e.reloadTime > 0) return;
+                }
+            }
+        }
+    }
+
+    // 3. SCAN FOR ASTEROID_CONFIG.COUNT (Defend Home Station)
     // Priority: Asteroids near the home station
     if (e.homeStation) {
         for (let r of State.roids) {

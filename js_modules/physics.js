@@ -146,7 +146,7 @@ export function updatePhysics() {
         }
 
         // --- 6. Insert into Grid ---
-        if (!r1.isPlanet && r1.z < 0.5) spatialGrid.insert(r1);
+        if (r1.z < 0.5) spatialGrid.insert(r1);
     }
 
     // PHASE 2: COLLISIONS & GRAVITY MESH
@@ -262,7 +262,7 @@ export function resolveInteraction(r1, r2) {
             planet.yv = (planet.yv * planet.mass + asteroid.yv * asteroid.mass) / totalMass;
             planet.x = (planet.x * planet.mass + asteroid.x * asteroid.mass) / totalMass;
             planet.y = (planet.y * planet.mass + asteroid.y * asteroid.mass) / totalMass;
-            planet.targetR = Math.sqrt((Math.PI * planet.r * planet.r + Math.PI * asteroid.r * asteroid.r * 1.5) / Math.PI); // Slightly more growth
+            planet.targetR = Math.min(Math.sqrt((Math.PI * planet.r * planet.r + Math.PI * asteroid.r * asteroid.r * 1.5) / Math.PI), PLANET_CONFIG.MAX_SIZE); // Slightly more growth
             planet.mass = totalMass;
 
             if (planet.id === State.homePlanetId && asteroid.r > ASTEROID_CONFIG.MIN_SIZE * 2) {
@@ -292,7 +292,7 @@ export function resolveInteraction(r1, r2) {
                     createExplosion(midVpX, midVpY, 60, '#00ffff', 10, 'spark');
                     AudioEngine.playPlanetExplosion(midX, midY, r1.z);
                 } else { r1.r = newR; r1.targetR = null; }
-            } else { r1.r = newR; r1.targetR = newR; r1.mass = totalMass * 0.05; }
+            } else { r1.r = Math.min(newR, PLANET_CONFIG.MAX_SIZE); r1.targetR = Math.min(newR, PLANET_CONFIG.MAX_SIZE); r1.mass = totalMass * 0.05; }
             r2._destroyed = true;
         } else if (isGiant1 || isGiant2) {
             const giant = isGiant1 ? r1 : r2;

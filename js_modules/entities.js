@@ -460,11 +460,13 @@ export function onStationDestroyed(station, killerShip = null) {
 export function createExplosionDebris(cx, cy, count, isHot = false) {
     for (let i = 0; i < count; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const offset = Math.random() * 50; // Spread them out slightly to prevent physics overlap glitches
+        const offset = Math.random() * 600; // Spread them out widely to prevent overlap cascades
         const x = cx + Math.cos(angle) * offset;
         const y = cy + Math.sin(angle) * offset;
 
-        const r = ASTEROID_CONFIG.MIN_SIZE + Math.random() * (ASTEROID_CONFIG.MAX_SIZE - ASTEROID_CONFIG.MIN_SIZE);
+        // Make debris smaller than MAX_SIZE to avoid instant giant splitting chains
+        const maxDebrisSize = ASTEROID_CONFIG.MAX_SIZE * 0.5;
+        const r = ASTEROID_CONFIG.MIN_SIZE + Math.random() * (maxDebrisSize - ASTEROID_CONFIG.MIN_SIZE);
         const roid = createAsteroid(x, y, r);
 
         if (isHot) {
@@ -478,7 +480,7 @@ export function createExplosionDebris(cx, cy, count, isHot = false) {
         roid.xv = Math.cos(angle) * speed;
         roid.yv = Math.sin(angle) * speed;
         roid.rotSpeed = (Math.random() - 0.5) * 0.4;
-        roid.blinkNum = 60; // GHOSTING: Prevent N^2 collision checks in clumpy debris cloud for 1 second
+        roid.blinkNum = 120; // 2 seconds of ghosting to give them time to spread out
 
         State.roids.push(roid);
     }
