@@ -305,7 +305,7 @@ export const AudioEngine = {
             osc.type = 'sawtooth';
             osc.frequency.setValueAtTime(40, this.ctx.currentTime);
             osc.frequency.exponentialRampToValueAtTime(1200, this.ctx.currentTime + 0.4);
-            gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+            gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.5);
 
             // Sub-harmonic for "massive" feel
@@ -314,7 +314,7 @@ export const AudioEngine = {
             osc2.frequency.setValueAtTime(20, this.ctx.currentTime);
             osc2.frequency.linearRampToValueAtTime(5, this.ctx.currentTime + 0.6);
             const gain2 = this.ctx.createGain();
-            gain2.gain.setValueAtTime(0.4, this.ctx.currentTime);
+            gain2.gain.setValueAtTime(0.2, this.ctx.currentTime);
             gain2.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.6);
             osc2.connect(gain2); gain2.connect(this.masterGain);
             osc2.start(); osc2.stop(this.ctx.currentTime + 0.6);
@@ -323,7 +323,7 @@ export const AudioEngine = {
             osc.type = 'square';
             osc.frequency.setValueAtTime(150, this.ctx.currentTime);
             osc.frequency.linearRampToValueAtTime(800, this.ctx.currentTime + 0.1); // Sweeping up "Beam" sound
-            gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+            gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.4);
         } else if (tier >= 4) { // Plasma
             osc.type = 'sawtooth';
@@ -357,7 +357,7 @@ export const AudioEngine = {
         filter.type = 'lowpass';
         filter.frequency.setValueAtTime(1000, this.ctx.currentTime);
         filter.frequency.exponentialRampToValueAtTime(10, this.ctx.currentTime + duration);
-        gain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+        gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
         noise.connect(filter); filter.connect(gain); gain.connect(this.masterGain);
         noise.start();
@@ -397,7 +397,7 @@ export const AudioEngine = {
         filter.type = 'lowpass';
         filter.frequency.setValueAtTime(500, this.ctx.currentTime);
         filter.frequency.exponentialRampToValueAtTime(5, this.ctx.currentTime + duration);
-        gain.gain.setValueAtTime(0.8, this.ctx.currentTime);
+        gain.gain.setValueAtTime(0.4, this.ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
         noise.connect(filter); filter.connect(gain); gain.connect(this.masterGain);
         noise.start();
