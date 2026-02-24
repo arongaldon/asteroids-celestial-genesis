@@ -122,7 +122,7 @@ export function initializePlanetAttributes(roid, forcedHue = null, forcedName = 
 
     // Orbital Speed - angular State.velocity (radians per frame)
     // Slower for larger orbits (Kepler's third law approximation)
-    const baseOrbitSpeed = 3;
+    const baseOrbitSpeed = 0.5; // Majestic, slow, elegant orbits
     roid.orbitSpeed = (baseOrbitSpeed / roid.semiMajorAxis) * (rng() < 0.5 ? 1 : -1);
 
     roid.zSpeed = (rng() * 0.001) + 0.0005;
@@ -420,6 +420,7 @@ export function increaseShipScore(ship, reward) {
 export function onShipDestroyed(ship, killerShip = null) {
     if (killerShip === State.playerShip) {
         if (ship.isFriendly && !State.playerShip.loneWolf) {
+            increaseShipScore(killerShip, -SCORE_REWARDS.SHIP_KILLED);
             triggerBetrayal();
             return;
         }
@@ -440,6 +441,7 @@ export function onStationDestroyed(station, killerShip = null) {
 
     if (killerShip === State.playerShip) {
         if (station.isFriendly && !State.playerShip.loneWolf) {
+            increaseShipScore(killerShip, -SCORE_REWARDS.STATION_KILLED);
             triggerBetrayal();
             return;
         }

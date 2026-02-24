@@ -19,9 +19,9 @@ export function updatePhysics() {
 
         // --- 1. Radius Growth (Only for Planets) ---
         if (r1.isPlanet && r1.targetR && r1.r < r1.targetR) {
-            r1.r += (r1.targetR - r1.r) * 0.02;
+            r1.r += (r1.targetR - r1.r) * 0.002;
             r1.mass = r1.r * r1.r * 0.05;
-            if (r1.targetR - r1.r < 1.0) { r1.r = r1.targetR; r1.targetR = null; r1.mass = r1.r * r1.r * 0.05; }
+            if (r1.targetR - r1.r < 0.5) { r1.r = r1.targetR; r1.targetR = null; r1.mass = r1.r * r1.r * 0.05; }
         } else {
             r1.mass = r1.r * r1.r * 0.05;
         }
@@ -139,10 +139,21 @@ export function updatePhysics() {
             r1.xv *= ratio; r1.yv *= ratio;
         }
         const distToCenter = Math.hypot(r1.x, r1.y);
-        if (distToCenter > WORLD_BOUNDS - BOUNDARY_CONFIG.TOLERANCE_ROIDS) {
-            const angle = Math.atan2(r1.y, r1.x);
-            r1.xv -= Math.cos(angle) * BOUNDARY_CONFIG.CORRECTION_FORCE;
-            r1.yv -= Math.sin(angle) * BOUNDARY_CONFIG.CORRECTION_FORCE;
+        if (r1.isPlanet && r1.semiMajorAxis) {
+            // Let planets drift further but slowly pull their entire orbit center inwards
+            if (distToCenter > WORLD_BOUNDS + 2000) {
+                const angle = Math.atan2(r1.y, r1.x);
+                // Slowly shift the orbit center toward the map origin
+                r1.orbitCenterX -= Math.cos(angle) * 1.5;
+                r1.orbitCenterY -= Math.sin(angle) * 1.5;
+            }
+        } else {
+            // Harder correction for simple asteroids so they bounce back into bounds
+            if (distToCenter > WORLD_BOUNDS - BOUNDARY_CONFIG.TOLERANCE_ROIDS) {
+                const angle = Math.atan2(r1.y, r1.x);
+                r1.xv -= Math.cos(angle) * BOUNDARY_CONFIG.CORRECTION_FORCE;
+                r1.yv -= Math.sin(angle) * BOUNDARY_CONFIG.CORRECTION_FORCE;
+            }
         }
 
         // --- 6. Insert into Grid ---
@@ -258,10 +269,7 @@ export function resolveInteraction(r1, r2) {
                 return;
             }
             let totalMass = planet.mass + asteroid.mass;
-            planet.xv = (planet.xv * planet.mass + asteroid.xv * asteroid.mass) / totalMass;
-            planet.yv = (planet.yv * planet.mass + asteroid.yv * asteroid.mass) / totalMass;
-            planet.x = (planet.x * planet.mass + asteroid.x * asteroid.mass) / totalMass;
-            planet.y = (planet.y * planet.mass + asteroid.y * asteroid.mass) / totalMass;
+            // DO NOT SHIFT PLANET POSITION TO PREVENT ERRATIC RUBBER-BANDING IN ELLIPTICAL ORBITS
             planet.targetR = Math.min(Math.sqrt((Math.PI * planet.r * planet.r + Math.PI * asteroid.r * asteroid.r * 1.5) / Math.PI), PLANET_CONFIG.MAX_SIZE); // Slightly more growth
             planet.mass = totalMass;
 

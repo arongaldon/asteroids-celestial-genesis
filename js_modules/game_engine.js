@@ -679,7 +679,7 @@ export function loop() {
                             createShockwave(obj.x, obj.y);
                             createShockwave(obj.x, obj.y);
 
-                            increaseShipScore(State.playerShip, 1000); // 1000 for planet
+                            increaseShipScore(State.playerShip, SCORE_REWARDS.PLANET_DESTROYED); // Score for planet
 
                             // Check if player destroyed their own home
                             if (obj.id === State.homePlanetId) {
@@ -3012,7 +3012,7 @@ export function loop() {
                             if (planet.id === State.homePlanetId) triggerHomePlanetLost('enemy');
                             else {
                                 if (shooter && State.ships.includes(shooter)) {
-                                    shooter.score += SCORE_REWARDS.STATION_KILLED * 2 || 1000;
+                                    shooter.score += SCORE_REWARDS.PLANET_DESTROYED;
                                 }
                                 const pVpX = planet.x - State.worldOffsetX + State.width / 2;
                                 const pVpY = planet.y - State.worldOffsetY + State.height / 2;
@@ -3196,7 +3196,7 @@ export function loop() {
                             planet._destroyed = true;
                             if (planet.id === State.homePlanetId) triggerHomePlanetLost('player');
                             else {
-                                increaseShipScore(State.playerShip, SCORE_REWARDS.STATION_KILLED * 2 || 1000);
+                                increaseShipScore(State.playerShip, SCORE_REWARDS.PLANET_DESTROYED);
                                 const pVpX = planet.x - State.worldOffsetX + State.width / 2;
                                 const pVpY = planet.y - State.worldOffsetY + State.height / 2;
                                 createExplosion(pVpX, pVpY, 150, '#ffaa00', 8, 'flame');

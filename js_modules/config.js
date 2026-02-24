@@ -43,7 +43,7 @@ export const SHIP_CONFIG = {
    EVOLUTION_SCORE_STEP: 1000,
    FRIENDLY_BLUE_HUE: 210,
    LIMIT: 70,
-   MAX_SPEED: 100,
+   MAX_SPEED: 90,
    RESISTANCE: 2,
    SEPARATION_DISTANCE: 30,
    SIGHT_RANGE: 2000,
@@ -57,6 +57,7 @@ export const SCALE_IN_TOUCH_MODE = 0.5;
 
 export const SCORE_REWARDS = {
    ASTEROID_DESTROYED: 100,
+   PLANET_DESTROYED: 1000,
    SHIP_KILLED: 200,
    STATION_KILLED: 500
 };
@@ -69,7 +70,6 @@ export const STATION_CONFIG = {
 
 export const WORLD_BOUNDS = 20000;
 
-// Generates [500, 800, 1300, 2000, 2900, 4000, 5300, 6800, 8500, 10400, 12500, 14800, 17300, 20000, 22900]
 export const ZOOM_LEVELS = Array.from({ length: 15 }, (_, i) => 1000 + (i * 200) + (i * i * 100));
 
 export const suffixes = ["PRIME", "IV", "X", "ALPHA", "BETA", "MAJOR", "MINOR", "ZERO", "AEON"];
