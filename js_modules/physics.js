@@ -209,26 +209,58 @@ export function updatePhysics() {
 export function resolveInteraction(r1, r2) {
     if (r1.blinkNum > 0 || r2.blinkNum > 0) return;
 
+    // PREVENT HOT DEBRIS MERGING (Asteroid to Asteroid)
+    if ((r1.isHot || r2.isHot) && !r1.isPlanet && !r2.isPlanet) {
+        // Hot debris simply passes through other asteroids to prevent jitter clusters
+        return;
+    }
+
     let dx = r2.x - r1.x; let dy = r2.y - r1.y;
     let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
 
     const attractionRange = (r1.r + r2.r) * 3;
     if (dist < attractionRange && dist > r1.r + r2.r) {
         let force = 0;
+        let isSmallSatellite = false;
+        let planetRef = null;
+        let asteroidRef = null;
+
         if (r1.isPlanet && r2.isPlanet) {
             force = (G_CONST * r1.mass * r2.mass * 15.0) / Math.max(distSq, 2000);
         } else if (r1.isPlanet || r2.isPlanet) {
             force = (G_CONST * r1.mass * r2.mass) / Math.max(distSq, 500);
+
+            planetRef = r1.isPlanet ? r1 : r2;
+            asteroidRef = r1.isPlanet ? r2 : r1;
+            if (asteroidRef.r <= ASTEROID_CONFIG.MIN_SIZE * 1.5 || asteroidRef.isHot) {
+                isSmallSatellite = true;
+            }
         } else {
             const isGiant = (r1.r >= ASTEROID_CONFIG.MAX_SIZE || r2.r >= ASTEROID_CONFIG.MAX_SIZE);
             const G_ROIDS = isGiant ? 5.0 : 0.08;
             force = (G_ROIDS * r1.mass * r2.mass) / Math.max(distSq, 400);
         }
+
+        // Apply forces
         let fx = (dx / dist) * force;
         let fy = (dy / dist) * force;
+
         if (!isNaN(fx)) {
+            // Normal gravity pull for everything
             r1.xv += fx / r1.mass; r1.yv += fy / r1.mass;
             r2.xv -= fx / r2.mass; r2.yv -= fy / r2.mass;
+
+            // If it's a small satellite, destroy it early if it touches the atmosphere
+            if (isSmallSatellite) {
+                const atmosphereRadius = planetRef.r + asteroidRef.r + 30; // 30 units of atmosphere
+                if (dist < atmosphereRadius) {
+                    const midX = asteroidRef.x; const midY = asteroidRef.y;
+                    const midVpX = midX - State.worldOffsetX + State.width / 2;
+                    const midVpY = midY - State.worldOffsetY + State.height / 2;
+                    createExplosion(midVpX, midVpY, 15, '#ffffff', 3, 'spark');
+                    asteroidRef._destroyed = true;
+                }
+            }
         }
         return;
     }
@@ -260,14 +292,14 @@ export function resolveInteraction(r1, r2) {
         if (r1.isPlanet !== r2.isPlanet) {
             let planet = r1.isPlanet ? r1 : r2;
             let asteroid = r1.isPlanet ? r2 : r1;
-            if (asteroid.r <= ASTEROID_CONFIG.MIN_SIZE * 1.2) {
-                const angle = Math.atan2(asteroid.y - planet.y, asteroid.x - planet.x);
-                const minDist = planet.r + asteroid.r + 5;
-                asteroid.x = planet.x + Math.cos(angle) * minDist;
-                asteroid.y = planet.y + Math.sin(angle) * minDist;
-                asteroid.xv += Math.cos(angle) * 1.0; asteroid.yv += Math.sin(angle) * 1.0;
+
+            // Any asteroid smaller than MIN_SIZE * 1.5, OR any hot debris is destroyed upon touching the planet surface
+            if (asteroid.r <= ASTEROID_CONFIG.MIN_SIZE * 1.5 || asteroid.isHot) {
+                createExplosion(midVpX, midVpY, 10, '#ffffff', 2, 'spark');
+                asteroid._destroyed = true;
                 return;
             }
+
             let totalMass = planet.mass + asteroid.mass;
             // DO NOT SHIFT PLANET POSITION TO PREVENT ERRATIC RUBBER-BANDING IN ELLIPTICAL ORBITS
             planet.targetR = Math.min(Math.sqrt((Math.PI * planet.r * planet.r + Math.PI * asteroid.r * asteroid.r * 1.5) / Math.PI), PLANET_CONFIG.MAX_SIZE); // Slightly more growth

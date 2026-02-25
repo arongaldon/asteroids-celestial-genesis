@@ -24,8 +24,8 @@ export const MAX_Z_DEPTH = 2.0;
 export const MIN_DURATION_TAP_TO_MOVE = 200;
 
 export const PLANET_CONFIG = {
-   LIMIT: 12,
-   MAX_SIZE: 1200
+   LIMIT: 20,
+   MAX_SIZE: 2000
 };
 
 export const PLAYER_CONFIG = {

@@ -14,6 +14,7 @@ import { spatialGrid, updatePhysics, resolveInteraction } from './physics.js';
  */
 
 let stationsDestroyedCount = 0;
+let originalPlanetLimit = null;
 
 export function initBackground() {
     // Resets and populates background layers for parallax
@@ -518,25 +519,40 @@ export function loop() {
         let shadow = [];
         const SHADOW_SIZE = 50; // Size of the inset shadow border
 
-        const nextDist = Math.hypot(nextWorldX, nextWorldY);
-        if (nextDist > WORLD_BOUNDS) {
-            State.velocity.x *= BOUNDARY_CONFIG.DAMPENING;
-            State.velocity.y *= BOUNDARY_CONFIG.DAMPENING;
+        // 3. Update Camera / World Offset (with soft magnetic boundary)
+        let nextDist = Math.hypot(State.worldOffsetX + State.velocity.x, State.worldOffsetY + State.velocity.y);
+        const magneticZone = WORLD_BOUNDS * 0.95; // Start pushing back at 95% of bounds
 
-            const currentDist = Math.hypot(State.worldOffsetX, State.worldOffsetY);
-            if (currentDist >= WORLD_BOUNDS) {
+        if (nextDist > magneticZone) {
+            // Calculate repulsion force
+            const distPastZone = Math.max(0, nextDist - magneticZone);
+            const severity = Math.min(1.0, distPastZone / (WORLD_BOUNDS * 0.1)); // 0 to 1 based on how far past
+
+            // Soft dampening
+            State.velocity.x *= (1 - severity * 0.1);
+            State.velocity.y *= (1 - severity * 0.1);
+
+            // Push towards center
+            const angleToCenter = Math.atan2(-State.worldOffsetY, -State.worldOffsetX);
+            const pushForce = severity * 2.0; // Max 2.0 force per frame
+
+            State.velocity.x += Math.cos(angleToCenter) * pushForce;
+            State.velocity.y += Math.sin(angleToCenter) * pushForce;
+
+            // Hard cap at absolute max (e.g., 105% of bounds)
+            if (nextDist > WORLD_BOUNDS * 1.05) {
+                const limitAngle = Math.atan2(State.worldOffsetY, State.worldOffsetX);
+                State.worldOffsetX = Math.cos(limitAngle) * WORLD_BOUNDS * 1.05;
+                State.worldOffsetY = Math.sin(limitAngle) * WORLD_BOUNDS * 1.05;
                 State.velocity.x = 0;
                 State.velocity.y = 0;
-                const angle = Math.atan2(nextWorldY, nextWorldX);
-                State.worldOffsetX = Math.cos(angle) * WORLD_BOUNDS;
-                State.worldOffsetY = Math.sin(angle) * WORLD_BOUNDS;
             } else {
-                State.worldOffsetX = nextWorldX;
-                State.worldOffsetY = nextWorldY;
+                State.worldOffsetX += State.velocity.x;
+                State.worldOffsetY += State.velocity.y;
             }
         } else {
-            State.worldOffsetX = nextWorldX;
-            State.worldOffsetY = nextWorldY;
+            State.worldOffsetX += State.velocity.x;
+            State.worldOffsetY += State.velocity.y;
         }
 
         // 4. Visual Boundary Alert (Directional)
@@ -659,6 +675,7 @@ export function loop() {
 
                     if (obj.r !== undefined && !obj.type) { // Asteroid or Planet
                         if (obj.vaporized || obj.blinkNum > 0) return;
+
                         obj.r = 0; // Marked for instant removal (no split)
                         obj.vaporized = true;
 
@@ -1341,21 +1358,24 @@ export function loop() {
 
                         const isInVisualSlot = distToTarget < 50;
 
-                        let force = 0.12; // Increased from 0.05
+                        let force = 0.25; // Greatly increased for agility
                         let damping = 0.90;
 
                         // Leader Velocity Inheritance
                         const lvx = ship.leaderRef === State.playerShip ? State.velocity.x : (ship.leaderRef.xv || 0);
                         const lvy = ship.leaderRef === State.playerShip ? State.velocity.y : (ship.leaderRef.yv || 0);
 
-                        // Match leader velocity
-                        ship.xv += (lvx - ship.xv) * 0.1;
-                        ship.yv += (lvy - ship.yv) * 0.1;
+                        // Match leader velocity more aggressively
+                        ship.xv += (lvx - ship.xv) * 0.25;
+                        ship.yv += (lvy - ship.yv) * 0.25;
 
                         if (distToTarget < 200) {
                             const factor = distToTarget / 200;
                             force *= factor;
                             damping = 0.90 + (1 - factor) * 0.05;
+                        } else if (distToTarget > 500) {
+                            // Catch-up mode if very far
+                            force *= 1.5;
                         }
 
                         ship.xv += dx * force;
@@ -1833,6 +1853,7 @@ export function loop() {
             if (r.isPlanet) {
                 const planetsBefore = State.roids.filter(plan => plan.isPlanet && !plan._destroyed).length;
                 if (State.gameRunning) console.log("Planet " + r.name + " destroyed. Total planets " + (planetsBefore - 1));
+                PLANET_CONFIG.LIMIT = Math.max(0, PLANET_CONFIG.LIMIT - 1);
             }
             State.roids.splice(i, 1);
             if (!r.isPlanet) updateAsteroidCounter();
@@ -1915,9 +1936,15 @@ export function loop() {
             // Draw Name
             DOM.canvasContext.globalAlpha = depthAlpha;
             DOM.canvasContext.fillStyle = 'white';
-            DOM.canvasContext.font = `${14 / depthScale}px Courier New`;
+            DOM.canvasContext.font = `bold ${28 / depthScale}px Courier New`;
             DOM.canvasContext.textAlign = 'center';
-            DOM.canvasContext.fillText(r.name, 0, r.r + (30 / depthScale));
+
+            // Add a slight black stroke so it's readable against bright planets
+            DOM.canvasContext.strokeStyle = 'rgba(0,0,0,0.8)';
+            DOM.canvasContext.lineWidth = 3 / depthScale;
+            DOM.canvasContext.strokeText(r.name, 0, r.r + (40 / depthScale));
+
+            DOM.canvasContext.fillText(r.name, 0, r.r + (40 / depthScale));
 
         } else {
             // Draw standard asteroid shape
@@ -2983,37 +3010,27 @@ export function loop() {
                     let planet = r;
                     let hasSquad = false;
                     let shooter = enemyShipBullet.owner;
-                    if (shooter) {
-                        let leader = shooter.role === 'leader' ? shooter : shooter.leaderRef;
-                        if (leader && leader.squadSlots) {
-                            let squadCount = 1;
-                            leader.squadSlots.forEach(s => {
+                    if (shooter && shooter.role === 'leader') {
+                        let squadCount = 0;
+                        if (shooter.squadSlots) {
+                            shooter.squadSlots.forEach(s => {
                                 if (s.occupant && !s.occupant.dead && State.ships.includes(s.occupant)) squadCount++;
                             });
-                            if (squadCount >= 2) hasSquad = true;
-                        } else if (shooter.squadId !== null && shooter.squadId !== undefined) {
-                            let squadCount = 0;
-                            for (let s of State.ships) {
-                                if (!s.dead && s.squadId === shooter.squadId) squadCount++;
-                            }
-                            if (squadCount >= 2) hasSquad = true;
                         }
+                        if (squadCount >= 2) hasSquad = true;
                     }
 
                     if (hasSquad) {
                         if (planet.hp === undefined) planet.hp = 70;
-                        planet.hp--;
-                        planet.blinkNum = 10;
-                        createExplosion(vpX, vpY, 20, '#ffaa00', 3, 'spark');
+                        if (planet.hp > 0) {
+                            planet.hp--;
+                            planet.blinkNum = 10;
+                            createExplosion(vpX, vpY, 20, '#ffaa00', 3, 'spark');
 
-                        if (planet.hp <= 0) {
-                            planet.r = 0;
-                            planet._destroyed = true;
-                            if (planet.id === State.homePlanetId) triggerHomePlanetLost('enemy');
-                            else {
-                                if (shooter && State.ships.includes(shooter)) {
-                                    shooter.score += SCORE_REWARDS.PLANET_DESTROYED;
-                                }
+                            if (planet.hp <= 0) {
+                                planet.r = 0;
+                                planet._destroyed = true;
+
                                 const pVpX = planet.x - State.worldOffsetX + State.width / 2;
                                 const pVpY = planet.y - State.worldOffsetY + State.height / 2;
                                 createExplosion(pVpX, pVpY, 150, '#ffaa00', 8, 'flame');
@@ -3021,8 +3038,16 @@ export function loop() {
                                 createExplosion(pVpX, pVpY, 80, '#550000', 15, 'smoke');
                                 createExplosion(pVpX, pVpY, 50, '#ffff00', 4, 'spark');
                                 AudioEngine.playPlanetExplosion(planet.x, planet.y, planet.z || 0);
-                                State.pendingDebris.push({ x: planet.x, y: planet.y, count: ASTEROID_CONFIG.PLANET_DEBRIS, isHot: true });
-                                createShockwave(planet.x, planet.y);
+
+                                if (planet.id === State.homePlanetId) {
+                                    triggerHomePlanetLost('enemy');
+                                } else {
+                                    if (shooter && State.ships.includes(shooter)) {
+                                        shooter.score += SCORE_REWARDS.PLANET_DESTROYED;
+                                    }
+                                    State.pendingDebris.push({ x: planet.x, y: planet.y, count: ASTEROID_CONFIG.PLANET_DEBRIS, isHot: true });
+                                    createShockwave(planet.x, planet.y);
+                                }
                             }
                         }
                     } else {
@@ -3165,45 +3190,66 @@ export function loop() {
                 const rVpY = r.y - State.worldOffsetY + State.height / 2;
 
                 if (r.isPlanet) {
+                    if (r.id === State.homePlanetId) {
+                        r.friendlyHits = (r.friendlyHits || 0) + 1;
+                        if (r.friendlyHits === 2 || r.friendlyHits % 10 === 0) {
+                            addScreenMessage("That's your home planet!", "#ff8800");
+                        }
+                        createExplosion(vpX, vpY, 3, '#fff', 1);
+                        State.playerShipBullets.splice(i, 1);
+                        hit = true;
+                        break;
+                    }
                     let planet = r;
                     let hasSquad = false;
                     let shooter = playerShipBullet.owner;
-                    if (shooter) {
-                        let leader = shooter.role === 'leader' ? shooter : shooter.leaderRef;
-                        if (leader && leader.squadSlots) {
-                            let squadCount = 1;
-                            leader.squadSlots.forEach(s => {
-                                if (s.occupant && !s.occupant.dead && State.ships.includes(s.occupant)) squadCount++;
-                            });
-                            if (squadCount >= 2) hasSquad = true;
-                        } else if (shooter.squadId !== null && shooter.squadId !== undefined) {
+
+                    if (shooter === State.playerShip) {
+                        if (State.playerShip.tier >= 12) {
+                            hasSquad = true; // Godship can always destroy planets
+                        } else if (!State.playerShip.loneWolf) {
                             let squadCount = 0;
-                            for (let s of State.ships) {
-                                if (!s.dead && s.squadId === shooter.squadId) squadCount++;
+                            if (State.playerShip.squadSlots) {
+                                State.playerShip.squadSlots.forEach(s => {
+                                    if (s.occupant && !s.occupant.dead && State.ships.includes(s.occupant)) squadCount++;
+                                });
                             }
                             if (squadCount >= 2) hasSquad = true;
                         }
+                    } else if (shooter && shooter.role === 'leader') {
+                        let squadCount = 0;
+                        if (shooter.squadSlots) {
+                            shooter.squadSlots.forEach(s => {
+                                if (s.occupant && !s.occupant.dead && State.ships.includes(s.occupant)) squadCount++;
+                            });
+                        }
+                        if (squadCount >= 2) hasSquad = true;
                     }
 
                     if (hasSquad) {
                         if (planet.hp === undefined) planet.hp = 70;
-                        planet.hp--;
-                        planet.blinkNum = 10;
-                        createExplosion(vpX, vpY, 20, '#ffaa00', 3, 'spark');
+                        if (planet.hp > 0) {
+                            planet.hp--;
+                            planet.blinkNum = 10;
+                            createExplosion(vpX, vpY, 20, '#ffaa00', 3, 'spark');
 
-                        if (planet.hp <= 0) {
-                            planet.r = 0;
-                            planet._destroyed = true;
-                            if (planet.id === State.homePlanetId) triggerHomePlanetLost('player');
-                            else {
-                                increaseShipScore(State.playerShip, SCORE_REWARDS.PLANET_DESTROYED);
+                            if (planet.hp <= 0) {
+                                planet.r = 0;
+                                planet._destroyed = true;
+
                                 const pVpX = planet.x - State.worldOffsetX + State.width / 2;
                                 const pVpY = planet.y - State.worldOffsetY + State.height / 2;
                                 createExplosion(pVpX, pVpY, 150, '#ffaa00', 8, 'flame');
                                 createExplosion(pVpX, pVpY, 100, '#ff4400', 12, 'flame');
                                 AudioEngine.playPlanetExplosion(planet.x, planet.y, planet.z || 0);
-                                State.pendingDebris.push({ x: planet.x, y: planet.y, count: ASTEROID_CONFIG.PLANET_DEBRIS, isHot: true });
-                                createShockwave(planet.x, planet.y);
+
+                                if (planet.id === State.homePlanetId) {
+                                    triggerHomePlanetLost('player');
+                                } else {
+                                    increaseShipScore(State.playerShip, SCORE_REWARDS.PLANET_DESTROYED);
+                                    State.pendingDebris.push({ x: planet.x, y: planet.y, count: ASTEROID_CONFIG.PLANET_DEBRIS, isHot: true });
+                                    createShockwave(planet.x, planet.y);
+                                }
                             }
                         }
                     } else if (r.blinkNum === 0) {
@@ -3510,6 +3556,9 @@ export function startGame() {
     // RESTORE HUD
     const uiLayer = document.getElementById('ui-layer');
     if (uiLayer) uiLayer.style.display = 'flex';
+
+    if (originalPlanetLimit === null) originalPlanetLimit = PLANET_CONFIG.LIMIT;
+    else PLANET_CONFIG.LIMIT = originalPlanetLimit;
 
     DOM.startScreen.style.display = 'none';
     DOM.startScreen.classList.remove('game-over', 'game-over-bg', 'victory', 'fade-out');

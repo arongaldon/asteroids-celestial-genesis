@@ -43,7 +43,7 @@ export function createAsteroid(x, y, r, z = 0, forcedName = null) {
     let isPlanet = false;
     if (r > ASTEROID_CONFIG.MAX_SIZE) {
         const currentPlanets = State.roids.filter(ro => ro.isPlanet && !ro._destroyed).length;
-        if (currentPlanets < PLANET_CONFIG.LIMIT) {
+        if (currentPlanets < PLANET_CONFIG.LIMIT && !State.victoryState && !(State.playerShip && State.playerShip.dead && State.playerShip.lives <= 0)) {
             isPlanet = true;
         } else {
             r = ASTEROID_CONFIG.MAX_SIZE;
@@ -66,7 +66,7 @@ export function createAsteroid(x, y, r, z = 0, forcedName = null) {
         rings: null,
         blinkNum: 0,
         targetR: r,
-        color: `hsl(${Math.random() * 360}, ${5 + Math.random() * 5}%, ${5 + Math.random() * 10}%)` // Almost black, low saturation
+        color: `hsl(${Math.random() * 360}, ${Math.random() * 10}%, ${15 + Math.random() * 35}%)` // Gray tones with brightness variation
     };
     roid.stableXV = roid.xv;
     roid.stableYV = roid.yv;
