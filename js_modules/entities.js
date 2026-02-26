@@ -2,6 +2,7 @@ import { ASTEROID_CONFIG, BOUNDARY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_R
 import { State } from './state.js';
 import { mulberry32, getShapeName } from './utils.js';
 import { addScreenMessage, updateAsteroidCounter, drawLives } from './render.js';
+import { t } from './i18n.js';
 
 export function newPlayerShip() {
     const startingHP = SHIP_CONFIG.RESISTANCE;
@@ -398,15 +399,15 @@ export function increaseShipScore(ship, reward) {
         if (newTier !== ship.tier) {
             if (newTier > ship.tier) {
                 if (newTier === 12 && ship.tier < 12) {
-                    addScreenMessage("THE DIVINE METAMORPHOSIS BEGINS...", "#00ffff");
-                    addScreenMessage("ANY SHOT FROM NOW ON COULD BE DANGEROUS.", "#ffaa00");
+                    addScreenMessage(t("game.divine_meta_begins"), "#00ffff");
+                    addScreenMessage(t("game.dangerous_shots"), "#ffaa00");
                     ship.transformationTimer = 600; // ~10 seconds at 60fps
                 } else if (newTier < 12) {
-                    addScreenMessage(`EVOLVED TO ${getShapeName(newTier)}`, "#00ff00");
+                    addScreenMessage(t("game.evolved_to", { shape: getShapeName(newTier) }), "#00ff00");
                 }
             }
             else if (ship.tier < 12) {
-                addScreenMessage(`DEVOLVED TO ${getShapeName(newTier)}`, "#ff0000");
+                addScreenMessage(t("game.devolved_to", { shape: getShapeName(newTier) }), "#ff0000");
             } else {
                 ship.transformationTimer = 0; // Cancel transformation if devolved
             }
@@ -452,7 +453,7 @@ export function onStationDestroyed(station, killerShip = null) {
 
         State.playerShip.lives++;
         drawLives();
-        addScreenMessage("EXTRA LIFE!");
+        addScreenMessage(t("game.extra_life"));
 
         State.playerShip.structureHP = SHIP_CONFIG.RESISTANCE;
         State.playerShip.shield = State.playerShip.maxShield;
@@ -493,7 +494,7 @@ function triggerBetrayal() {
     State.playerShip.leaderRef = null;
     State.playerShip.loneWolf = true;
     State.playerShip.squadId = null;
-    addScreenMessage("⚠ BETRAYAL: YOU ARE NOW A LONE WOLF!", "#ff0000");
+    addScreenMessage(t("game.betrayal"), "#ff0000");
 
     State.ships.forEach(ship => {
         if (ship.isFriendly) {

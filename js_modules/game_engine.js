@@ -5,6 +5,7 @@ import { AudioEngine } from './audio.js';
 import { newPlayerShip, createAsteroid, initializePlanetAttributes, createGalaxy, createAmbientFog, createExplosion, createShockwave, createAsteroidBelt, spawnStation, spawnShipsSquad, getShipTier, generatePlanetName, increaseShipScore, onShipDestroyed, onStationDestroyed, createExplosionDebris } from './entities.js';
 import { drawPlanetTexture, drawRadar, drawHeart, drawLives, updateHUD, updateAsteroidCounter, showInfoLEDText, addScreenMessage, drawRings } from './render.js';
 import { changeRadarZoom, shootLaser, fireEntityWeapon, fireGodWeapon, enemyShoot, isTrajectoryClear, proactiveCombatScanner } from './input.js';
+import { t } from './i18n.js';
 
 import { setupInputEvents, isTouching, touchStartTime } from './events.js';
 import { spatialGrid, updatePhysics, resolveInteraction } from './physics.js';
@@ -41,7 +42,7 @@ export function createLevel() {
         let planetSpawned = false;
         let planetX = (Math.random() - 0.5) * 5000;
         let planetY = (Math.random() - 0.5) * 5000;
-        let firstPlanet = createAsteroid(planetX, planetY, ASTEROID_CONFIG.MAX_SIZE + 1, 0, "HOME");
+        let firstPlanet = createAsteroid(planetX, planetY, ASTEROID_CONFIG.MAX_SIZE + 1, 0, t("game.home_planet_name"));
         State.roids.push(firstPlanet);
         State.homePlanetId = firstPlanet.id;
         firstPlanet.zSpeed = 0;
@@ -132,19 +133,19 @@ export function killPlayerShip(reason = 'normal') {
 
             // Philosophical Game Over Messages
             if (reason === 'player') {
-                showInfoLEDText("The universe trembles at your power, but who are you now without a home? You reached for divinity and crushed the cradle that once held you.");
+                showInfoLEDText(t("game.gameover_player"));
             } else if (reason === 'enemy') {
-                showInfoLEDText("An organized malice fell upon your cradle. Your homeworld was overwhelmed by a synchronized enemy advance, and the sky burned before the void claimed all.");
+                showInfoLEDText(t("game.gameover_enemy"));
             } else if (reason === 'collision') {
-                showInfoLEDText("A cosmic dance turned into tragedy. Two worlds collided in the cold silence of space, and your history was erased in an instant flash of light.");
+                showInfoLEDText(t("game.gameover_collision"));
             } else {
-                showInfoLEDText("Your journey ends here. The stars remain indifferent to your passing, yet your echo lingers in the void.");
+                showInfoLEDText(t("game.gameover_normal"));
             }
 
             // Bring up the button and initiate the slow fade of the BG image
             setTimeout(() => {
                 DOM.startBtn.style.display = 'block';
-                DOM.startBtn.innerText = 'RESTART JOURNEY';
+                DOM.startBtn.innerText = t("ui.restart");
                 DOM.startScreen.classList.add('fade-out');
             }, 3000);
         }, 5000);
@@ -157,12 +158,12 @@ export function triggerHomePlanetLost(reason) {
 
     if (reason === 'player') {
         State.screenMessages = [];
-        addScreenMessage("Home destroyed by you!", "#ff0000");
+        addScreenMessage(t("game.home_lost_player"), "#ff0000");
     } else if (reason === 'enemy') {
         State.screenMessages = [];
-        addScreenMessage("Home crushed by enemy invasion!", "#ff0000");
+        addScreenMessage(t("game.home_lost_enemy"), "#ff0000");
     } else {
-        addScreenMessage("Home destroyed by a collision!", "#ff0000");
+        addScreenMessage(t("game.home_lost_collision"), "#ff0000");
     }
 }
 
@@ -179,15 +180,15 @@ function handleVictoryInteraction() {
     if (!State.victoryState) return;
 
     // Show Congratulations
-    showInfoLEDText("Congratulations: your planet will love you forever.");
-    addScreenMessage("mission accomplished!", "#00ff00");
+    showInfoLEDText(t("game.victory_msg"));
+    addScreenMessage(t("game.mission_accomplished"), "#00ff00");
 
     DOM.startScreen.classList.remove('fade-out');
     DOM.startScreen.classList.add('victory');
     DOM.startScreen.style.display = 'flex';
     DOM.startScreen.addEventListener('click', window.audioStopper); // Allow stopping music
     DOM.startBtn.style.display = 'block';
-    DOM.startBtn.innerText = 'RESTART JOURNEY';
+    DOM.startBtn.innerText = t("ui.restart");
     DOM.startBtn.onclick = () => {
         State.victoryState = false;
         DOM.startScreen.removeEventListener('click', window.audioStopper);
@@ -211,7 +212,7 @@ export function winGame() {
             s.isFriendly = true;
             s.aiState = 'FORMATION';
             s.leaderRef = State.playerShip;
-            addScreenMessage("THE SYSTEM IS PURIFIED. ENEMIES JOIN THE CAUSE.", "#00ffff");
+            addScreenMessage(t("game.system_purified"), "#00ffff");
         }
     });
 
@@ -255,12 +256,12 @@ export function loop() {
 
         if (State.playerShip.transformationTimer % 60 === 0 && State.playerShip.transformationTimer > 0) {
             const secondsLeft = Math.ceil(State.playerShip.transformationTimer / 60);
-            addScreenMessage(`Metamorphosis: ${secondsLeft} seconds remaining...`, "#00ffff");
+            addScreenMessage(t("game.metamorphosis", { seconds: secondsLeft }), "#00ffff");
         }
 
         // COMPLETION
         if (State.playerShip.transformationTimer === 0) {
-            addScreenMessage("THE GODSHIP ACTIVATED", "#00ffff");
+            addScreenMessage(t("game.godship_activated"), "#00ffff");
             AudioEngine.playExplosion('large', State.worldOffsetX, State.worldOffsetY);
             // Flash effect
             DOM.canvasContext.fillStyle = "white";
@@ -327,7 +328,7 @@ export function loop() {
 
         if (!State.victoryState && !State.playerShip.dead) {
             if (warningNeeded && Date.now() % 1000 < 500) {
-                addScreenMessage("WARNING: LETHAL RADIUS OVERLAPS FRIENDS/HOME", "#ffaa00");
+                addScreenMessage(t("game.lethal_radius_warning"), "#ffaa00");
             }
         }
     }
@@ -681,7 +682,7 @@ export function loop() {
 
                         // AWARD SCORE for Godship destruction
                         if (obj.isPlanet) {
-                            addScreenMessage("PLANET " + obj.name.toUpperCase() + " VAPORIZED", "#ff00ff");
+                            addScreenMessage(t("game.planet_vaporized", { name: obj.name.toUpperCase() }), "#ff00ff");
 
                             const vpX = obj.x - State.worldOffsetX + State.width / 2;
                             const vpY = obj.y - State.worldOffsetY + State.height / 2;
@@ -3193,7 +3194,7 @@ export function loop() {
                     if (r.id === State.homePlanetId) {
                         r.friendlyHits = (r.friendlyHits || 0) + 1;
                         if (r.friendlyHits === 2 || r.friendlyHits % 10 === 0) {
-                            addScreenMessage("That's your home planet!", "#ff8800");
+                            addScreenMessage(t("game.warn_shoot_home"), "#ff8800");
                         }
                         createExplosion(vpX, vpY, 3, '#fff', 1);
                         State.playerShipBullets.splice(i, 1);
@@ -3320,7 +3321,7 @@ export function loop() {
             // If we are NOT a lone wolf, hitting friends triggers a warning
             if (ship.isFriendly && !State.playerShip.loneWolf && !State.victoryState && !State.playerShip.dead) {
                 if (Math.hypot(playerShipBullet.x - ship.x, playerShipBullet.y - ship.y) < ship.r + playerShipBullet.size) {
-                    addScreenMessage("⚠ WARNING: CEASE FIRE ON ALLIES!", "#ffcc00");
+                    addScreenMessage(t("game.warn_cease_fire"), "#ffcc00");
                     ship.structureHP -= 1.0;
                     ship.shieldHitTimer = 5;
                     State.playerShipBullets.splice(i, 1);

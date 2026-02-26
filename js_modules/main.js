@@ -4,6 +4,7 @@ import { AudioEngine } from './audio.js';
 import { showInfoLEDText } from './render.js';
 import { setupInputEvents } from './events.js';
 import { initBackground, createLevel, loop, startGame } from './game_engine.js';
+import { initI18n, t } from './i18n.js';
 
 export function resize() {
     State.width = Math.max(window.innerWidth, 100);
@@ -56,7 +57,8 @@ window.onload = function () {
         DOM.startBtn.addEventListener('click', startGame);
     }
 
-    showInfoLEDText("The Classic, reimagined by Aron Galdon. Have a safe trip!")
+    initI18n();
+    showInfoLEDText(t("ui.intro_msg"));
 }
 
 // Global start function backward compat (just in case)

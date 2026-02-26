@@ -47,13 +47,15 @@ export function mulberry32(a) {
     }
 }
 
+import { t } from './i18n.js';
+
 export function getShapeName(tier) {
-    if (tier >= 12) return "THE GODSHIP";
-    if (tier === 11) return "THE HYPERION";
-    if (tier === 10) return "THE TITAN";
-    if (tier === 9) return "THE CELESTIAL";
-    if (tier === 8) return "THE SPHERE";
-    const shapes = ["TRIANGLE", "SQUARE", "PENTAGON", "HEXAGON", "HEPTAGON", "OCTAGON", "NONAGON", "DECAGON"];
+    if (tier >= 12) return t("shape.godship");
+    if (tier === 11) return t("shape.hyperion");
+    if (tier === 10) return t("shape.titan");
+    if (tier === 9) return t("shape.celestial");
+    if (tier === 8) return t("shape.sphere");
+    const shapes = [t("shape.triangle"), t("shape.square"), t("shape.pentagon"), t("shape.hexagon"), t("shape.heptagon"), t("shape.octagon"), t("shape.nonagon"), t("shape.decagon")];
     return shapes[Math.min(tier, shapes.length - 1)];
 }
 
