@@ -128,27 +128,57 @@ export function initializePlanetAttributes(roid, forcedHue = null, forcedName = 
 
     roid.zSpeed = (rng() * 0.001) + 0.0005;
 
+    // Softer, more realistic base colors
+    const isDesolate = rng() < 0.2; // 20% chance of being a dead/moon-like world
+
+    let wSat = isDesolate ? 10 + rng() * 20 : 40 + rng() * 30;
+    let wLight = isDesolate ? 20 + rng() * 20 : 25 + rng() * 20;
+
+    let lSat = isDesolate ? 5 + rng() * 15 : 30 + rng() * 35;
+    let lLight = isDesolate ? 30 + rng() * 20 : 35 + rng() * 20;
+
+    // Atmosphere is generally slightly brighter than water but very transparent
+    let aHue = hue + (rng() * 40 - 20); // slight atmosphere shift
+
     let textureData = {
         seed: seed,
-        waterColor: `hsl(${hue}, 60%, 30%)`,
-        landColor: `hsl(${hue}, 40%, 40%)`,
-        cloudColor: `rgba(255, 255, 255, 0.4)`,
-        craterColor: `rgba(0, 0, 0, 0.2)`,
-        atmosphereColor: `hsl(${hue}, 80%, 60%)`,
+        waterColor: `hsl(${hue}, ${wSat}%, ${wLight}%)`,
+        landColor: `hsl(${hue + (rng() * 60 - 30)}, ${lSat}%, ${lLight}%)`, // Slightly shifted hue for land
+        cloudColor: `rgba(255, 255, 255, ${0.3 + rng() * 0.4})`,
+        craterColor: `rgba(0, 0, 0, 0.25)`,
+        atmosphereColor: `hsl(${aHue}, ${wSat + 20}%, 60%)`, // Base color for rayleigh scattering
         cloudOffset: rng() * Math.PI * 2,
         age: 0,
-        innerGradColor: `hsl(${hue}, 10%, 2%)`,
+        innerGradColor: `hsl(${hue}, ${wSat}%, ${Math.max(5, wLight - 20)}%)`, // Darker core
         landmasses: [],
         craters: [],
-        clouds: []
+        clouds: [],
+        cityLights: [] // New: City lights coordinates for night side
     };
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 5 + Math.floor(rng() * 3); i++) {
         const startAngle = rng() * Math.PI * 2;
-        const radiusFactor = (0.5 + rng() * 0.4);
-        const vertices = 10 + Math.floor(rng() * 10);
+        const radiusFactor = (0.4 + rng() * 0.5);
+        const vertices = 15 + Math.floor(rng() * 15); // More vertices for smoother landmasses
         const vertexOffsets = [];
-        for (let j = 0; j < vertices; j++) vertexOffsets.push(0.8 + rng() * 0.4);
+        for (let j = 0; j < vertices; j++) vertexOffsets.push(0.7 + rng() * 0.3);
         textureData.landmasses.push({ startAngle, radiusFactor, vertices, vertexOffsets });
+
+        // Generate city lights clustered around this landmass (only if not desolate)
+        if (!isDesolate) {
+            const numCities = Math.floor(rng() * 5);
+            for (let c = 0; c < numCities; c++) {
+                // Place near the landmass center but somewhat randomized
+                const cAngle = startAngle + (rng() * 0.8 - 0.4);
+                const cDist = radiusFactor * (0.2 + rng() * 0.7);
+                textureData.cityLights.push({
+                    angle: cAngle,
+                    distFactor: cDist,
+                    size: 0.01 + rng() * 0.03, // Relative to planet radius
+                    flickerOffset: rng() * Math.PI * 2,
+                    hue: 30 + rng() * 30 // Orange / Yellow glows
+                });
+            }
+        }
     }
     for (let i = 0; i < 10; i++) {
         textureData.craters.push({
@@ -182,15 +212,81 @@ export function initializePlanetAttributes(roid, forcedHue = null, forcedName = 
 }
 
 export function createGalaxy() {
-    const arms = Math.floor(Math.random() * 2) + 2;
-    const size = Math.random() * 150 + 100;
-    const colorBase = Math.random() > 0.5 ? { r: 50, g: 100, b: 255 } : { r: 255, g: 50, b: 200 };
-    let stars = [];
-    for (let i = 0; i < 300; i++) {
-        const dist = Math.random() * size; const angle = (dist / 15) + (Math.PI * 2 * (i % arms) / arms);
-        stars.push({ r: dist, theta: angle + Math.random() * 0.5, size: Math.random() * 1.5, alpha: Math.random() });
+    const arms = Math.floor(Math.random() * 3) + 2; // 2 to 4 arms
+
+    // Size distribution: mostly mid-sized, some absolutely massive ones
+    let sizeRng = Math.random();
+    let size = sizeRng > 0.85 ? (1000 + Math.random() * 1500) : (200 + Math.random() * 800);
+
+    // Scale star count relative to size (more stars = denser glow)
+    const starCount = Math.floor(size * (1.5 + Math.random()));
+
+    // Generate a core color and an edge color for the galaxy
+    const hueSeed = Math.random();
+    let coreColor, edgeColor;
+    if (hueSeed > 0.6) {
+        // Golden core to purple/blue edge
+        coreColor = { r: 255, g: 220, b: 150 };
+        edgeColor = { r: 50, g: 100, b: 255 };
+    } else if (hueSeed > 0.3) {
+        // Intense bright blue core to darker teal/purple edge
+        coreColor = { r: 200, g: 230, b: 255 };
+        edgeColor = { r: 100, g: 50, b: 200 };
+    } else {
+        // Reddish/Orange core to yellow edge
+        coreColor = { r: 255, g: 180, b: 100 };
+        edgeColor = { r: 255, g: 100, b: 50 };
     }
-    return { x: Math.random() * State.width * 3 - State.width, y: Math.random() * State.height * 3 - State.height, size, stars, color: colorBase, angle: Math.random() * Math.PI };
+
+    let stars = [];
+    const armSeparation = (Math.PI * 2) / arms;
+    const spiralSwirl = 1.5 + Math.random() * 1.5; // How tightly wound
+
+    for (let i = 0; i < starCount; i++) {
+        // Distribute most stars near the center (exponential falloff)
+        const distRatio = Math.pow(Math.random(), 2);
+        const dist = distRatio * size;
+
+        // Logarithmic spiral angle calculation
+        const baseAngle = (i % arms) * armSeparation;
+        const spiralAngle = distRatio * Math.PI * spiralSwirl;
+
+        // Add random scatter (more scatter further out)
+        const scatter = (Math.random() - 0.5) * (0.2 + distRatio * 0.8);
+
+        const finalAngle = baseAngle + spiralAngle + scatter;
+
+        // Determine color blending based on distance from core
+        const r = coreColor.r * (1 - distRatio) + edgeColor.r * distRatio;
+        const g = coreColor.g * (1 - distRatio) + edgeColor.g * distRatio;
+        const b = coreColor.b * (1 - distRatio) + edgeColor.b * distRatio;
+
+        // Size of individual star point
+        const starSize = Math.random() > 0.9 ? (1 + Math.random() * 2) : (0.5 + Math.random());
+
+        // Core stars are brighter
+        const alpha = Math.min(1.0, (1.0 - distRatio) + Math.random() * 0.3);
+
+        stars.push({
+            r: dist,
+            theta: finalAngle,
+            size: starSize,
+            alpha,
+            color: `rgba(${Math.floor(r)},${Math.floor(g)},${Math.floor(b)}, ` // Base string, alpha added in render
+        });
+    }
+
+    // Place galaxy randomly within viewport bounds so they are initially visible
+    // They will wrap around when they drift off-screen
+    return {
+        x: Math.random() * State.width,
+        y: Math.random() * State.height,
+        size,
+        stars,
+        coreColor,
+        edgeColor,
+        angle: Math.random() * Math.PI
+    };
 }
 
 export function createAmbientFog() {

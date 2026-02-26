@@ -1,4 +1,4 @@
-import { ASTEROID_CONFIG, BOUNDARY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
+import { ASTEROID_CONFIG, BOUNDARY_CONFIG, GALAXY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
 import { State } from './state.js';
 import { SpatialHash, mulberry32, getShapeName } from './utils.js';
 import { AudioEngine } from './audio.js';
@@ -22,7 +22,21 @@ export function initBackground() {
     State.backgroundLayers = { nebulas: [], galaxies: [], starsNear: [], starsMid: [], starsFar: [] };
     State.ambientFogs = []; // NEW: Reset ambient fog
     for (let i = 0; i < 6; i++) State.backgroundLayers.nebulas.push({ x: Math.random() * State.width, y: Math.random() * State.height, r: State.width * 0.6, hue: Math.random() * 60 + 200, alpha: 0.1 });
-    for (let i = 0; i < 3; i++) State.backgroundLayers.galaxies.push(createGalaxy());
+    for (let i = 0; i < GALAXY_CONFIG.COUNT; i++) {
+        let newGalaxy;
+        let attempts = 0;
+        let tooClose;
+        do {
+            newGalaxy = createGalaxy();
+            tooClose = State.backgroundLayers.galaxies.some(g => {
+                const dx = g.x - newGalaxy.x;
+                const dy = g.y - newGalaxy.y;
+                return Math.sqrt(dx * dx + dy * dy) < GALAXY_CONFIG.MIN_DIST;
+            });
+            attempts++;
+        } while (tooClose && attempts < 20);
+        State.backgroundLayers.galaxies.push(newGalaxy);
+    }
     for (let i = 0; i < 3; i++) State.ambientFogs.push(createAmbientFog()); // NEW: Initial ambient fogs
     const createStar = () => ({ x: Math.random() * State.width, y: Math.random() * State.height, size: Math.random() * 1.5 + 0.5, alpha: Math.random() * 0.5 + 0.3 });
     for (let i = 0; i < 50; i++) State.backgroundLayers.starsFar.push(createStar());
@@ -761,6 +775,11 @@ export function loop() {
     const moveLayer = (list, factor) => list.forEach(item => {
         // Background items use VIEWPORT coordinates for display, so update with State.velocity
         item.x -= State.velocity.x * factor; item.y -= State.velocity.y * factor;
+        const e = item.r || item.size || 50;
+        if (item.x < -e) item.x = State.width + e;
+        else if (item.x > State.width + e) item.x = -e;
+        if (item.y < -e) item.y = State.height + e;
+        else if (item.y > State.height + e) item.y = -e;
     });
 
     DOM.canvasContext.globalCompositeOperation = 'screen';
@@ -773,13 +792,46 @@ export function loop() {
     DOM.canvasContext.globalCompositeOperation = 'source-over';
     // Draw distant galaxies
     State.backgroundLayers.galaxies.forEach(g => {
-        g.x -= State.velocity.x * 0.1; g.y -= State.velocity.y * 0.1;
-        g.angle += 0.001;
-        DOM.canvasContext.save(); DOM.canvasContext.translate(g.x, g.y); DOM.canvasContext.rotate(g.angle);
-        DOM.canvasContext.shadowBlur = 30; DOM.canvasContext.shadowColor = `rgb(${g.color.r},${g.color.g},${g.color.b})`;
-        DOM.canvasContext.fillStyle = 'white'; DOM.canvasContext.beginPath(); DOM.canvasContext.arc(0, 0, 8, 0, Math.PI * 2); DOM.canvasContext.fill();
-        g.stars.forEach(s => { DOM.canvasContext.fillStyle = `rgba(${g.color.r},${g.color.g},${g.color.b}, ${s.alpha})`; DOM.canvasContext.beginPath(); DOM.canvasContext.arc(s.r * Math.cos(s.theta), s.r * Math.sin(s.theta), s.size, 0, Math.PI * 2); DOM.canvasContext.fill(); });
-        DOM.canvasContext.restore(); DOM.canvasContext.shadowBlur = 0;
+        g.x -= State.velocity.x * 0.05; // Slightly slower parallax for more depth
+        g.y -= State.velocity.y * 0.05;
+        g.angle += 0.0005; // Slower rotation
+
+        // Ensure massive galaxies wrap seamlessly
+        const ext = g.size * 1.5;
+        if (g.x < -ext) g.x = State.width + ext;
+        else if (g.x > State.width + ext) g.x = -ext;
+        if (g.y < -ext) g.y = State.height + ext;
+        else if (g.y > State.height + ext) g.y = -ext;
+
+        DOM.canvasContext.save();
+        DOM.canvasContext.translate(g.x, g.y);
+        DOM.canvasContext.rotate(g.angle);
+
+        // 1. Draw glowing radiant core
+        DOM.canvasContext.globalCompositeOperation = 'screen';
+        const coreRad = g.size * 0.3; // Core size proportional to galaxy
+        let coreGrad = DOM.canvasContext.createRadialGradient(0, 0, 0, 0, 0, coreRad);
+
+        // Use the generated colors (core is very bright, edge scales off)
+        coreGrad.addColorStop(0, `rgba(${g.coreColor.r}, ${g.coreColor.g}, ${g.coreColor.b}, 1)`);
+        coreGrad.addColorStop(0.2, `rgba(${g.coreColor.r}, ${g.coreColor.g}, ${g.coreColor.b}, 0.8)`);
+        coreGrad.addColorStop(1, `rgba(${g.edgeColor.r}, ${g.edgeColor.g}, ${g.edgeColor.b}, 0)`);
+
+        DOM.canvasContext.fillStyle = coreGrad;
+        DOM.canvasContext.beginPath();
+        DOM.canvasContext.arc(0, 0, coreRad, 0, Math.PI * 2);
+        DOM.canvasContext.fill();
+
+        // 2. Draw stars
+        g.stars.forEach(s => {
+            // The color string was prepared in entities.js like: `rgba(R,G,B, `
+            DOM.canvasContext.fillStyle = `${s.color}${s.alpha})`;
+            DOM.canvasContext.beginPath();
+            DOM.canvasContext.arc(s.r * Math.cos(s.theta), s.r * Math.sin(s.theta), s.size, 0, Math.PI * 2);
+            DOM.canvasContext.fill();
+        });
+
+        DOM.canvasContext.restore();
     });
     // Draw starfield parallax layers
     moveLayer(State.backgroundLayers.starsFar, 0.1); moveLayer(State.backgroundLayers.starsMid, 0.4); moveLayer(State.backgroundLayers.starsNear, 0.8);

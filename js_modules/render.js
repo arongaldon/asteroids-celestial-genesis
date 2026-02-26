@@ -3,37 +3,121 @@ import { State } from './state.js';
 
 export function drawPlanetTexture(ctx, x, y, r, textureData) {
     if (!textureData || isNaN(x) || isNaN(y) || isNaN(r)) return;
-    let grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-    grad.addColorStop(0, textureData.innerGradColor);
-    grad.addColorStop(0.1, textureData.waterColor);
-    grad.addColorStop(1, textureData.waterColor);
+
+    // 1. Base ocean gradient (softer, deep)
+    let grad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r);
+    grad.addColorStop(0, textureData.waterColor);
+    grad.addColorStop(0.8, textureData.innerGradColor);
+    grad.addColorStop(1, textureData.innerGradColor); // Deep edge
+
     ctx.fillStyle = grad;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 2. Landmasses (Bezier curves for smoother shorelines)
     ctx.fillStyle = textureData.landColor;
     textureData.landmasses.forEach(lm => {
         ctx.beginPath();
         const radius = r * lm.radiusFactor;
         const centerX = x + Math.cos(lm.startAngle) * radius * 0.5;
         const centerY = y + Math.sin(lm.startAngle) * radius * 0.5;
+
+        let firstPt = null;
         for (let j = 0; j < lm.vertices; j++) {
             const angle = (j / lm.vertices) * Math.PI * 2;
             const dist = radius * lm.vertexOffsets[j];
             const px = centerX + Math.cos(angle) * dist;
             const py = centerY + Math.sin(angle) * dist;
-            if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+
+            if (j === 0) {
+                firstPt = { x: px, y: py };
+                ctx.moveTo(px, py);
+            } else {
+                // Approximate smooth curve
+                const prevAngle = ((j - 1) / lm.vertices) * Math.PI * 2;
+                const prevDist = radius * lm.vertexOffsets[j - 1];
+                const prevX = centerX + Math.cos(prevAngle) * prevDist;
+                const prevY = centerY + Math.sin(prevAngle) * prevDist;
+
+                const cpX = (prevX + px) / 2;
+                const cpY = (prevY + py) / 2;
+                ctx.quadraticCurveTo(prevX, prevY, cpX, cpY);
+            }
         }
-        ctx.closePath(); ctx.fill();
+        if (firstPt) ctx.quadraticCurveTo(firstPt.x, firstPt.y, firstPt.x, firstPt.y); // close
+        ctx.fill();
     });
+
+    // 3. Craters
     ctx.fillStyle = textureData.craterColor;
     textureData.craters.forEach(cr => {
         const cx = x + cr.xFactor * r;
         const cy = y + cr.yFactor * r;
         const crr = r * cr.rFactor;
-        if (Math.sqrt((cx - x) ** 2 + (cy - y) ** 2) + crr < r) {
+        if (Math.hypot(cx - x, cy - y) + crr < r) {
             ctx.beginPath(); ctx.arc(cx, cy, crr, 0, Math.PI * 2); ctx.fill();
-            ctx.strokeStyle = `rgba(255, 255, 255, 0.1)`; ctx.lineWidth = 1; ctx.stroke();
+            ctx.strokeStyle = `rgba(0, 0, 0, 0.4)`; ctx.lineWidth = 1; ctx.stroke();
         }
     });
+
+    // We establish a fixed light source direction indicating "Sun"
+    // Let's say light comes from top-left (angle = -Math.PI / 4)
+    const lightAngle = -Math.PI / 4;
+    const lightDirX = Math.cos(lightAngle);
+    const lightDirY = Math.sin(lightAngle);
+
+    // 4. City Lights (Drawn only if on the night side)
+    // Night is roughly opposite the light direction
+    if (textureData.cityLights && textureData.cityLights.length > 0) {
+        textureData.cityLights.forEach(cl => {
+            const clX = x + Math.cos(cl.angle) * (r * cl.distFactor);
+            const clY = y + Math.sin(cl.angle) * (r * cl.distFactor);
+
+            // Determine if the light is on the "night" side
+            // Dot product between light dir and surface normal (from center to light)
+            const nx = (clX - x) / r;
+            const ny = (clY - y) / r;
+            const dot = nx * lightDirX + ny * lightDirY; // 1 = full day, -1 = full night
+
+            if (dot < -0.1) {
+                // Smooth fade in based on darkness
+                const nightIntensity = Math.min(1.0, (Math.abs(dot) - 0.1) * 2.0);
+                // Twinkle effect
+                const twinkle = 0.6 + 0.4 * Math.sin(Date.now() / 200 + cl.flickerOffset);
+                const alpha = nightIntensity * twinkle;
+
+                const lightRad = Math.max(0.5, r * cl.size);
+
+                ctx.beginPath();
+                ctx.arc(clX, clY, lightRad, 0, Math.PI * 2);
+                ctx.fillStyle = `hsla(${cl.hue}, 100%, 70%, ${alpha})`;
+                ctx.shadowColor = `hsla(${cl.hue}, 100%, 50%, ${alpha})`;
+                ctx.shadowBlur = lightRad * 2;
+                ctx.fill();
+                ctx.shadowBlur = 0; // reset
+            }
+        });
+    }
+
+    // 5. Day/Night Shadow Overlay
+    // A linear gradient from the dark side to the light side
+    const shadowGrad = ctx.createLinearGradient(
+        x - lightDirX * r, y - lightDirY * r, // Lightest point
+        x + lightDirX * r, y + lightDirY * r  // Darkest point
+    );
+    shadowGrad.addColorStop(0.3, "rgba(0,0,0,0)"); // Day side
+    shadowGrad.addColorStop(0.55, "rgba(0,0,0,0.6)"); // Terminator line
+    shadowGrad.addColorStop(1.0, "rgba(0,0,10,0.85)"); // Deep night
+
+    // Mask the shadow strictly to the planet circle
+    ctx.save();
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.clip();
+    ctx.fillStyle = shadowGrad;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    ctx.restore();
+
+    // 6. Clouds
     textureData.age += 0.001;
     ctx.fillStyle = textureData.cloudColor;
     textureData.clouds.forEach(cl => {
@@ -43,16 +127,32 @@ export function drawPlanetTexture(ctx, x, y, r, textureData) {
         const cy = y + Math.sin(angle) * dist;
         const cr = r * cl.crRng;
         const rotation = cl.rotationRng;
+
+        // Clouds are shaded by the terminator too, but we will rely mostly on global alpha for clouds
+        // and draw them over the shadow so they catch a tiny bit of ambient light, or rely on the shadow underneath.
+
         ctx.save(); ctx.translate(cx, cy); ctx.rotate(rotation);
         ctx.beginPath(); ctx.ellipse(0, 0, cr * 1.5, cr * 0.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     });
-    let atmGrad = ctx.createRadialGradient(x, y, r * 0.9, x, y, r * 1.1);
-    atmGrad.addColorStop(0, `rgba(255, 255, 255, 0)`);
-    atmGrad.addColorStop(0.5, textureData.atmosphereColor);
-    atmGrad.addColorStop(1, `rgba(255, 255, 255, 0)`);
-    ctx.fillStyle = atmGrad; ctx.beginPath(); ctx.arc(x, y, r * 1.1, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = textureData.atmosphereColor; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+
+    // 7. Atmospheric scattering (Outer Glow)
+    // Smooth radial fade instead of sharp edge
+    const outerAtm = r * 1.25;
+    let atmGrad = ctx.createRadialGradient(x, y, r * 0.95, x, y, outerAtm);
+
+    // Extract hsl to manipulate alpha for the atmosphere
+    const hslBase = textureData.atmosphereColor; // format `hsl(h, s%, l%)`
+    // Convert to hsla string representation for gradient
+    const hslaBase = hslBase.replace(')', ', 0.4)').replace('hsl', 'hsla');
+    const hslaFade = hslBase.replace(')', ', 0)').replace('hsl', 'hsla');
+
+    atmGrad.addColorStop(0, hslaBase);
+    atmGrad.addColorStop(1, hslaFade);
+
+    ctx.fillStyle = atmGrad;
+    ctx.beginPath();
+    ctx.arc(x, y, outerAtm, 0, Math.PI * 2);
+    ctx.fill();
 }
 
 export function drawRadar() {

@@ -23,9 +23,14 @@ export const G_CONST = 0.9;
 export const MAX_Z_DEPTH = 2.0;
 export const MIN_DURATION_TAP_TO_MOVE = 200;
 
+export const GALAXY_CONFIG = {
+   COUNT: 3,
+   MIN_DIST: 1200
+};
+
 export const PLANET_CONFIG = {
    LIMIT: 20,
-   MAX_SIZE: 2000
+   MAX_SIZE: 3000
 };
 
 export const PLAYER_CONFIG = {
