@@ -70,7 +70,7 @@ export const STATION_CONFIG = {
 
 export const WORLD_BOUNDS = 20000;
 
-export const ZOOM_LEVELS = Array.from({ length: 15 }, (_, i) => 1000 + (i * 200) + (i * i * 100));
+export const ZOOM_LEVELS = Array.from({ length: 12 }, (_, i) => 1000 + (i * 200) + (i * i * 100));
 
 export const suffixes = ["PRIME", "IV", "X", "ALPHA", "BETA", "MAJOR", "MINOR", "ZERO", "AEON"];
 export const syllables = ["KRON", "XER", "ZAN", "TOR", "AER", "ION", "ULA", "PROX", "VEX", "NOV", "SOL", "LUNA", "TER", "MAR", "JUP"];
@@ -80,6 +80,7 @@ export const DOM = {
    canvas: null,
    canvasRadar: null,
    fadeOverlay: null,
+   hudTop: null,
    infoLED: null,
    livesDisplay: null,
    asteroidCountDisplay: null,
@@ -92,8 +93,9 @@ export const DOM = {
       this.canvas = document.getElementById('gameCanvas');
       this.canvasRadar = document.getElementById('radar-canvas');
       this.fadeOverlay = document.getElementById('fade-overlay');
+      this.hudTop = document.querySelector('.hud-top');
       this.infoLED = document.getElementById('info-led');
-      this.livesDisplay = document.getElementById('lives-display');
+      this.livesDisplay = document.getElementById('livesEl');
       this.asteroidCountDisplay = document.getElementById('asteroidCountEl');
       this.scoreDisplay = document.getElementById('scoreEl');
       this.startBtn = document.getElementById('start-btn');

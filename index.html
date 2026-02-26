@@ -21,11 +21,13 @@
 
     <div id="ui-layer">
         <div class="hud-top">
-            <div class="stats-block">
-                <div>SCORE: <span id="scoreEl">0</span></div>
-                <div>ASTEROIDS: <span id="asteroidCountEl">0</span></div>
-                <div id="lives-display"></div> <!-- Visual lives -->
-                <div id="radar-container"><canvas id="radar-canvas" width="140" height="140"></canvas></div>
+            <div class="radar-wrapper">
+                <div id="radar-container"><canvas id="radar-canvas" width="280" height="280"></canvas></div>
+                <div class="stats-overlay">
+                    <div>&#10084; <span id="livesEl">0</span></div>
+                    <div>&#11041; <span id="asteroidCountEl">0</span></div>
+                    <div>&#9733; <span id="scoreEl">0</span></div>
+                </div>
             </div>
         </div>
     </div>

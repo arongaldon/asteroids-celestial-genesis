@@ -214,7 +214,7 @@ export function drawHeart(ctx, x, y, size) {
 }
 
 export function drawLives() {
-    DOM.livesDisplay.innerText = `LIVES: ${State.playerShip.lives}`;
+    DOM.livesDisplay.innerText = `${State.playerShip.lives}`;
     DOM.livesDisplay.style.color = '#0ff';
     DOM.livesDisplay.style.marginTop = '5px';
 }
@@ -226,6 +226,15 @@ export function updateHUD() {
     }
     if (DOM.asteroidCountDisplay) {
         DOM.asteroidCountDisplay.innerText = State.roids.filter(r => !r.isPlanet).length;
+    }
+    if (DOM.hudTop && State.velocity && State.playerShip && !State.playerShip.dead) {
+        const spd = Math.sqrt(State.velocity.x ** 2 + State.velocity.y ** 2);
+        // Decrease opacity as speed increases. Min opacity is 0.05 when at max speed.
+        let opacity = 1.0 - (spd / SHIP_CONFIG.MAX_SPEED) * 0.95;
+        opacity = Math.max(0.05, Math.min(1.0, opacity));
+        DOM.hudTop.style.opacity = opacity.toFixed(2);
+    } else if (DOM.hudTop) {
+        DOM.hudTop.style.opacity = 1.0;
     }
 }
 

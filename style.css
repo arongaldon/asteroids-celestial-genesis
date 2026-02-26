@@ -96,10 +96,23 @@ canvas {
     mix-blend-mode: screen;
 }
 
-.stats-block {
+.radar-wrapper {
+    position: relative;
+    width: 280px;
+    height: 280px;
+}
+
+.stats-overlay {
+    position: absolute;
+    top: 15%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: 5px;
+    z-index: 10;
+    text-shadow: 1px 1px 2px #000, 0 0 10px #0ff;
 }
 
 .ship-icon {
@@ -176,14 +189,6 @@ canvas {
     -ms-user-select: none;
 }
 
-#lives-display {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 5px;
-    height: 16px;
-    align-items: center;
-}
-
 #ui-layer {
     position: absolute;
     top: 0;
@@ -198,12 +203,13 @@ canvas {
 }
 
 #radar-container {
-    width: 140px;
-    height: 140px;
-    border: 2px solid #005555;
+    width: 280px;
+    height: 280px;
+    border: 1px solid #005555;
     border-radius: 50%;
     background: rgba(0, 5, 10, 0.9);
     position: relative;
+    opacity: 0.9;
     overflow: hidden;
     box-shadow: 0 0 15px rgba(0, 255, 255, 0.2);
     pointer-events: auto;
