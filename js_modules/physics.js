@@ -285,7 +285,11 @@ export function resolveInteraction(r1, r2) {
                 console.log("Planet " + r1.name + " destroyed. Total planets " + (planetsBefore - 1));
                 console.log("Planet " + r2.name + " destroyed. Total planets " + (planetsBefore - 2));
             }
-            r1._destroyed = true; r2._destroyed = true;
+            PLANET_CONFIG.LIMIT = Math.max(0, PLANET_CONFIG.LIMIT - 2);
+            r1.r = 0; r1.targetR = null; r1.vaporized = true; r1._destroyed = true;
+            r2.r = 0; r2.targetR = null; r2.vaporized = true; r2._destroyed = true;
+            const idx1 = State.roids.indexOf(r1); if (idx1 !== -1) State.roids.splice(idx1, 1);
+            const idx2 = State.roids.indexOf(r2); if (idx2 !== -1) State.roids.splice(idx2, 1);
             return;
         }
 

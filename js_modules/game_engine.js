@@ -3092,7 +3092,11 @@ export function loop() {
 
                             if (planet.hp <= 0) {
                                 planet.r = 0;
+                                planet.targetR = null;
+                                planet.vaporized = true;
                                 planet._destroyed = true;
+                                const pIdx = State.roids.indexOf(planet);
+                                if (pIdx !== -1) State.roids.splice(pIdx, 1);
 
                                 const pVpX = planet.x - State.worldOffsetX + State.width / 2;
                                 const pVpY = planet.y - State.worldOffsetY + State.height / 2;
@@ -3102,6 +3106,7 @@ export function loop() {
                                 createExplosion(pVpX, pVpY, 50, '#ffff00', 4, 'spark');
                                 AudioEngine.playPlanetExplosion(planet.x, planet.y, planet.z || 0);
 
+                                PLANET_CONFIG.LIMIT = Math.max(0, PLANET_CONFIG.LIMIT - 1);
                                 if (planet.id === State.homePlanetId) {
                                     triggerHomePlanetLost('enemy');
                                 } else {
@@ -3268,9 +3273,7 @@ export function loop() {
                     let shooter = playerShipBullet.owner;
 
                     if (shooter === State.playerShip) {
-                        if (State.playerShip.tier >= 12) {
-                            hasSquad = true; // Godship can always destroy planets
-                        } else if (!State.playerShip.loneWolf) {
+                        if (!State.playerShip.loneWolf) {
                             let squadCount = 0;
                             if (State.playerShip.squadSlots) {
                                 State.playerShip.squadSlots.forEach(s => {
@@ -3298,7 +3301,11 @@ export function loop() {
 
                             if (planet.hp <= 0) {
                                 planet.r = 0;
+                                planet.targetR = null;
+                                planet.vaporized = true;
                                 planet._destroyed = true;
+                                const pIdx = State.roids.indexOf(planet);
+                                if (pIdx !== -1) State.roids.splice(pIdx, 1);
 
                                 const pVpX = planet.x - State.worldOffsetX + State.width / 2;
                                 const pVpY = planet.y - State.worldOffsetY + State.height / 2;
@@ -3306,6 +3313,7 @@ export function loop() {
                                 createExplosion(pVpX, pVpY, 100, '#ff4400', 12, 'flame');
                                 AudioEngine.playPlanetExplosion(planet.x, planet.y, planet.z || 0);
 
+                                PLANET_CONFIG.LIMIT = Math.max(0, PLANET_CONFIG.LIMIT - 1);
                                 if (planet.id === State.homePlanetId) {
                                     triggerHomePlanetLost('player');
                                 } else {
@@ -3315,21 +3323,8 @@ export function loop() {
                                 }
                             }
                         }
-                    } else if (r.blinkNum === 0) {
-                        let asteroidMass = playerShipBullet.size * 10;
-                        let asteroidR = playerShipBullet.size * 2;
-
-                        let area1 = Math.PI * planet.r * planet.r;
-                        let area2 = Math.PI * asteroidR * asteroidR;
-                        let totalArea = area1 + area2;
-                        let newR = Math.sqrt(totalArea / Math.PI);
-
-                        let totalMass = planet.mass + asteroidMass;
-
-                        planet.targetR = Math.min(newR, PLANET_CONFIG.MAX_SIZE);
-                        planet.mass = totalMass * 0.05;
-
-                        createExplosion(vpX, vpY, 10, '#00ffff', 2);
+                    } else {
+                        createExplosion(vpX, vpY, 3, '#fff', 1); // Bullet destroyed by planet shield
                     }
 
                     State.playerShipBullets.splice(i, 1); hit = true; break;
