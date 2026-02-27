@@ -152,8 +152,7 @@ export function initializePlanetAttributes(roid, forcedHue = null, forcedName = 
         innerGradColor: `hsl(${hue}, ${wSat}%, ${Math.max(5, wLight - 20)}%)`, // Darker core
         landmasses: [],
         craters: [],
-        clouds: [],
-        cityLights: [] // New: City lights coordinates for night side
+        clouds: []
     };
     for (let i = 0; i < 5 + Math.floor(rng() * 3); i++) {
         const startAngle = rng() * Math.PI * 2;
@@ -163,22 +162,6 @@ export function initializePlanetAttributes(roid, forcedHue = null, forcedName = 
         for (let j = 0; j < vertices; j++) vertexOffsets.push(0.7 + rng() * 0.3);
         textureData.landmasses.push({ startAngle, radiusFactor, vertices, vertexOffsets });
 
-        // Generate city lights clustered around this landmass (only if not desolate)
-        if (!isDesolate) {
-            const numCities = Math.floor(rng() * 5);
-            for (let c = 0; c < numCities; c++) {
-                // Place near the landmass center but somewhat randomized
-                const cAngle = startAngle + (rng() * 0.8 - 0.4);
-                const cDist = radiusFactor * (0.2 + rng() * 0.7);
-                textureData.cityLights.push({
-                    angle: cAngle,
-                    distFactor: cDist,
-                    size: 0.01 + rng() * 0.03, // Relative to planet radius
-                    flickerOffset: rng() * Math.PI * 2,
-                    hue: 30 + rng() * 30 // Orange / Yellow glows
-                });
-            }
-        }
     }
     for (let i = 0; i < 10; i++) {
         textureData.craters.push({

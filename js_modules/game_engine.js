@@ -1,4 +1,4 @@
-import { ASTEROID_CONFIG, BOUNDARY_CONFIG, GALAXY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
+import { ASTEROID_CONFIG, BOUNDARY_CONFIG, GALAXY_CONFIG, GLOBAL_LIGHT, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
 import { State } from './state.js';
 import { SpatialHash, mulberry32, getShapeName } from './utils.js';
 import { AudioEngine } from './audio.js';
@@ -1992,7 +1992,7 @@ export function loop() {
 
             // Draw planet texture and name
             DOM.canvasContext.shadowBlur = 30; DOM.canvasContext.shadowColor = r.textureData.atmosphereColor;
-            drawPlanetTexture(DOM.canvasContext, 0, 0, r.r, r.textureData); // Draw relative to translated origin
+            drawPlanetTexture(DOM.canvasContext, 0, 0, r.r, r.textureData, r.x, r.y); // Pass world coords for lighting
 
             // === DRAW PLANET RINGS (FRONT HALF) ===
             if (r.rings) {
@@ -2049,17 +2049,22 @@ export function loop() {
             DOM.canvasContext.closePath();
             DOM.canvasContext.fill();
 
-            // Soft gradient shadow overlay for volumetric 3D feel
-            let shadowGrad = DOM.canvasContext.createRadialGradient(
-                -r.r * 0.3, -r.r * 0.3, 0,
-                0, 0, r.r
+            // Dynamic volumetric shadow based on global light source
+            const dx = GLOBAL_LIGHT.X - r.x;
+            const dy = GLOBAL_LIGHT.Y - r.y;
+            const lDist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+            const lDirX = dx / lDist;
+            const lDirY = dy / lDist;
+
+            let shadowGrad = DOM.canvasContext.createLinearGradient(
+                lDirX * r.r, lDirY * r.r, // Bright side facing light
+                -lDirX * r.r, -lDirY * r.r // Dark side away from light
             );
-            shadowGrad.addColorStop(0, 'rgba(255, 255, 255, 0.15)'); // Soft highlight on top left
+            shadowGrad.addColorStop(0, 'rgba(255, 255, 255, 0.15)'); // Soft highlight on light side
             shadowGrad.addColorStop(0.4, 'rgba(0, 0, 0, 0)');        // Transparent mid
-            shadowGrad.addColorStop(1, 'rgba(0, 0, 0, 0.7)');        // Deep shadow on bottom right edge
+            shadowGrad.addColorStop(0.8, 'rgba(0, 0, 0, 1.0)');      // Pitch black on dark side
             DOM.canvasContext.fillStyle = shadowGrad;
             DOM.canvasContext.fill();
-            DOM.canvasContext.stroke();
 
             // Draw Craters
             DOM.canvasContext.fillStyle = 'rgba(0, 0, 0, 0.4)';

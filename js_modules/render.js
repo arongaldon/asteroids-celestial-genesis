@@ -1,7 +1,7 @@
-import { ASTEROID_CONFIG, BOUNDARY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
+import { ASTEROID_CONFIG, BOUNDARY_CONFIG, GLOBAL_LIGHT, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
 import { State } from './state.js';
 
-export function drawPlanetTexture(ctx, x, y, r, textureData) {
+export function drawPlanetTexture(ctx, x, y, r, textureData, worldX = 0, worldY = 0) {
     if (!textureData || isNaN(x) || isNaN(y) || isNaN(r)) return;
 
     // 1. Base ocean gradient (softer, deep)
@@ -61,81 +61,16 @@ export function drawPlanetTexture(ctx, x, y, r, textureData) {
         }
     });
 
-    // We establish a fixed light source direction indicating "Sun"
-    // Let's say light comes from top-left (angle = -Math.PI / 4)
-    const lightAngle = -Math.PI / 4;
-    const lightDirX = Math.cos(lightAngle);
-    const lightDirY = Math.sin(lightAngle);
+    // We establish a dynamic light source direction from GLOBAL_LIGHT outside bounds
 
-    // 4. City Lights (Drawn only if on the night side)
-    // Night is roughly opposite the light direction
-    if (textureData.cityLights && textureData.cityLights.length > 0) {
-        textureData.cityLights.forEach(cl => {
-            const clX = x + Math.cos(cl.angle) * (r * cl.distFactor);
-            const clY = y + Math.sin(cl.angle) * (r * cl.distFactor);
+    // Calculate light vector based on world coordinates
+    const dx = GLOBAL_LIGHT.X - worldX;
+    const dy = GLOBAL_LIGHT.Y - worldY;
+    const lDist = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+    const lightDirX = dx / lDist;
+    const lightDirY = dy / lDist;
 
-            // Determine if the light is on the "night" side
-            // Dot product between light dir and surface normal (from center to light)
-            const nx = (clX - x) / r;
-            const ny = (clY - y) / r;
-            const dot = nx * lightDirX + ny * lightDirY; // 1 = full day, -1 = full night
-
-            if (dot < -0.1) {
-                // Smooth fade in based on darkness
-                const nightIntensity = Math.min(1.0, (Math.abs(dot) - 0.1) * 2.0);
-                // Twinkle effect
-                const twinkle = 0.6 + 0.4 * Math.sin(Date.now() / 200 + cl.flickerOffset);
-                const alpha = nightIntensity * twinkle;
-
-                const lightRad = Math.max(0.5, r * cl.size);
-
-                ctx.beginPath();
-                ctx.arc(clX, clY, lightRad, 0, Math.PI * 2);
-                ctx.fillStyle = `hsla(${cl.hue}, 100%, 70%, ${alpha})`;
-                ctx.shadowColor = `hsla(${cl.hue}, 100%, 50%, ${alpha})`;
-                ctx.shadowBlur = lightRad * 2;
-                ctx.fill();
-                ctx.shadowBlur = 0; // reset
-            }
-        });
-    }
-
-    // 5. Day/Night Shadow Overlay
-    // A linear gradient from the dark side to the light side
-    const shadowGrad = ctx.createLinearGradient(
-        x - lightDirX * r, y - lightDirY * r, // Lightest point
-        x + lightDirX * r, y + lightDirY * r  // Darkest point
-    );
-    shadowGrad.addColorStop(0.3, "rgba(0,0,0,0)"); // Day side
-    shadowGrad.addColorStop(0.55, "rgba(0,0,0,0.6)"); // Terminator line
-    shadowGrad.addColorStop(1.0, "rgba(0,0,10,0.85)"); // Deep night
-
-    // Mask the shadow strictly to the planet circle
-    ctx.save();
-    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.clip();
-    ctx.fillStyle = shadowGrad;
-    ctx.fillRect(x - r, y - r, r * 2, r * 2);
-    ctx.restore();
-
-    // 6. Clouds
-    textureData.age += 0.001;
-    ctx.fillStyle = textureData.cloudColor;
-    textureData.clouds.forEach(cl => {
-        const angle = textureData.cloudOffset + cl.angleRng + textureData.age * cl.ageFactorRng;
-        const dist = r * cl.distRng;
-        const cx = x + Math.cos(angle) * dist;
-        const cy = y + Math.sin(angle) * dist;
-        const cr = r * cl.crRng;
-        const rotation = cl.rotationRng;
-
-        // Clouds are shaded by the terminator too, but we will rely mostly on global alpha for clouds
-        // and draw them over the shadow so they catch a tiny bit of ambient light, or rely on the shadow underneath.
-
-        ctx.save(); ctx.translate(cx, cy); ctx.rotate(rotation);
-        ctx.beginPath(); ctx.ellipse(0, 0, cr * 1.5, cr * 0.8, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
-    });
-
-    // 7. Atmospheric scattering (Outer Glow)
+    // 6. Atmospheric scattering (Outer Glow)
     // Smooth radial fade instead of sharp edge
     const outerAtm = r * 1.25;
     let atmGrad = ctx.createRadialGradient(x, y, r * 0.95, x, y, outerAtm);
@@ -153,6 +88,24 @@ export function drawPlanetTexture(ctx, x, y, r, textureData) {
     ctx.beginPath();
     ctx.arc(x, y, outerAtm, 0, Math.PI * 2);
     ctx.fill();
+
+    // 7. Day/Night Shadow Overlay (drawn LAST to darken everything on the night side)
+    // A linear gradient from the dark side to the light side
+    const shadowGrad = ctx.createLinearGradient(
+        x + lightDirX * r, y + lightDirY * r, // Lightest point (closest to sun)
+        x - lightDirX * r, y - lightDirY * r  // Darkest point (furthest from sun)
+    );
+    shadowGrad.addColorStop(0.1, "rgba(0,0,0,0)");    // Extended bright day side
+    shadowGrad.addColorStop(0.5, "rgba(0,0,0,0.6)");  // Harsher terminator line
+    shadowGrad.addColorStop(0.8, "rgba(0,0,0,1.0)");  // Pitch black reaching from the edge
+
+    // Mask the shadow strictly to the planet circle, but let the atmosphere glow remain outside?
+    // Actually, we want the shadow to cover the atmosphere too on the dark side, so we use outerAtm for the mask.
+    ctx.save();
+    ctx.beginPath(); ctx.arc(x, y, outerAtm, 0, Math.PI * 2); ctx.clip();
+    ctx.fillStyle = shadowGrad;
+    ctx.fillRect(x - outerAtm, y - outerAtm, outerAtm * 2, outerAtm * 2);
+    ctx.restore();
 }
 
 export function drawRadar() {

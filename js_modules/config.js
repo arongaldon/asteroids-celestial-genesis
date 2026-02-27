@@ -77,6 +77,11 @@ export const STATION_CONFIG = {
 
 export const WORLD_BOUNDS = 20000;
 
+export const GLOBAL_LIGHT = {
+   X: WORLD_BOUNDS * 2, // Distant sun far out of bounds
+   Y: -WORLD_BOUNDS * 2
+};
+
 export const ZOOM_LEVELS = Array.from({ length: 12 }, (_, i) => 1000 + (i * 200) + (i * i * 100));
 
 export const suffixes = ["PRIME", "IV", "X", "ALPHA", "BETA", "MAJOR", "MINOR", "ZERO", "AEON"];
