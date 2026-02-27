@@ -348,3 +348,295 @@ export function drawRings(ctx, rings, planetRadius, depthScale) {
     });
     ctx.restore();
 }
+
+// -----------------------------------------------------
+// SHIP DRAWING ABSTRACTION
+// -----------------------------------------------------
+export function drawShipShape({
+    ctx, r, tier, norm = 1, transformationProgress = 1,
+    hullColor, borderColor, detailColor, accentColor,
+    thrustColor, isThrusting
+}) {
+    if (tier >= 12) {
+        // THE GODSHIP: Massive, glowing, advanced
+        // DRAW TIER 11 FORM (Fading out if transforming)
+        if (transformationProgress < 1) {
+            ctx.save();
+            ctx.globalAlpha = 1 - transformationProgress;
+            let sides = 3 + 11; // Tier 11
+            ctx.beginPath();
+            for (let i = 0; i <= sides; i++) {
+                let ang = i * (2 * Math.PI / sides);
+                if (i === 0) ctx.moveTo(r * Math.cos(ang), -r * Math.sin(ang));
+                else ctx.lineTo(r * Math.cos(ang), -r * Math.sin(ang));
+            }
+            ctx.closePath();
+            let chassisGrad = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
+            chassisGrad.addColorStop(0, '#0055aa'); chassisGrad.addColorStop(1, '#002244');
+            ctx.fillStyle = chassisGrad; ctx.fill();
+            ctx.lineWidth = 2; ctx.strokeStyle = '#0088ff'; ctx.stroke();
+            ctx.restore();
+        }
+
+        ctx.globalAlpha = transformationProgress;
+        const HULL_COLOR = hullColor || '#050505';
+        const BORDER_COLOR = borderColor || '#00FFFF';
+        const CORE_COLOR = thrustColor || '#FFFFFF';
+
+        ctx.shadowBlur = 40;
+        ctx.shadowColor = BORDER_COLOR;
+
+        // Advanced Chassis Design - Wide and multi-segmented
+        ctx.beginPath();
+        ctx.moveTo(r * 2.5 * norm, 0); // Front
+        ctx.lineTo(r * 1.5 * norm, r * 1.2 * norm);
+        ctx.lineTo(0, r * 1.8 * norm);
+        ctx.lineTo(-r * 1.5 * norm, r * 1.2 * norm);
+        ctx.lineTo(-r * 2.5 * norm, r * 1.5 * norm);
+        ctx.lineTo(-r * 3 * norm, r * 0.5 * norm);
+        ctx.lineTo(-r * 3 * norm, -r * 0.5 * norm);
+        ctx.lineTo(-r * 2.5 * norm, -r * 1.5 * norm);
+        ctx.lineTo(-r * 1.5 * norm, -r * 1.2 * norm);
+        ctx.lineTo(0, -r * 1.8 * norm);
+        ctx.lineTo(r * 1.5 * norm, -r * 1.2 * norm);
+        ctx.closePath();
+
+        ctx.fillStyle = HULL_COLOR;
+        ctx.fill();
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = BORDER_COLOR;
+        ctx.stroke();
+
+        // Tech Overlay (Inner hull patterns)
+        ctx.shadowBlur = 15;
+        ctx.beginPath();
+        ctx.moveTo(r * 2 * norm, 0);
+        ctx.lineTo(-r * 1.5 * norm, r * 0.8 * norm);
+        ctx.moveTo(r * 2 * norm, 0);
+        ctx.lineTo(-r * 1.5 * norm, -r * 0.8 * norm);
+        ctx.stroke();
+
+        // Pulsing Energy Core
+        const pulse = 0.7 + Math.sin(Date.now() / 200) * 0.3;
+        ctx.shadowBlur = 50 * pulse;
+        ctx.fillStyle = CORE_COLOR;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * norm * 0.6 * pulse, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Heavy Thrusters
+        const EXHAUST_X = -r * 3 * norm;
+        if (isThrusting) {
+            ctx.shadowBlur = 80;
+            ctx.fillStyle = `${thrustColor || 'rgba(0, 255, 255)'}`.replace(')', ', 0.6)').replace('rgb', 'rgba');
+            ctx.beginPath();
+            ctx.moveTo(EXHAUST_X, -r * 1.2 * norm);
+            ctx.lineTo(EXHAUST_X, r * 1.2 * norm);
+            ctx.lineTo(EXHAUST_X - r * 12 * norm * (0.8 + Math.random() * 0.4), 0);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+
+    } else if (tier === 11) { // THE HYPERION - "The Celestial Dreadnought"
+        ctx.shadowBlur = 25; ctx.shadowColor = accentColor;
+        ctx.lineWidth = 3;
+
+        // 1. REINFORCED CHASSIS
+        ctx.fillStyle = hullColor; ctx.strokeStyle = borderColor;
+        ctx.beginPath();
+        ctx.moveTo(r * 2.0, 0);               // Front Nose
+        ctx.lineTo(r * 0.5, r * 0.8);          // Top Outer corner
+        ctx.lineTo(-r * 1.2, r * 0.6);         // Top Back
+        ctx.lineTo(-r * 1.5, 0);               // Rear Center
+        ctx.lineTo(-r * 1.2, -r * 0.6);        // Bottom Back
+        ctx.lineTo(r * 0.5, -r * 0.8);         // Bottom Outer corner
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+
+        // 2. ENERGY WINGS
+        const pulse = 0.8 + Math.sin(Date.now() / 300) * 0.2;
+        ctx.fillStyle = detailColor;
+        ctx.strokeStyle = accentColor;
+
+        // Top Wing
+        ctx.beginPath();
+        ctx.moveTo(r * 0.2, -r * 0.9);
+        ctx.lineTo(r * 1.2, -r * 1.4);
+        ctx.lineTo(r * 0.8, -r * 0.8);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+
+        // Bottom Wing
+        ctx.beginPath();
+        ctx.moveTo(r * 0.2, r * 0.9);
+        ctx.lineTo(r * 1.2, r * 1.4);
+        ctx.lineTo(r * 0.8, r * 0.8);
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+
+        // 3. CELESTIAL CORE
+        ctx.shadowBlur = 40; ctx.shadowColor = '#fff';
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 4. ENERGY CHANNELS
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = accentColor; ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(r * 2.0, 0); ctx.lineTo(r * 0.5, 0); // Core to nose
+        ctx.stroke();
+
+    } else if (tier === 10) { // THE TITAN - Heavy Dreadnought
+        ctx.shadowBlur = 20; ctx.shadowColor = accentColor;
+        ctx.fillStyle = hullColor; ctx.strokeStyle = borderColor; ctx.lineWidth = 4;
+
+        // Main Block
+        ctx.fillRect(-r, -r * 0.6, r * 2, r * 1.2);
+        ctx.strokeRect(-r, -r * 0.6, r * 2, r * 1.2);
+
+        // Side Armor
+        ctx.fillStyle = detailColor;
+        ctx.fillRect(-r * 0.5, -r * 1.2, r * 1.5, r * 0.6);
+        ctx.strokeRect(-r * 0.5, -r * 1.2, r * 1.5, r * 0.6);
+        ctx.fillRect(-r * 0.5, r * 0.6, r * 1.5, r * 0.6);
+        ctx.strokeRect(-r * 0.5, r * 0.6, r * 1.5, r * 0.6);
+
+    } else if (tier === 9) { // THE CELESTIAL - Radiant Star
+        ctx.shadowBlur = 25; ctx.shadowColor = detailColor;
+        ctx.fillStyle = hullColor; ctx.strokeStyle = borderColor; ctx.lineWidth = 2;
+
+        // 4-Pointed Star
+        ctx.beginPath();
+        for (let i = 0; i < 8; i++) {
+            const angle = i * Math.PI / 4;
+            const rad = (i % 2 === 0) ? r * 1.5 : r * 0.4;
+            const px = Math.cos(angle) * rad; const py = Math.sin(angle) * rad;
+            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+
+        // Inner Spin
+        ctx.strokeStyle = accentColor;
+        ctx.beginPath(); ctx.arc(0, 0, r * 0.5, 0, Math.PI * 2); ctx.stroke();
+
+    } else if (tier === 8) { // THE SPHERE - Energy Orb
+        ctx.shadowBlur = 20; ctx.shadowColor = accentColor;
+        let grad = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
+        grad.addColorStop(0, '#fff'); grad.addColorStop(0.5, accentColor); grad.addColorStop(1, hullColor);
+        ctx.fillStyle = grad;
+        ctx.strokeStyle = borderColor; ctx.lineWidth = 2;
+
+        ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+
+        // Rotating Ring
+        ctx.save(); ctx.rotate(Date.now() / 500);
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.ellipse(0, 0, r * 1.4, r * 0.3, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+
+    } else if (tier >= 1 && tier <= 7) {
+        // GEOMETRIC SHAPES (1-7)
+        const sides = tier + 3;
+        ctx.shadowBlur = 15; ctx.shadowColor = detailColor;
+        ctx.fillStyle = hullColor;
+        ctx.strokeStyle = borderColor; ctx.lineWidth = 3;
+
+        // Polygon Body
+        ctx.beginPath();
+        for (let i = 0; i < sides; i++) {
+            const angle = i * (Math.PI * 2 / sides) - Math.PI / 2;
+            const px = Math.cos(angle) * r; const py = Math.sin(angle) * r;
+            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill(); ctx.stroke();
+
+        // Internal "Cool" Details
+        ctx.lineWidth = 1.5; ctx.strokeStyle = accentColor;
+        ctx.beginPath();
+        if (tier === 1) { // SQUARE
+            ctx.moveTo(-r * 0.7, -r * 0.7); ctx.lineTo(r * 0.7, r * 0.7);
+            ctx.moveTo(r * 0.7, -r * 0.7); ctx.lineTo(-r * 0.7, r * 0.7);
+        } else if (tier === 2) { // PENTAGON
+            for (let i = 0; i < 5; i++) {
+                const a1 = i * (Math.PI * 2 / 5) - Math.PI / 2;
+                const a2 = (i + 2) * (Math.PI * 2 / 5) - Math.PI / 2;
+                ctx.moveTo(Math.cos(a1) * r, Math.sin(a1) * r);
+                ctx.lineTo(Math.cos(a2) * r, Math.sin(a2) * r);
+            }
+        } else if (tier === 3) { // HEXAGON
+            ctx.moveTo(0, 0); ctx.lineTo(0, -r);
+            ctx.moveTo(0, 0); ctx.lineTo(Math.cos(Math.PI / 6) * r, Math.sin(Math.PI / 6) * r);
+            ctx.moveTo(0, 0); ctx.lineTo(Math.cos(Math.PI * 5 / 6) * r, Math.sin(Math.PI * 5 / 6) * r);
+        } else { // HEPTAGON+
+            const innerR = r * 0.5;
+            for (let i = 0; i < sides; i++) {
+                const angle = i * (Math.PI * 2 / sides) - Math.PI / 2;
+                const px = Math.cos(angle) * innerR; const py = Math.sin(angle) * innerR;
+                if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+        }
+        ctx.stroke();
+
+    } else {
+        // TIER 0: TRIANGLE (Classic Modern)
+        const baseSize = r;
+        const noseLength = 1.3;
+        const wingSpan = 0.8;
+
+        ctx.shadowBlur = 15; ctx.shadowColor = thrustColor;
+
+        // Triangle
+        ctx.beginPath();
+        ctx.moveTo(baseSize * noseLength, 0);
+        ctx.lineTo(-baseSize * 0.6, baseSize * wingSpan);
+        ctx.lineTo(-baseSize * 0.6, -baseSize * wingSpan);
+        ctx.closePath();
+
+        let hullGrad = ctx.createLinearGradient(baseSize * 0.6, 0, -baseSize * 0.6, 0);
+        hullGrad.addColorStop(0, detailColor);
+        hullGrad.addColorStop(1, hullColor);
+        ctx.fillStyle = hullGrad;
+        ctx.fill();
+
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = borderColor;
+        ctx.stroke();
+
+        // Detail
+        ctx.beginPath(); ctx.moveTo(r * 0.5, 0); ctx.lineTo(-r * 0.2, 0); ctx.stroke();
+    }
+
+    // === COMMON THRUSTER LOGIC ===
+    if (isThrusting) {
+        ctx.shadowBlur = 25; ctx.shadowColor = thrustColor;
+        ctx.fillStyle = `${thrustColor}`.replace(')', ', 0.6)').replace('rgb', 'rgba').replace('hsl', 'hsla');
+        const thrustL = 30 + Math.random() * 10;
+
+        if (tier === 10) { // Titan: Dual Thrusters
+            [-r * 0.9, r * 0.9].forEach(yPos => {
+                ctx.beginPath();
+                ctx.moveTo(-r, yPos - 5); ctx.lineTo(-r - thrustL, yPos); ctx.lineTo(-r, yPos + 5);
+                ctx.fill();
+            });
+        } else if (tier === 11) { // Hyperion: Celestial Thrust
+            ctx.beginPath();
+            ctx.moveTo(-r * 1.5, -r * 0.3);
+            ctx.lineTo(-r * 1.5 - thrustL * 1.5, 0);
+            ctx.lineTo(-r * 1.5, r * 0.3);
+            ctx.fill();
+        } else {
+            ctx.beginPath();
+            ctx.moveTo(-r * 0.7, -r * 0.2);
+            ctx.lineTo(-r * 0.7 - thrustL, 0);
+            ctx.lineTo(-r * 0.7, r * 0.2);
+            ctx.fill();
+        }
+        ctx.shadowBlur = 0;
+    }
+}

@@ -3,7 +3,7 @@ import { State } from './state.js';
 import { SpatialHash, mulberry32, getShapeName } from './utils.js';
 import { AudioEngine } from './audio.js';
 import { newPlayerShip, createAsteroid, initializePlanetAttributes, createGalaxy, createAmbientFog, createExplosion, createShockwave, createAsteroidBelt, spawnStation, spawnShipsSquad, getShipTier, generatePlanetName, increaseShipScore, onShipDestroyed, onStationDestroyed, createExplosionDebris } from './entities.js';
-import { drawPlanetTexture, drawRadar, drawHeart, drawLives, updateHUD, updateAsteroidCounter, showInfoLEDText, addScreenMessage, drawRings } from './render.js';
+import { drawPlanetTexture, drawRadar, drawHeart, drawLives, updateHUD, updateAsteroidCounter, showInfoLEDText, addScreenMessage, drawRings, drawShipShape } from './render.js';
 import { changeRadarZoom, shootLaser, fireEntityWeapon, fireGodWeapon, enemyShoot, isTrajectoryClear, proactiveCombatScanner } from './input.js';
 import { t } from './i18n.js';
 
@@ -698,7 +698,8 @@ export function loop() {
             if (Math.abs(dist - sw.r) < bandWidth) {
                 if (sw.isGodRing) {
                     // Massive destruction: Indiscriminate except for the dealer
-                    if (obj === State.playerShip) return;
+                    const dealer = sw.owner || State.playerShip;
+                    if (obj === dealer) return;
 
                     if (obj.r !== undefined && !obj.type) { // Asteroid or Planet
                         if (obj.vaporized || obj.blinkNum > 0) return;
@@ -723,14 +724,20 @@ export function loop() {
                             createShockwave(obj.x, obj.y);
                             createShockwave(obj.x, obj.y);
 
-                            increaseShipScore(State.playerShip, SCORE_REWARDS.PLANET_DESTROYED); // Score for planet
+                            const scorer = sw.owner || State.playerShip;
+                            increaseShipScore(scorer, SCORE_REWARDS.PLANET_DESTROYED); // Score for planet
 
                             // Check if player destroyed their own home
                             if (obj.id === State.homePlanetId) {
-                                triggerHomePlanetLost('player');
+                                if (scorer === State.playerShip) {
+                                    triggerHomePlanetLost('player');
+                                } else {
+                                    triggerHomePlanetLost('enemy');
+                                }
                             }
                         } else {
-                            increaseShipScore(State.playerShip, SCORE_REWARDS.ASTEROID_DESTROYED);
+                            const scorer = sw.owner || State.playerShip;
+                            increaseShipScore(scorer, SCORE_REWARDS.ASTEROID_DESTROYED);
                         }
                     } else if (obj.type === 'ship' || obj.type === 'station') {
                         obj.structureHP = -1; // Force death
@@ -1034,16 +1041,45 @@ export function loop() {
                 ship.xv += Math.cos(angle) * 2;
                 ship.yv += Math.sin(angle) * 2;
 
-                ship.structureHP--;
-                ship.shieldHitTimer = 10;
+                const tier = Math.floor((ship.score || 0) / SHIP_CONFIG.EVOLUTION_SCORE_STEP);
+
+                if (tier < 12) {
+                    ship.structureHP--;
+                    ship.shieldHitTimer = 10;
+                }
+
                 const rVpX = r.x - State.worldOffsetX + State.width / 2;
                 const rVpY = r.y - State.worldOffsetY + State.height / 2;
-                createExplosion(rVpX, rVpY, 5, '#aa00ff', 1, 'debris');
+
+                // If the ship is a Godship, we should probably destroy the asteroid here just like the player does.
+                if (tier >= 12) {
+                    createExplosion(rVpX, rVpY, 15, '#0ff', 2, 'spark');
+                    const newSize = r.r * 0.5;
+                    if (newSize >= ASTEROID_CONFIG.MIN_SIZE) {
+                        const dynamicOffset = r.r * (ASTEROID_CONFIG.SPLIT_OFFSET / ASTEROID_CONFIG.MAX_SIZE);
+                        let westAst = createAsteroid(r.x - dynamicOffset, r.y, newSize);
+                        westAst.xv = r.xv - ASTEROID_CONFIG.MAX_SPEED; westAst.yv = r.yv; westAst.blinkNum = 30;
+                        State.roids.push(westAst);
+
+                        let eastAst = createAsteroid(r.x + dynamicOffset, r.y, newSize);
+                        eastAst.xv = r.xv + ASTEROID_CONFIG.MAX_SPEED; eastAst.yv = r.yv; eastAst.blinkNum = 30;
+                        State.roids.push(eastAst);
+                        updateAsteroidCounter();
+                    }
+                    r._destroyed = true;
+                    const roidIdx = State.roids.indexOf(r);
+                    if (roidIdx !== -1) State.roids.splice(roidIdx, 1);
+                    updateAsteroidCounter();
+
+                    increaseShipScore(ship, SCORE_REWARDS.ASTEROID_DESTROYED);
+                } else {
+                    createExplosion(rVpX, rVpY, 5, '#aa00ff', 1, 'debris');
+                }
+
                 if (ship.structureHP <= 0) {
                     createExplosion(vpX, vpY, 30, '#ffaa00', 3, 'spark');
                     ship.dead = true;
                     State.ships.splice(i, 1);
-                    // i--; // Removed i-- as we are iterating backwards and splicing current. 
                     break;
                 }
             }
@@ -1093,16 +1129,100 @@ export function loop() {
         } else {
             // --- ADVANCED SHIP AI ---
             const distToPlayer = Math.hypot(State.worldOffsetX - ship.x, State.worldOffsetY - ship.y);
+            const tier = Math.floor((ship.score || 0) / SHIP_CONFIG.EVOLUTION_SCORE_STEP);
 
             // 1. STATE TRANSITION
-            if (!ship.isFriendly && distToPlayer < SHIP_CONFIG.SIGHT_RANGE && !State.playerShip.dead) { // Only State.ships auto-switch to combat by distance
+            if (tier >= 12) {
+                // Godships are lone wolves. They never join squads.
+                if (ship.leaderRef) {
+                    if (ship.leaderRef.squadSlots) {
+                        const slot = ship.leaderRef.squadSlots.find(s => s.occupant === ship);
+                        if (slot) slot.occupant = null;
+                    }
+                    ship.leaderRef = null;
+                    if (ship.role !== 'leader') ship.role = 'stray';
+                }
+                if (ship.squadSlots && ship.squadSlots.length > 0) {
+                    ship.squadSlots.forEach(s => { if (s.occupant) s.occupant.leaderRef = null; s.occupant = null; });
+                    ship.squadSlots = null;
+                    ship.role = 'stray';
+                }
+                ship.aiState = 'SAFE_ZONE_HUNTER';
+            } else if (!ship.isFriendly && distToPlayer < SHIP_CONFIG.SIGHT_RANGE && !State.playerShip.dead) { // Only Enemy State.ships auto-switch to combat by distance
                 ship.aiState = 'COMBAT';
             } else if (distToPlayer > SHIP_CONFIG.SIGHT_RANGE * 1.5 && ship.aiState === 'COMBAT') {
                 ship.aiState = 'FORMATION';
             }
 
             // 2. BEHAVIOR EXECUTION
-            if (ship.aiState === 'FORMATION') {
+            if (ship.aiState === 'SAFE_ZONE_HUNTER') {
+                proactiveCombatScanner(ship);
+
+                // Pick a safe zone target if not having one
+                if (!ship.safeZoneTarget) {
+                    // Pick a random point far out
+                    const angle = Math.random() * Math.PI * 2;
+                    const r = WORLD_BOUNDS * 0.8 + Math.random() * (WORLD_BOUNDS * 0.1);
+                    ship.safeZoneTarget = { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+                }
+
+                // If close to safe zone target, pick a new one
+                const distToSafeZone = Math.hypot(ship.safeZoneTarget.x - ship.x, ship.safeZoneTarget.y - ship.y);
+                if (distToSafeZone < 500) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const r = WORLD_BOUNDS * 0.8 + Math.random() * (WORLD_BOUNDS * 0.1);
+                    ship.safeZoneTarget = { x: Math.cos(angle) * r, y: Math.sin(angle) * r };
+                }
+
+                let moveTarget = ship.safeZoneTarget;
+
+                // If there are enemies/asteroids nearby, we can slightly deviate to hunt them
+                let huntTarget = null;
+                let minThreatDist = Infinity;
+                let gridThreats = spatialGrid.query(ship);
+                for (let r of gridThreats) {
+                    if (r.z > 0.5 || r.isPlanet) continue;
+                    let d = Math.hypot(ship.x - r.x, ship.y - r.y);
+                    if (d < 1500 && d < minThreatDist) {
+                        huntTarget = r;
+                        minThreatDist = d;
+                    }
+                }
+
+                if (!huntTarget) {
+                    for (let other of State.ships) {
+                        if (other === ship || other.type === 'station') continue;
+                        let isRival = false;
+                        if (ship.isFriendly && !other.isFriendly) isRival = true;
+                        if (!ship.isFriendly && (other.isFriendly || other.fleetHue !== ship.fleetHue)) isRival = true;
+
+                        if (isRival) {
+                            let d = Math.hypot(other.x - ship.x, other.y - ship.y);
+                            if (d < 2000 && d < minThreatDist) { huntTarget = other; minThreatDist = d; }
+                        }
+                    }
+                    if (!ship.isFriendly && !State.playerShip.dead) {
+                        let d = Math.hypot(State.worldOffsetX - ship.x, State.worldOffsetY - ship.y);
+                        if (d < 2000 && d < minThreatDist) { huntTarget = { x: State.worldOffsetX, y: State.worldOffsetY }; minThreatDist = d; }
+                    }
+                }
+
+                if (huntTarget) {
+                    moveTarget = huntTarget;
+                }
+
+                // Move towards target
+                const moveAngle = Math.atan2(moveTarget.y - ship.y, moveTarget.x - ship.x);
+                ship.xv += Math.cos(moveAngle) * 0.4;
+                ship.yv += Math.sin(moveAngle) * 0.4;
+
+                let angleDiff = moveAngle - ship.a;
+                while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                ship.a += angleDiff * 0.05;
+
+                ship.xv *= 0.95; ship.yv *= 0.95;
+            } else if (ship.aiState === 'FORMATION') {
                 let isRetreating = false;
                 if (ship.isFriendly && State.playerShip.tier >= 12 && State.homePlanetId) {
                     // WINGMAN RETREAT: Orbit home when the player is a Godship to avoid the ring
@@ -2203,9 +2323,6 @@ export function loop() {
             const r = shipToDraw.r;
 
             // Generate Palette based on fleetHue (Host Planet)
-            // Player Blue Theme: Hull(210, 60%, 30%), Detail(210, 100%, 50%), Cockpit(Cyan)
-            // Enemy Theme: Hull(fleetHue, ...), Detail(fleetHue+variation, ...)
-
             const HULL_COLOR = `hsl(${shipToDraw.fleetHue}, 60%, 30%)`;
             const HULL_BORDER = `hsl(${shipToDraw.fleetHue}, 40%, 50%)`; // Lighter border
             const DETAIL_COLOR = `hsl(${shipToDraw.fleetHue}, 80%, 60%)`;
@@ -2214,197 +2331,24 @@ export function loop() {
             const COCKPIT_GRAD_1 = `hsl(${shipToDraw.fleetHue}, 100%, 80%)`;
             const COCKPIT_GRAD_2 = `hsl(${shipToDraw.fleetHue}, 100%, 50%)`;
 
-            if (tier >= 8) {
-                // TIER 8 DREADNOUGHT VISUAL (Enemy Version)
-                const HULL_COLOR_D = `hsl(${shipToDraw.fleetHue}, 20%, 20%)`; // Darker, menacing
-                const HULL_BORDER_D = `hsl(${shipToDraw.fleetHue}, 40%, 40%)`;
-                const DETAIL_GRAY_D = `hsl(${shipToDraw.fleetHue}, 10%, 40%)`;
-
-                // Normalization scale to match Tier 7 visual radius
-                const norm = 1.1;
-
-                DOM.canvasContext.shadowBlur = 20; DOM.canvasContext.shadowColor = THRUST_COLOR;
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(r * 1.6 * norm, 0);
-                DOM.canvasContext.lineTo(r * 0.5 * norm, r * 1.5 * norm); DOM.canvasContext.lineTo(-r * 1.2 * norm, r * 0.8 * norm);
-                DOM.canvasContext.lineTo(-r * 1.8 * norm, r * 0.4 * norm); DOM.canvasContext.lineTo(-r * 1.8 * norm, -r * 0.4 * norm);
-                DOM.canvasContext.lineTo(-r * 1.2 * norm, -r * 0.8 * norm); DOM.canvasContext.lineTo(r * 0.5 * norm, -r * 1.5 * norm);
-                DOM.canvasContext.closePath();
-                DOM.canvasContext.fillStyle = HULL_COLOR_D; DOM.canvasContext.fill();
-                DOM.canvasContext.lineWidth = 2; DOM.canvasContext.strokeStyle = HULL_BORDER_D; DOM.canvasContext.stroke();
-
-                // Details
-                DOM.canvasContext.shadowBlur = 0; DOM.canvasContext.fillStyle = DETAIL_GRAY_D;
-                DOM.canvasContext.beginPath(); DOM.canvasContext.moveTo(r * 1.6 * norm, 0); DOM.canvasContext.lineTo(r * 1.4 * norm, r * 0.1 * norm); DOM.canvasContext.lineTo(r * 1.4 * norm, -r * 0.1 * norm); DOM.canvasContext.closePath(); DOM.canvasContext.fill();
-                DOM.canvasContext.fillStyle = DETAIL_GRAY_D;
-                DOM.canvasContext.fillRect(r * 0.2 * norm, r * 0.5 * norm, r * 0.3 * norm, r * 0.2 * norm); DOM.canvasContext.fillRect(r * 0.2 * norm, -r * 0.7 * norm, r * 0.3 * norm, r * 0.2 * norm);
-
-                // Accent Engine/Core
-                DOM.canvasContext.fillStyle = ACCENT_COLOR; DOM.canvasContext.beginPath(); DOM.canvasContext.arc(-r * 0.5 * norm, 0, r * 0.2 * norm, 0, Math.PI * 2); DOM.canvasContext.fill();
-
-                // Thrust
-                DOM.canvasContext.shadowBlur = 30; DOM.canvasContext.shadowColor = THRUST_COLOR;
-                const EXHAUST_H = r * 0.7 * norm; const EXHAUST_X = -r * 1.8 * norm;
-                DOM.canvasContext.fillStyle = HULL_BORDER_D; DOM.canvasContext.fillRect(EXHAUST_X, -EXHAUST_H / 2, 5, EXHAUST_H);
-
-                // Always thrusting slightly for visual effect
-                DOM.canvasContext.fillStyle = `hsla(${shipToDraw.fleetHue}, 100%, 60%, ${0.5 + Math.random() * 0.5})`;
-                DOM.canvasContext.beginPath(); DOM.canvasContext.moveTo(EXHAUST_X + 5, -EXHAUST_H / 2); DOM.canvasContext.lineTo(EXHAUST_X + 5, EXHAUST_H / 2);
-                DOM.canvasContext.lineTo(EXHAUST_X - 25 * norm * (0.8 + Math.random() * 0.4), 0); DOM.canvasContext.closePath(); DOM.canvasContext.fill();
-                DOM.canvasContext.shadowBlur = 0;
+            // Draw generic shapes using standard function
+            drawShipShape({
+                ctx: DOM.canvasContext,
+                r: r,
+                tier: tier,
+                hullColor: HULL_COLOR,
+                borderColor: HULL_BORDER,
+                detailColor: DETAIL_COLOR,
+                accentColor: ACCENT_COLOR,
+                thrustColor: THRUST_COLOR,
+                isThrusting: true, // Always slightly thrusting for effect
+                cockpitGrad1: COCKPIT_GRAD_1,
+                cockpitGrad2: COCKPIT_GRAD_2
+            });
 
 
-            } else {
-                // MODERN TRIANGULAR SHIP DESIGN (Tiers 0-7)
-                // Sleek, sharp geometry with glowing edges inspired by tactical diagram
 
-                // Base triangle size scales with tier
-                const baseSize = r * (1 + tier * 0.08);
-
-                // === MAIN HULL (Sharp Triangle) ===
-                DOM.canvasContext.shadowBlur = 25;
-                DOM.canvasContext.shadowColor = DETAIL_COLOR;
-
-                // Main triangle body
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(baseSize * 1.2, 0);  // Nose (front)
-                DOM.canvasContext.lineTo(-baseSize * 0.6, baseSize * 0.8);  // Bottom left
-                DOM.canvasContext.lineTo(-baseSize * 0.6, -baseSize * 0.8); // Top left
-                DOM.canvasContext.closePath();
-
-                // Gradient fill from bright center to darker edges
-                let hullGrad = DOM.canvasContext.createLinearGradient(baseSize * 0.6, 0, -baseSize * 0.6, 0);
-                hullGrad.addColorStop(0, DETAIL_COLOR);
-                hullGrad.addColorStop(0.5, HULL_COLOR);
-                hullGrad.addColorStop(1, `hsl(${shipToDraw.fleetHue}, 40%, 15%)`);
-
-                DOM.canvasContext.fillStyle = hullGrad;
-                DOM.canvasContext.fill();
-
-                // Bright glowing outline
-                DOM.canvasContext.lineWidth = 3;
-                DOM.canvasContext.strokeStyle = DETAIL_COLOR;
-                DOM.canvasContext.stroke();
-
-                // === INTERNAL DETAIL LINES ===
-                DOM.canvasContext.shadowBlur = 10;
-                DOM.canvasContext.lineWidth = 1.5;
-                DOM.canvasContext.strokeStyle = `hsl(${shipToDraw.fleetHue}, 100%, 70%)`;
-
-                // Center line
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(baseSize * 0.8, 0);
-                DOM.canvasContext.lineTo(-baseSize * 0.4, 0);
-                DOM.canvasContext.stroke();
-
-                // Diagonal detail lines
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(baseSize * 0.4, 0);
-                DOM.canvasContext.lineTo(-baseSize * 0.2, baseSize * 0.4);
-                DOM.canvasContext.moveTo(baseSize * 0.4, 0);
-                DOM.canvasContext.lineTo(-baseSize * 0.2, -baseSize * 0.4);
-                DOM.canvasContext.stroke();
-
-                // === WING ACCENTS ===
-                DOM.canvasContext.shadowBlur = 15;
-                DOM.canvasContext.fillStyle = `hsl(${shipToDraw.fleetHue}, 80%, 40%)`;
-
-                // Top wing accent
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(baseSize * 0.2, -baseSize * 0.3);
-                DOM.canvasContext.lineTo(-baseSize * 0.3, -baseSize * 0.6);
-                DOM.canvasContext.lineTo(-baseSize * 0.4, -baseSize * 0.5);
-                DOM.canvasContext.lineTo(baseSize * 0.1, -baseSize * 0.25);
-                DOM.canvasContext.closePath();
-                DOM.canvasContext.fill();
-
-                // Bottom wing accent
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(baseSize * 0.2, baseSize * 0.3);
-                DOM.canvasContext.lineTo(-baseSize * 0.3, baseSize * 0.6);
-                DOM.canvasContext.lineTo(-baseSize * 0.4, baseSize * 0.5);
-                DOM.canvasContext.lineTo(baseSize * 0.1, baseSize * 0.25);
-                DOM.canvasContext.closePath();
-                DOM.canvasContext.fill();
-
-                // === COCKPIT (Glowing center) ===
-                DOM.canvasContext.shadowBlur = 20;
-                DOM.canvasContext.shadowColor = COCKPIT_GRAD_1;
-
-                let cockpitGrad = DOM.canvasContext.createRadialGradient(baseSize * 0.5, 0, 0, baseSize * 0.5, 0, baseSize * 0.15);
-                cockpitGrad.addColorStop(0, COCKPIT_GRAD_1);
-                cockpitGrad.addColorStop(0.7, COCKPIT_GRAD_2);
-                cockpitGrad.addColorStop(1, HULL_COLOR);
-
-                DOM.canvasContext.fillStyle = cockpitGrad;
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.arc(baseSize * 0.5, 0, baseSize * 0.15, 0, Math.PI * 2);
-                DOM.canvasContext.fill();
-
-                // Cockpit bright rim
-                DOM.canvasContext.strokeStyle = COCKPIT_GRAD_1;
-                DOM.canvasContext.lineWidth = 2;
-                DOM.canvasContext.stroke();
-
-                // === ENGINE PORTS ===
-                DOM.canvasContext.shadowBlur = 15;
-                DOM.canvasContext.shadowColor = ACCENT_COLOR;
-
-                // Top engine
-                DOM.canvasContext.fillStyle = ACCENT_COLOR;
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.arc(-baseSize * 0.45, -baseSize * 0.35, baseSize * 0.08, 0, Math.PI * 2);
-                DOM.canvasContext.fill();
-
-                // Bottom engine
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.arc(-baseSize * 0.45, baseSize * 0.35, baseSize * 0.08, 0, Math.PI * 2);
-                DOM.canvasContext.fill();
-
-                // === ENGINE THRUST (Animated) ===
-                DOM.canvasContext.shadowBlur = 30;
-                DOM.canvasContext.shadowColor = THRUST_COLOR;
-
-                const thrustLength = 20 + Math.random() * 15;
-                const thrustFlicker = 0.6 + Math.random() * 0.4;
-
-                // Top thrust
-                DOM.canvasContext.fillStyle = `hsla(${shipToDraw.fleetHue}, 100%, 70%, ${thrustFlicker})`;
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(-baseSize * 0.5, -baseSize * 0.35);
-                DOM.canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, -baseSize * 0.4);
-                DOM.canvasContext.lineTo(-baseSize * 0.5 - thrustLength, -baseSize * 0.35);
-                DOM.canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, -baseSize * 0.3);
-                DOM.canvasContext.closePath();
-                DOM.canvasContext.fill();
-
-                // Bottom thrust
-                DOM.canvasContext.fillStyle = `hsla(${shipToDraw.fleetHue}, 100%, 70%, ${thrustFlicker})`;
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(-baseSize * 0.5, baseSize * 0.35);
-                DOM.canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, baseSize * 0.4);
-                DOM.canvasContext.lineTo(-baseSize * 0.5 - thrustLength, baseSize * 0.35);
-                DOM.canvasContext.lineTo(-baseSize * 0.5 - thrustLength * 0.8, baseSize * 0.3);
-                DOM.canvasContext.closePath();
-                DOM.canvasContext.fill();
-
-                // === TIER INDICATORS (Small dots along the hull) ===
-                if (tier > 0) {
-                    DOM.canvasContext.shadowBlur = 8;
-                    DOM.canvasContext.fillStyle = `hsl(${shipToDraw.fleetHue}, 100%, 80%)`;
-
-                    for (let t = 0; t < Math.min(tier, 7); t++) {
-                        const dotX = baseSize * 0.3 - (t * baseSize * 0.12);
-                        const dotY = (t % 2 === 0) ? baseSize * 0.15 : -baseSize * 0.15;
-
-                        DOM.canvasContext.beginPath();
-                        DOM.canvasContext.arc(dotX, dotY, baseSize * 0.04, 0, Math.PI * 2);
-                        DOM.canvasContext.fill();
-                    }
-                }
-
-                DOM.canvasContext.shadowBlur = 0;
-            }
+            DOM.canvasContext.shadowBlur = 0;
             // DRAW HEART FOR FRIENDS
             if (shipToDraw.isFriendly) {
                 drawHeart(DOM.canvasContext, 0, -5, 8);
@@ -2651,302 +2595,42 @@ export function loop() {
 
             // --- Drawing logic for Ship Tiers ---
             const PLAYER_HUE = SHIP_CONFIG.FRIENDLY_BLUE_HUE; // 210 (cyan/blue)
-            if (tier >= 12) {
-                // THE GODSHIP: Massive, glowing, advanced
-                let norm = 1.2; // Adjusted target size (Reduced from 1.5)
-                let transformationProgress = 1.0;
 
-                // Gradually grow during transformation
+            let norm = 1.0;
+            let transformationProgress = 1.0;
+
+            if (tier >= 12) {
+                norm = 1.2;
                 if (State.playerShip && State.playerShip.transformationTimer > 0) {
                     transformationProgress = 1 - (State.playerShip.transformationTimer / 600);
                     norm = 1.0 + (norm - 1.0) * transformationProgress;
-
-                    // DRAW TIER 11 FORM (Fading out)
-                    DOM.canvasContext.save();
-                    DOM.canvasContext.globalAlpha = 1 - transformationProgress;
-                    let sides = 3 + 11; // Tier 11
-                    DOM.canvasContext.beginPath();
-                    for (let i = 0; i <= sides; i++) {
-                        let ang = i * (2 * Math.PI / sides);
-                        if (i === 0) DOM.canvasContext.moveTo(r * Math.cos(ang), -r * Math.sin(ang));
-                        else DOM.canvasContext.lineTo(r * Math.cos(ang), -r * Math.sin(ang));
-                    }
-                    DOM.canvasContext.closePath();
-                    let chassisGrad = DOM.canvasContext.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
-                    chassisGrad.addColorStop(0, '#0055aa'); chassisGrad.addColorStop(1, '#002244');
-                    DOM.canvasContext.fillStyle = chassisGrad; DOM.canvasContext.fill();
-                    DOM.canvasContext.lineWidth = 2; DOM.canvasContext.strokeStyle = '#0088ff'; DOM.canvasContext.stroke();
-                    DOM.canvasContext.restore();
                 }
-
-                DOM.canvasContext.globalAlpha = transformationProgress;
-                const HULL_COLOR = '#050505';
-                const BORDER_COLOR = '#00FFFF';
-                const CORE_COLOR = '#FFFFFF';
-
-                DOM.canvasContext.shadowBlur = 40;
-                DOM.canvasContext.shadowColor = BORDER_COLOR;
-
-                // Advanced Chassis Design - Wide and multi-segmented
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(r * 2.5 * norm, 0); // Front
-                DOM.canvasContext.lineTo(r * 1.5 * norm, r * 1.2 * norm);
-                DOM.canvasContext.lineTo(0, r * 1.8 * norm);
-                DOM.canvasContext.lineTo(-r * 1.5 * norm, r * 1.2 * norm);
-                DOM.canvasContext.lineTo(-r * 2.5 * norm, r * 1.5 * norm);
-                DOM.canvasContext.lineTo(-r * 3 * norm, r * 0.5 * norm);
-                DOM.canvasContext.lineTo(-r * 3 * norm, -r * 0.5 * norm);
-                DOM.canvasContext.lineTo(-r * 2.5 * norm, -r * 1.5 * norm);
-                DOM.canvasContext.lineTo(-r * 1.5 * norm, -r * 1.2 * norm);
-                DOM.canvasContext.lineTo(0, -r * 1.8 * norm);
-                DOM.canvasContext.lineTo(r * 1.5 * norm, -r * 1.2 * norm);
-                DOM.canvasContext.closePath();
-
-                DOM.canvasContext.fillStyle = HULL_COLOR;
-                DOM.canvasContext.fill();
-                DOM.canvasContext.lineWidth = 4;
-                DOM.canvasContext.strokeStyle = BORDER_COLOR;
-                DOM.canvasContext.stroke();
-
-                // Tech Overlay (Inner hull patterns)
-                DOM.canvasContext.shadowBlur = 15;
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(r * 2 * norm, 0);
-                DOM.canvasContext.lineTo(-r * 1.5 * norm, r * 0.8 * norm);
-                DOM.canvasContext.moveTo(r * 2 * norm, 0);
-                DOM.canvasContext.lineTo(-r * 1.5 * norm, -r * 0.8 * norm);
-                DOM.canvasContext.stroke();
-
-                // Pulsing Energy Core
-                const pulse = 0.7 + Math.sin(Date.now() / 200) * 0.3;
-                DOM.canvasContext.shadowBlur = 50 * pulse;
-                DOM.canvasContext.fillStyle = CORE_COLOR;
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.arc(0, 0, r * norm * 0.6 * pulse, 0, Math.PI * 2);
-                DOM.canvasContext.fill();
-
-                // Heavy Thrusters
-                const EXHAUST_X = -r * 3 * norm;
-                if (State.playerShip.thrusting) {
-                    DOM.canvasContext.shadowBlur = 80;
-                    DOM.canvasContext.fillStyle = `rgba(0, 255, 255, ${0.4 + Math.random() * 0.6})`;
-                    DOM.canvasContext.beginPath();
-                    DOM.canvasContext.moveTo(EXHAUST_X, -r * 1.2 * norm);
-                    DOM.canvasContext.lineTo(EXHAUST_X, r * 1.2 * norm);
-                    DOM.canvasContext.lineTo(EXHAUST_X - r * 12 * norm * (0.8 + Math.random() * 0.4), 0);
-                    DOM.canvasContext.closePath();
-                    DOM.canvasContext.fill();
-                }
-                DOM.canvasContext.shadowBlur = 0;
-
-
-
-            } else if (tier === 11) { // THE HYPERION - "The Celestial Dreadnought"
-                // Transition design: Sharp mechanical edges with divine energy
-                DOM.canvasContext.shadowBlur = 25; DOM.canvasContext.shadowColor = '#00ffff';
-                DOM.canvasContext.lineWidth = 3;
-
-                // 1. REINFORCED CHASSIS (Sleeker but heavier than Titan)
-                DOM.canvasContext.fillStyle = '#0a0a0a'; DOM.canvasContext.strokeStyle = '#0088ff';
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(r * 2.0, 0);               // Front Nose
-                DOM.canvasContext.lineTo(r * 0.5, r * 0.8);          // Top Outer corner
-                DOM.canvasContext.lineTo(-r * 1.2, r * 0.6);         // Top Back
-                DOM.canvasContext.lineTo(-r * 1.5, 0);               // Rear Center
-                DOM.canvasContext.lineTo(-r * 1.2, -r * 0.6);        // Bottom Back
-                DOM.canvasContext.lineTo(r * 0.5, -r * 0.8);         // Bottom Outer corner
-                DOM.canvasContext.closePath();
-                DOM.canvasContext.fill(); DOM.canvasContext.stroke();
-
-                // 2. ENERGY WINGS (Floating but close to hull)
-                const pulse = 0.8 + Math.sin(Date.now() / 300) * 0.2;
-                DOM.canvasContext.fillStyle = `rgba(0, 150, 255, ${0.4 * pulse})`;
-                DOM.canvasContext.strokeStyle = `rgba(0, 255, 255, ${0.6 * pulse})`;
-
-                // Top Wing
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(r * 0.2, -r * 0.9);
-                DOM.canvasContext.lineTo(r * 1.2, -r * 1.4);
-                DOM.canvasContext.lineTo(r * 0.8, -r * 0.8);
-                DOM.canvasContext.closePath();
-                DOM.canvasContext.fill(); DOM.canvasContext.stroke();
-
-                // Bottom Wing
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(r * 0.2, r * 0.9);
-                DOM.canvasContext.lineTo(r * 1.2, r * 1.4);
-                DOM.canvasContext.lineTo(r * 0.8, r * 0.8);
-                DOM.canvasContext.closePath();
-                DOM.canvasContext.fill(); DOM.canvasContext.stroke();
-
-                // 3. CELESTIAL CORE (Divine aspect)
-                DOM.canvasContext.shadowBlur = 40; DOM.canvasContext.shadowColor = '#fff';
-                DOM.canvasContext.fillStyle = '#fff';
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.arc(0, 0, r * 0.5, 0, Math.PI * 2);
-                DOM.canvasContext.fill();
-
-                // 4. ENERGY CHANNELS (Connecting mechanical to divine)
-                DOM.canvasContext.shadowBlur = 0;
-                DOM.canvasContext.strokeStyle = '#00ffff'; DOM.canvasContext.lineWidth = 1;
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(r * 2.0, 0); DOM.canvasContext.lineTo(r * 0.5, 0); // Core to nose
-                DOM.canvasContext.stroke();
-
-            } else if (tier === 10) { // THE TITAN - Heavy Dreadnought
-                DOM.canvasContext.shadowBlur = 20; DOM.canvasContext.shadowColor = '#ff5500';
-                DOM.canvasContext.fillStyle = '#221100'; DOM.canvasContext.strokeStyle = '#ffaa00'; DOM.canvasContext.lineWidth = 4;
-
-                // Main Block (Long along X)
-                DOM.canvasContext.fillRect(-r, -r * 0.6, r * 2, r * 1.2);
-                DOM.canvasContext.strokeRect(-r, -r * 0.6, r * 2, r * 1.2);
-
-                // Side Armor (Top and Bottom)
-                DOM.canvasContext.fillStyle = '#331100';
-                DOM.canvasContext.fillRect(-r * 0.5, -r * 1.2, r * 1.5, r * 0.6);
-                DOM.canvasContext.strokeRect(-r * 0.5, -r * 1.2, r * 1.5, r * 0.6);
-                DOM.canvasContext.fillRect(-r * 0.5, r * 0.6, r * 1.5, r * 0.6);
-                DOM.canvasContext.strokeRect(-r * 0.5, r * 0.6, r * 1.5, r * 0.6);
-
-            } else if (tier === 9) { // THE CELESTIAL - Radiant Star
-                DOM.canvasContext.shadowBlur = 25; DOM.canvasContext.shadowColor = '#ffffaa';
-                DOM.canvasContext.fillStyle = '#ffffcc'; DOM.canvasContext.strokeStyle = '#ffffff'; DOM.canvasContext.lineWidth = 2;
-
-                // 4-Pointed Star
-                DOM.canvasContext.beginPath();
-                for (let i = 0; i < 8; i++) {
-                    const angle = i * Math.PI / 4;
-                    const rad = (i % 2 === 0) ? r * 1.5 : r * 0.4;
-                    const px = Math.cos(angle) * rad; const py = Math.sin(angle) * rad;
-                    if (i === 0) DOM.canvasContext.moveTo(px, py); else DOM.canvasContext.lineTo(px, py);
-                }
-                DOM.canvasContext.closePath();
-                DOM.canvasContext.fill(); DOM.canvasContext.stroke();
-
-                // Inner Spin
-                DOM.canvasContext.strokeStyle = '#ffaa00';
-                DOM.canvasContext.beginPath(); DOM.canvasContext.arc(0, 0, r * 0.5, 0, Math.PI * 2); DOM.canvasContext.stroke();
-
-            } else if (tier === 8) { // THE SPHERE - Energy Orb
-                DOM.canvasContext.shadowBlur = 20; DOM.canvasContext.shadowColor = '#00ff88';
-                let grad = DOM.canvasContext.createRadialGradient(0, 0, r * 0.2, 0, 0, r);
-                grad.addColorStop(0, '#fff'); grad.addColorStop(0.5, '#00ff88'); grad.addColorStop(1, '#004422');
-                DOM.canvasContext.fillStyle = grad;
-                DOM.canvasContext.strokeStyle = '#00ff88'; DOM.canvasContext.lineWidth = 2;
-
-                DOM.canvasContext.beginPath(); DOM.canvasContext.arc(0, 0, r, 0, Math.PI * 2); DOM.canvasContext.fill(); DOM.canvasContext.stroke();
-
-                // Rotating Ring
-                DOM.canvasContext.save(); DOM.canvasContext.rotate(Date.now() / 500);
-                DOM.canvasContext.strokeStyle = '#fff'; DOM.canvasContext.lineWidth = 1;
-                DOM.canvasContext.beginPath(); DOM.canvasContext.ellipse(0, 0, r * 1.4, r * 0.3, 0, 0, Math.PI * 2); DOM.canvasContext.stroke();
-                DOM.canvasContext.restore();
-
-            } else if (tier >= 1 && tier <= 7) {
-                // GEOMETRIC SHAPES (1-7)
-                const sides = tier + 3; // 1=Square(4), 2=Pent(5)...
-                DOM.canvasContext.shadowBlur = 15; DOM.canvasContext.shadowColor = `hsl(${PLAYER_HUE}, 100%, 60%)`;
-                DOM.canvasContext.fillStyle = `hsla(${PLAYER_HUE}, 60%, 20%, 0.8)`;
-                DOM.canvasContext.strokeStyle = `hsl(${PLAYER_HUE}, 100%, 70%)`; DOM.canvasContext.lineWidth = 3;
-
-                // Polygon Body
-                DOM.canvasContext.beginPath();
-                for (let i = 0; i < sides; i++) {
-                    // Rotate so flat side is usually at bottom or point at top depending on preference.
-                    // -Math.PI/2 puts a vertex at the top.
-                    const angle = i * (Math.PI * 2 / sides) - Math.PI / 2;
-                    const px = Math.cos(angle) * r; const py = Math.sin(angle) * r;
-                    if (i === 0) DOM.canvasContext.moveTo(px, py); else DOM.canvasContext.lineTo(px, py);
-                }
-                DOM.canvasContext.closePath();
-                DOM.canvasContext.fill(); DOM.canvasContext.stroke();
-
-                // Internal "Cool" Details based on shape
-                DOM.canvasContext.lineWidth = 1.5; DOM.canvasContext.strokeStyle = `hsl(${PLAYER_HUE}, 100%, 90%)`;
-                DOM.canvasContext.beginPath();
-                if (tier === 1) { // SQUARE: Cross Bracing
-                    DOM.canvasContext.moveTo(-r * 0.7, -r * 0.7); DOM.canvasContext.lineTo(r * 0.7, r * 0.7);
-                    DOM.canvasContext.moveTo(r * 0.7, -r * 0.7); DOM.canvasContext.lineTo(-r * 0.7, r * 0.7);
-                } else if (tier === 2) { // PENTAGON: Star
-                    for (let i = 0; i < 5; i++) {
-                        const a1 = i * (Math.PI * 2 / 5) - Math.PI / 2;
-                        const a2 = (i + 2) * (Math.PI * 2 / 5) - Math.PI / 2;
-                        DOM.canvasContext.moveTo(Math.cos(a1) * r, Math.sin(a1) * r);
-                        DOM.canvasContext.lineTo(Math.cos(a2) * r, Math.sin(a2) * r);
-                    }
-                } else if (tier === 3) { // HEXAGON: Cube/Tri-split
-                    DOM.canvasContext.moveTo(0, 0); DOM.canvasContext.lineTo(0, -r);
-                    DOM.canvasContext.moveTo(0, 0); DOM.canvasContext.lineTo(Math.cos(Math.PI / 6) * r, Math.sin(Math.PI / 6) * r);
-                    DOM.canvasContext.moveTo(0, 0); DOM.canvasContext.lineTo(Math.cos(Math.PI * 5 / 6) * r, Math.sin(Math.PI * 5 / 6) * r);
-                } else { // HEPTAGON+ : Concentric shapes
-                    const innerR = r * 0.5;
-                    for (let i = 0; i < sides; i++) {
-                        const angle = i * (Math.PI * 2 / sides) - Math.PI / 2;
-                        const px = Math.cos(angle) * innerR; const py = Math.sin(angle) * innerR;
-                        if (i === 0) DOM.canvasContext.moveTo(px, py); else DOM.canvasContext.lineTo(px, py);
-                    }
-                    DOM.canvasContext.closePath();
-                }
-                DOM.canvasContext.stroke();
-
-            } else {
-                // TIER 0: TRIANGLE (Classic Modern)
-                // Base size logic
-                const baseSize = r;
-                const noseLength = 1.3;
-                const wingSpan = 0.8;
-
-                DOM.canvasContext.shadowBlur = 15; DOM.canvasContext.shadowColor = `hsl(${PLAYER_HUE}, 100%, 70%)`;
-
-                // Triangle
-                DOM.canvasContext.beginPath();
-                DOM.canvasContext.moveTo(baseSize * noseLength, 0);
-                DOM.canvasContext.lineTo(-baseSize * 0.6, baseSize * wingSpan);
-                DOM.canvasContext.lineTo(-baseSize * 0.6, -baseSize * wingSpan);
-                DOM.canvasContext.closePath();
-
-                let hullGrad = DOM.canvasContext.createLinearGradient(baseSize * 0.6, 0, -baseSize * 0.6, 0);
-                hullGrad.addColorStop(0, `hsl(${PLAYER_HUE}, 100%, 70%)`);
-                hullGrad.addColorStop(1, `hsl(${PLAYER_HUE}, 40%, 15%)`);
-                DOM.canvasContext.fillStyle = hullGrad;
-                DOM.canvasContext.fill();
-
-                DOM.canvasContext.lineWidth = 2;
-                DOM.canvasContext.strokeStyle = `hsl(${PLAYER_HUE}, 80%, 60%)`;
-                DOM.canvasContext.stroke();
-
-                // Detail
-                DOM.canvasContext.beginPath(); DOM.canvasContext.moveTo(r * 0.5, 0); DOM.canvasContext.lineTo(-r * 0.2, 0); DOM.canvasContext.stroke();
             }
 
-            // === COMMON THRUSTER LOGIC (Adapted for all models) ===
-            if (State.playerShip.thrusting) {
-                DOM.canvasContext.shadowBlur = 25; DOM.canvasContext.shadowColor = '#ffaa00';
-                DOM.canvasContext.fillStyle = `rgba(255, 170, 0, ${0.5 + Math.random() * 0.5})`;
-                const thrustL = 30 + Math.random() * 10;
+            // Player Blue Theme
+            const HULL_COLOR = `hsl(${PLAYER_HUE}, 60%, 20%)`;
+            const BORDER_COLOR = `hsl(${PLAYER_HUE}, 100%, 70%)`;
+            const DETAIL_COLOR = `hsl(${PLAYER_HUE}, 100%, 60%)`;
+            const ACCENT_COLOR = `hsl(${(PLAYER_HUE + 180) % 360}, 90%, 60%)`;
+            const THRUST_COLOR = `#ffaa00`; // Orange thrust for player
+            const COCKPIT_GRAD_1 = `hsl(${PLAYER_HUE}, 100%, 80%)`;
+            const COCKPIT_GRAD_2 = `hsl(${PLAYER_HUE}, 100%, 50%)`;
 
-                // Single central thrust for most, specialized for heavy tiers
-                if (tier === 10) { // Titan: Dual Thrusters on rear ends
-                    [-r * 0.9, r * 0.9].forEach(yPos => {
-                        DOM.canvasContext.beginPath();
-                        DOM.canvasContext.moveTo(-r, yPos - 5); DOM.canvasContext.lineTo(-r - thrustL, yPos); DOM.canvasContext.lineTo(-r, yPos + 5);
-                        DOM.canvasContext.fill();
-                    });
-                } else if (tier === 11) { // Hyperion: Celestial Thrust
-                    DOM.canvasContext.beginPath();
-                    DOM.canvasContext.moveTo(-r * 1.5, -r * 0.3);
-                    DOM.canvasContext.lineTo(-r * 1.5 - thrustL * 1.5, 0); // Slightly longer thrust
-                    DOM.canvasContext.lineTo(-r * 1.5, r * 0.3);
-                    DOM.canvasContext.fill();
-                } else {
-                    DOM.canvasContext.beginPath();
-                    DOM.canvasContext.moveTo(-r * 0.7, -r * 0.2);
-                    DOM.canvasContext.lineTo(-r * 0.7 - thrustL, 0);
-                    DOM.canvasContext.lineTo(-r * 0.7, r * 0.2);
-                    DOM.canvasContext.fill();
-                }
-                DOM.canvasContext.shadowBlur = 0;
-            }
+            drawShipShape({
+                ctx: DOM.canvasContext,
+                r: r,
+                tier: tier,
+                norm: norm,
+                transformationProgress: transformationProgress,
+                hullColor: HULL_COLOR,
+                borderColor: BORDER_COLOR,
+                detailColor: DETAIL_COLOR,
+                accentColor: ACCENT_COLOR,
+                thrustColor: THRUST_COLOR,
+                isThrusting: State.playerShip.thrusting,
+                cockpitGrad1: COCKPIT_GRAD_1,
+                cockpitGrad2: COCKPIT_GRAD_2
+            });
         }
         DOM.canvasContext.restore();
     }

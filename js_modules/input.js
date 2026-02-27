@@ -26,10 +26,10 @@ export function fireEntityWeapon(ship, bulletList, isEnemy = true) {
     const isPlayer = (ship === State.playerShip);
     const tier = isPlayer ? ship.tier : Math.floor(ship.score / SHIP_CONFIG.EVOLUTION_SCORE_STEP);
 
-    if (isPlayer && tier >= 12) {
+    if (tier >= 12) {
         if (ship.transformationTimer > 0) {
             // Cannot fire while transforming to Godship
-            if (State.playerReloadTime <= 0) {
+            if (isPlayer && State.playerReloadTime <= 0) {
                 addScreenMessage("ENERGY UNSTABLE: TRANSFORMING...", "#ffaa00");
                 State.playerReloadTime = 30; // Brief internal cooldown for message
             }
@@ -137,23 +137,33 @@ export function fireEntityWeapon(ship, bulletList, isEnemy = true) {
 }
 
 export function fireGodWeapon(ship) {
-    State.playerReloadTime = PLAYER_CONFIG.RELOAD_TIME_MAX * 5; // Long cooldown for massive power
+    const isPlayer = ship === State.playerShip;
+
+    if (isPlayer) {
+        State.playerReloadTime = PLAYER_CONFIG.RELOAD_TIME_MAX * 5; // Long cooldown for massive power
+    } else {
+        ship.reloadTime = 300; // 5 seconds for AI Godship weapon
+    }
+
+    const originX = isPlayer ? State.worldOffsetX : ship.x;
+    const originY = isPlayer ? State.worldOffsetY : ship.y;
 
     // Play Godly sound
-    AudioEngine.playLaser(State.worldOffsetX, State.worldOffsetY, 12);
+    AudioEngine.playLaser(originX, originY, 12);
 
     // One-time announcement handled in metamorphosis completion logic
 
     // Create the expanding ring
     State.shockwaves.push({
-        x: State.worldOffsetX,
-        y: State.worldOffsetY,
+        x: originX,
+        y: originY,
         r: 100,
         maxR: Math.max(State.width, State.height) * 3, // Reach 3 times the visible viewport
         strength: 2000,
         alpha: 3.0,
         isGodRing: true,
-        type: 'lightning'
+        type: 'lightning',
+        owner: ship // Attach the owner so we know who gets credit/immunity
     });
 }
 
@@ -162,6 +172,47 @@ export function enemyShoot(e, tx, ty) {
 
     if (tx === undefined) tx = State.worldOffsetX;
     if (ty === undefined) ty = State.worldOffsetY;
+
+    const isPlayer = e === State.playerShip;
+    const tier = isPlayer ? e.tier : Math.floor((e.score || 0) / SHIP_CONFIG.EVOLUTION_SCORE_STEP);
+
+    // AI Godships should be extremely careful with their Ring of Power
+    if (!isPlayer && tier >= 12) {
+        let alliesNear = false;
+        const SAFETY_RADIUS = 2500;
+
+        // Check for friendly planets nearby
+        for (let r of State.roids) {
+            if (r.isPlanet) {
+                let isFriendlyPlanet = false;
+                if (e.isFriendly && r.id === State.homePlanetId) isFriendlyPlanet = true;
+                if (!e.isFriendly && r.textureData && r.textureData.fleetHue === e.fleetHue) isFriendlyPlanet = true;
+
+                if (isFriendlyPlanet && Math.hypot(r.x - e.x, r.y - e.y) < SAFETY_RADIUS) {
+                    alliesNear = true;
+                    break;
+                }
+            }
+        }
+
+        // Check for fellow allied ships nearby
+        if (!alliesNear) {
+            for (let other of State.ships) {
+                if (other === e) continue;
+                let isAlly = false;
+                if (e.isFriendly && other.isFriendly) isAlly = true;
+                if (!e.isFriendly && !other.isFriendly && e.fleetHue === other.fleetHue) isAlly = true;
+
+                if (isAlly && Math.hypot(other.x - e.x, other.y - e.y) < SAFETY_RADIUS) {
+                    alliesNear = true;
+                    break;
+                }
+            }
+        }
+
+        // If allies or own planet are within blast range, suppress the God Weapon
+        if (alliesNear) return;
+    }
 
     let trajectoryAngle = Math.atan2(ty - e.y, tx - e.x); // Correct angle in world space
 
