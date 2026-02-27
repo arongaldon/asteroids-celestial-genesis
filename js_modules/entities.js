@@ -1,4 +1,4 @@
-import { ASTEROID_CONFIG, BOUNDARY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
+import { ASTEROID_CONFIG, BOUNDARY_CONFIG, GALAXY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
 import { State } from './state.js';
 import { mulberry32, getShapeName } from './utils.js';
 import { addScreenMessage, updateAsteroidCounter, drawLives } from './render.js';
@@ -212,11 +212,12 @@ export function initializePlanetAttributes(roid, forcedHue = null, forcedName = 
 }
 
 export function createGalaxy() {
-    const arms = Math.floor(Math.random() * 3) + 2; // 2 to 4 arms
+    const arms = Math.floor(Math.random() * (GALAXY_CONFIG.ARMS_LIMIT - 1)) + 2; // 2 to ARMS_LIMIT arms
+    const squish = 0.2 + Math.random() * 0.8; // Perspective tilt: 1.0 = top-down, 0.2 = very edge-on
 
     // Size distribution: mostly mid-sized, some absolutely massive ones
     let sizeRng = Math.random();
-    let size = sizeRng > 0.85 ? (1000 + Math.random() * 1500) : (200 + Math.random() * 800);
+    let size = sizeRng > 0.85 ? (2000 + Math.random() * 2000) : (400 + Math.random() * 1000);
 
     // Scale star count relative to size (more stars = denser glow)
     const starCount = Math.floor(size * (1.5 + Math.random()));
@@ -285,7 +286,8 @@ export function createGalaxy() {
         stars,
         coreColor,
         edgeColor,
-        angle: Math.random() * Math.PI
+        angle: Math.random() * Math.PI,
+        squish
     };
 }
 

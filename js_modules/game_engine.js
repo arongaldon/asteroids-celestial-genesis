@@ -22,7 +22,8 @@ export function initBackground() {
     State.backgroundLayers = { nebulas: [], galaxies: [], starsNear: [], starsMid: [], starsFar: [] };
     State.ambientFogs = []; // NEW: Reset ambient fog
     for (let i = 0; i < 6; i++) State.backgroundLayers.nebulas.push({ x: Math.random() * State.width, y: Math.random() * State.height, r: State.width * 0.6, hue: Math.random() * 60 + 200, alpha: 0.1 });
-    for (let i = 0; i < GALAXY_CONFIG.COUNT; i++) {
+    const galaxyCount = Math.floor(Math.random() * (GALAXY_CONFIG.LIMIT + 1));
+    for (let i = 0; i < galaxyCount; i++) {
         let newGalaxy;
         let attempts = 0;
         let tooClose;
@@ -108,6 +109,7 @@ export function killPlayerShip(reason = 'normal') {
     State.playerShip.dead = true;
     State.playerShip.leaderRef = null;
     State.playerShip.lives--;
+    State.screenMessages = []; // Clear warning messages immediately
     drawLives(); // Ensure HUD reflects 0 immediately
     State.playerShip.squadId = null;
 
@@ -800,31 +802,47 @@ export function loop() {
         DOM.canvasContext.fillStyle = g; DOM.canvasContext.beginPath(); DOM.canvasContext.arc(n.x, n.y, n.r, 0, Math.PI * 2); DOM.canvasContext.fill();
     });
     DOM.canvasContext.globalCompositeOperation = 'source-over';
-    // Draw distant galaxies
-    State.backgroundLayers.galaxies.forEach(g => {
-        g.x -= State.velocity.x * 0.05; // Slightly slower parallax for more depth
-        g.y -= State.velocity.y * 0.05;
-        g.angle += 0.0005; // Slower rotation
+    // Draw distant galaxies - unaffected by camera zoom, but still world-anchored
+    DOM.canvasContext.save();
 
-        // Ensure massive galaxies wrap seamlessly
-        const ext = g.size * 1.5;
+    if (State.viewScale !== 1.0) {
+        // Reverse the zoom scale by pivoting exactly at the screen center
+        DOM.canvasContext.translate(State.width / 2, State.height / 2);
+        DOM.canvasContext.scale(1 / State.viewScale, 1 / State.viewScale);
+        DOM.canvasContext.translate(-State.width / 2, -State.height / 2);
+    }
+
+    // Sort galaxies by size (smallest to largest) for depth sorting
+    State.backgroundLayers.galaxies.sort((a, b) => a.size - b.size);
+
+    State.backgroundLayers.galaxies.forEach(g => {
+        // Slow parallax relative to standard speed
+        g.x -= State.velocity.x * 0.05;
+        g.y -= State.velocity.y * 0.05;
+        g.angle += 0.0005;
+
+        // Wrap them gracefully within a very large boundary so they don't clump
+        const ext = Math.max(State.width, State.height) * 3;
         if (g.x < -ext) g.x = State.width + ext;
         else if (g.x > State.width + ext) g.x = -ext;
         if (g.y < -ext) g.y = State.height + ext;
         else if (g.y > State.height + ext) g.y = -ext;
 
+        g.angle += 0.0005; // Slower rotation
+
         DOM.canvasContext.save();
         DOM.canvasContext.translate(g.x, g.y);
         DOM.canvasContext.rotate(g.angle);
+        DOM.canvasContext.scale(1, g.squish || 1); // Apply perspective tilt
 
         // 1. Draw glowing radiant core
         DOM.canvasContext.globalCompositeOperation = 'screen';
         const coreRad = g.size * 0.3; // Core size proportional to galaxy
         let coreGrad = DOM.canvasContext.createRadialGradient(0, 0, 0, 0, 0, coreRad);
 
-        // Use the generated colors (core is very bright, edge scales off)
-        coreGrad.addColorStop(0, `rgba(${g.coreColor.r}, ${g.coreColor.g}, ${g.coreColor.b}, 1)`);
-        coreGrad.addColorStop(0.2, `rgba(${g.coreColor.r}, ${g.coreColor.g}, ${g.coreColor.b}, 0.8)`);
+        // Use the generated colors (core is very bright, edge scales off). Dimmed for distant effect.
+        coreGrad.addColorStop(0, `rgba(${g.coreColor.r}, ${g.coreColor.g}, ${g.coreColor.b}, ${GALAXY_CONFIG.BRIGHTNESS})`);
+        coreGrad.addColorStop(0.2, `rgba(${g.coreColor.r}, ${g.coreColor.g}, ${g.coreColor.b}, ${GALAXY_CONFIG.BRIGHTNESS * 0.6})`);
         coreGrad.addColorStop(1, `rgba(${g.edgeColor.r}, ${g.edgeColor.g}, ${g.edgeColor.b}, 0)`);
 
         DOM.canvasContext.fillStyle = coreGrad;
@@ -832,10 +850,10 @@ export function loop() {
         DOM.canvasContext.arc(0, 0, coreRad, 0, Math.PI * 2);
         DOM.canvasContext.fill();
 
-        // 2. Draw stars
+        // 2. Draw stars (reduced alpha)
         g.stars.forEach(s => {
             // The color string was prepared in entities.js like: `rgba(R,G,B, `
-            DOM.canvasContext.fillStyle = `${s.color}${s.alpha})`;
+            DOM.canvasContext.fillStyle = `${s.color}${s.alpha * GALAXY_CONFIG.BRIGHTNESS})`;
             DOM.canvasContext.beginPath();
             DOM.canvasContext.arc(s.r * Math.cos(s.theta), s.r * Math.sin(s.theta), s.size, 0, Math.PI * 2);
             DOM.canvasContext.fill();
@@ -843,6 +861,7 @@ export function loop() {
 
         DOM.canvasContext.restore();
     });
+    DOM.canvasContext.restore(); // Restore global scale
     // Draw starfield parallax layers
     moveLayer(State.backgroundLayers.starsFar, 0.1); moveLayer(State.backgroundLayers.starsMid, 0.4); moveLayer(State.backgroundLayers.starsNear, 0.8);
     const drawStars = (list, c) => { DOM.canvasContext.fillStyle = c; list.forEach(s => DOM.canvasContext.fillRect(s.x, s.y, s.size, s.size)); };
