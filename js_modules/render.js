@@ -320,6 +320,14 @@ export function drawLives() {
 }
 
 export function updateHUD() {
+    if (DOM.radarWrapper) {
+        if (State.inputMode === 'touch') {
+            DOM.radarWrapper.classList.add('touch-mode');
+        } else {
+            DOM.radarWrapper.classList.remove('touch-mode');
+        }
+    }
+
     if (DOM.scoreDisplay && State.playerShip) {
         const currentScore = State.playerShip.score || 0;
         DOM.scoreDisplay.innerText = isNaN(currentScore) ? 0 : currentScore;

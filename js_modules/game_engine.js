@@ -391,6 +391,16 @@ export function loop() {
         targetScale = (State.playerShip.tier >= 12 ? SCALE_IN_MOUSE_MODE / 2 : SCALE_IN_MOUSE_MODE);
     }
 
+    // --- Speed-Based Dynamic Zoom ---
+    // Gradually zoom out as the ship gains speed, and zoom back in when decelerating.
+    if (!isGameOverOrVictory && !State.playerShip.dead) {
+        const maxSpd = (State.playerShip.tier >= 12 ? SHIP_CONFIG.MAX_SPEED * 2 : SHIP_CONFIG.MAX_SPEED);
+        const currentSpd = Math.sqrt(State.velocity.x ** 2 + State.velocity.y ** 2);
+        const speedFactor = Math.min(1.0, currentSpd / Math.max(1, maxSpd));
+        // Up to 50% zoom out at maximum speed for a sense of momentum
+        targetScale *= (1.0 - speedFactor * 0.5);
+    }
+
     // Use a slow, smooth factor for cinematic reveals, and a more responsive one for gameplay scaling
     const zoomInterpolationFactor = isGameOverOrVictory ? 0.001 : 0.02;
     State.viewScale += (targetScale - State.viewScale) * zoomInterpolationFactor;

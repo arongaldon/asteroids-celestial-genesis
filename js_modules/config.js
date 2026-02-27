@@ -84,6 +84,7 @@ export const syllables = ["KRON", "XER", "ZAN", "TOR", "AER", "ION", "ULA", "PRO
 export const DOM = {
    canvas: null,
    canvasRadar: null,
+   radarWrapper: null,
    fadeOverlay: null,
    hudTop: null,
    infoLED: null,
@@ -97,6 +98,7 @@ export const DOM = {
    init() {
       this.canvas = document.getElementById('gameCanvas');
       this.canvasRadar = document.getElementById('radar-canvas');
+      this.radarWrapper = document.querySelector('.radar-wrapper');
       this.fadeOverlay = document.getElementById('fade-overlay');
       this.hudTop = document.querySelector('.hud-top');
       this.infoLED = document.getElementById('info-led');

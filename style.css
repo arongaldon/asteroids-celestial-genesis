@@ -100,6 +100,12 @@ canvas {
     position: relative;
     width: 280px;
     height: 280px;
+    transition: transform 0.5s ease-in-out;
+}
+
+.radar-wrapper.touch-mode {
+    transform: scale(0.5);
+    transform-origin: top left;
 }
 
 .stats-overlay {
