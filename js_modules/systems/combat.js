@@ -27,8 +27,8 @@ export function fireEntityWeapon(ship, bulletList, isEnemy = true) {
         const shootAngle = a + angleOffset;
 
         // Systematic scaling for power feel
-        const speedScale = 1 + (tier * 0.08); // +8% speed per tier
-        const sizeScale = 1 + (tier * 0.12);  // +12% size per tier
+        const speedScale = 1 + (tier * 0.1);
+        const sizeScale = 1 + (tier * 0.18); // Increased size scale to compensate for lower count in high tiers
 
         // Strictly force bullet origin to be at the ship's nose (front vertex)
         const visualScale = 1 + (tier * 0.1);
@@ -59,32 +59,32 @@ export function fireEntityWeapon(ship, bulletList, isEnemy = true) {
             tier: tier,
             hue: hue,
             isFriendly: isPlayer || ship.isFriendly,
-            owner: ship
+            owner: ship,
+            ignoreGravity: tier >= 8
         };
         bulletList.push(bullet);
     };
 
     // --- TIER PATTERNS (Clearly more powerful with each step) ---
-    if (tier === 11) { // THE HYPERION: Massive Arc & Defense
+    if (tier === 11) { // THE HYPERION
         pushBullet(0, true);
-        for (let i = 1; i <= 20; i++) {
-            pushBullet(i * 0.01, true); pushBullet(-i * 0.01, true);
+        for (let i = 1; i <= 10; i++) { // From 20 to 10 (Total 21)
+            pushBullet(i * 0.02, true); pushBullet(-i * 0.02, true);
         }
-    } else if (tier === 10) { // THE TITAN: Heavy Frontal Wall
+    } else if (tier === 10) { // THE TITAN
         pushBullet(0, true);
-        for (let i = 1; i <= 10; i++) {
-            pushBullet(i * 0.03, true); pushBullet(-i * 0.03, true);
+        for (let i = 1; i <= 6; i++) { // From 10 to 6 (Total 13)
+            pushBullet(i * 0.04, true); pushBullet(-i * 0.04, true);
         }
-    } else if (tier === 9) { // THE CELESTIAL: Wide Radiant Spray
+    } else if (tier === 9) { // THE CELESTIAL
         pushBullet(0, true);
-        for (let i = 1; i <= 5; i++) {
-            pushBullet(i * 0.05, true); pushBullet(-i * 0.05, true);
+        for (let i = 1; i <= 3; i++) { // From 5 to 3 (Total 7)
+            pushBullet(i * 0.08, true); pushBullet(-i * 0.08, true);
         }
-    } else if (tier === 8) { // THE SPHERE: 7 Strong Frontal
+    } else if (tier === 8) { // THE SPHERE
         pushBullet(0, true);
-        pushBullet(0.1, true); pushBullet(-0.1, true);
-        pushBullet(0.2, true); pushBullet(-0.2, true);
-        pushBullet(0.3, false); pushBullet(-0.3, false);
+        pushBullet(0.12, true); pushBullet(-0.12, true);
+        pushBullet(0.24, true); pushBullet(-0.24, true);
     } else if (tier === 7) { // DECAGON
         pushBullet(0, true);
         pushBullet(0.1, true); pushBullet(-0.1, true);

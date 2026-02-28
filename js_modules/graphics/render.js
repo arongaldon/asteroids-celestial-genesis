@@ -640,3 +640,95 @@ export function drawShipShape({
         ctx.shadowBlur = 0;
     }
 }
+
+/**
+ * Draws a futuristic bullet optimized for extreme performance.
+ */
+const _bulletColorCache = new Map();
+function _getBulletColor(hue, s, l, a) {
+    const key = `${hue},${s},${l},${a}`;
+    if (!_bulletColorCache.has(key)) {
+        _bulletColorCache.set(key, `hsla(${hue},${s}%,${l}%,${a})`);
+    }
+    return _bulletColorCache.get(key);
+}
+
+export function drawBullet(ctx, bullet, vpX, vpY) {
+    const tier = bullet.tier || 0;
+    const alpha = bullet.alpha !== undefined ? bullet.alpha : 1.0;
+    const size = bullet.size || 5;
+    const hue = bullet.hue !== undefined ? bullet.hue : (bullet.isFriendly ? 210 : 0);
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.globalCompositeOperation = 'lighter';
+
+    const xv = bullet.xv; const yv = bullet.yv;
+    const ang = Math.atan2(yv, xv);
+
+    // 1. MOTION TRAIL (Optimized)
+    const speedSq = xv * xv + yv * yv;
+    if (speedSq > 25) {
+        const speed = Math.sqrt(speedSq);
+        const trailLen = Math.min(speed * (tier >= 8 ? 4 : 2), 200);
+        ctx.strokeStyle = _getBulletColor(hue, 100, 60, 0.3);
+        ctx.lineWidth = size * (tier >= 4 ? 1.5 : 0.8);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(vpX, vpY);
+        const cos = Math.cos(ang); const sin = Math.sin(ang);
+        ctx.lineTo(vpX - cos * trailLen, vpY - sin * trailLen);
+        ctx.stroke();
+    }
+
+    ctx.translate(vpX, vpY);
+    ctx.rotate(ang);
+
+    if (tier >= 8) {
+        // --- ULTIMATE: PERFORMANCE BOLT (fillRect is faster) ---
+        const pulse = 0.9 + Math.sin(Date.now() * 0.025) * 0.1;
+        const bLen = size * 10;
+
+        ctx.fillStyle = _getBulletColor(hue, 100, 50, 0.15);
+        ctx.fillRect(-bLen, -size * 3 * pulse, bLen * 1.5, size * 6 * pulse);
+
+        ctx.fillStyle = _getBulletColor(hue, 100, 75, 0.8);
+        ctx.fillRect(-bLen * 0.5, -size * 0.6 * pulse, bLen * 1.2, size * 1.2 * pulse);
+
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, -size * 0.3 * pulse, bLen * 0.6, size * 0.6 * pulse);
+
+    } else if (tier >= 4) {
+        // --- ADVANCED: PLASMA SPHERE ---
+        const pulse = 0.9 + Math.sin(Date.now() * 0.0125) * 0.1;
+
+        ctx.fillStyle = _getBulletColor(hue, 100, 65, 0.3);
+        ctx.beginPath(); ctx.arc(0, 0, size * 4 * pulse, 0, Math.PI * 2); ctx.fill();
+
+        ctx.fillStyle = _getBulletColor(hue, 100, 80, 1);
+        ctx.beginPath(); ctx.arc(0, 0, size * 1.5 * pulse, 0, Math.PI * 2); ctx.fill();
+
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(size * 0.5, 0, size * 0.8 * pulse, 0, Math.PI * 2); ctx.fill();
+
+    } else {
+        // --- STANDARD: KINETIC ---
+        ctx.rotate(bullet.life * 0.1);
+        const sides = 3 + tier;
+
+        ctx.fillStyle = _getBulletColor(hue, 100, 70, 1);
+        ctx.beginPath();
+        for (let i = 0; i < sides; i++) {
+            const a = i * (Math.PI * 2 / sides);
+            const r = size;
+            ctx[i === 0 ? 'moveTo' : 'lineTo'](r * Math.cos(a), r * Math.sin(a));
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(0, 0, size * 0.35, 0, Math.PI * 2); ctx.fill();
+    }
+
+    ctx.restore();
+}

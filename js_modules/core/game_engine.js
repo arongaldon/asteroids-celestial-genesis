@@ -6,7 +6,7 @@ import { newPlayerShip, createAsteroid, initializePlanetAttributes, createAstero
 import { initBackground, createGalaxy, createAmbientFog } from '../graphics/background.js';
 import { createExplosion, createShockwave, createExplosionDebris } from '../graphics/fx.js';
 import { getShipTier, increaseShipScore, onShipDestroyed, onStationDestroyed } from '../systems/scoring.js';
-import { drawPlanetTexture, drawRadar, drawHeart, drawLives, updateHUD, updateAsteroidCounter, showInfoLEDText, addScreenMessage, drawRings, drawShipShape } from '../graphics/render.js';
+import { drawPlanetTexture, drawRadar, drawHeart, drawLives, updateHUD, updateAsteroidCounter, showInfoLEDText, addScreenMessage, drawRings, drawShipShape, drawBullet } from '../graphics/render.js';
 import { changeRadarZoom, shootLaser } from './input.js';
 import { fireEntityWeapon, fireGodWeapon } from '../systems/combat.js';
 import { enemyShoot, isTrajectoryClear, proactiveCombatScanner } from '../entities/ai.js';
@@ -239,6 +239,7 @@ export function loop() {
     // Calling it here every frame causes a recursion bug during Game Over.
 
     // Decrement player reload timer
+    // Decrement player reload timer (Used for UI/Legacy, but shootLaser uses time now)
     if (State.playerReloadTime > 0) State.playerReloadTime--;
 
     // Handle Tier 12 transformation
@@ -2618,15 +2619,24 @@ export function loop() {
     for (let i = State.enemyShipBullets.length - 1; i >= 0; i--) {
         let enemyShipBullet = State.enemyShipBullets[i];
 
-        // Gravity (World Coords)
-        for (let r of activePlanets) {
-            if (r.z < 0.5) { // Near planet
-                let dx = r.x - enemyShipBullet.x; let dy = r.y - enemyShipBullet.y; // World Distance Vector
-                let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
-                let force = (G_CONST * r.mass) / Math.max(distSq, 1000);
-                if (dist < r.r * 8 && dist > 1) {
-                    enemyShipBullet.xv += (dx / dist) * force * SHIP_CONFIG.BULLET_GRAVITY_FACTOR;
-                    enemyShipBullet.yv += (dy / dist) * force * SHIP_CONFIG.BULLET_GRAVITY_FACTOR;
+        // Optimized Gravity (World Coords)
+        if (!enemyShipBullet.ignoreGravity) {
+            for (let r of activePlanets) {
+                if (r.z < 0.5) {
+                    const dx = r.x - enemyShipBullet.x;
+                    const dy = r.y - enemyShipBullet.y;
+                    const reach = r.r * 8;
+
+                    // FAST PRE-CHECK (Bounding Box)
+                    if (Math.abs(dx) < reach && Math.abs(dy) < reach) {
+                        const distSq = dx * dx + dy * dy;
+                        if (distSq < reach * reach && distSq > 100) {
+                            const dist = Math.sqrt(distSq);
+                            const force = (G_CONST * r.mass) / distSq;
+                            enemyShipBullet.xv += (dx / dist) * force * SHIP_CONFIG.BULLET_GRAVITY_FACTOR;
+                            enemyShipBullet.yv += (dy / dist) * force * SHIP_CONFIG.BULLET_GRAVITY_FACTOR;
+                        }
+                    }
                 }
             }
         }
@@ -2645,53 +2655,15 @@ export function loop() {
         if (enemyShipBullet.life < SHIP_CONFIG.BULLET_FADE_FRAMES) {
             alpha = enemyShipBullet.life / SHIP_CONFIG.BULLET_FADE_FRAMES;
         }
-        DOM.canvasContext.globalAlpha = alpha;
+        enemyShipBullet.alpha = alpha; // Pass alpha to drawBullet
 
-        // TIERED ENEMY BULLET RENDERING (Synchronized with Player)
-        const tier = enemyShipBullet.tier || 0;
-        const hue = enemyShipBullet.hue || 0; // Faction Color
-
-        // Colors derived from faction hue
-        const mainColor = `hsl(${hue}, 100%, 70%)`;
-        const glowColor = `hsl(${hue}, 100%, 50%)`;
-        const coreColor = '#ffffff';
-
-        if (tier >= 8) { // Ultimate Beam-like (Enemy)
-            DOM.canvasContext.shadowBlur = 15; DOM.canvasContext.shadowColor = glowColor; DOM.canvasContext.fillStyle = mainColor;
-            DOM.canvasContext.beginPath();
-            let ang = Math.atan2(enemyShipBullet.yv, enemyShipBullet.xv);
-            DOM.canvasContext.ellipse(vpX, vpY, enemyShipBullet.size * 4, enemyShipBullet.size * 0.8, ang, 0, Math.PI * 2);
-            DOM.canvasContext.fill();
-            DOM.canvasContext.fillStyle = coreColor;
-            DOM.canvasContext.beginPath(); DOM.canvasContext.arc(vpX, vpY, enemyShipBullet.size / 2, 0, Math.PI * 2); DOM.canvasContext.fill();
-        } else {
-            // GEOMETRIC SHAPES (Tier 0-7) matching Ship Hull
-            let sides = 3 + tier;
-            DOM.canvasContext.shadowBlur = 5; DOM.canvasContext.shadowColor = glowColor; DOM.canvasContext.fillStyle = mainColor;
-
-            DOM.canvasContext.save();
-            DOM.canvasContext.translate(vpX, vpY);
-            // Spin effect based on life
-            DOM.canvasContext.rotate(enemyShipBullet.life * 0.2);
-
-            DOM.canvasContext.beginPath();
-            for (let k = 0; k < sides; k++) {
-                let ang = k * (2 * Math.PI / sides);
-                let r = enemyShipBullet.size * (1 + tier * 0.1); // Slightly larger for higher tiers
-                if (k === 0) DOM.canvasContext.moveTo(r * Math.cos(ang), r * Math.sin(ang));
-                else DOM.canvasContext.lineTo(r * Math.cos(ang), r * Math.sin(ang));
-            }
-            DOM.canvasContext.closePath();
-            DOM.canvasContext.fill();
-
-            // Core
-            DOM.canvasContext.fillStyle = coreColor;
-            DOM.canvasContext.beginPath(); DOM.canvasContext.arc(0, 0, enemyShipBullet.size * 0.4, 0, Math.PI * 2); DOM.canvasContext.fill();
-
-            DOM.canvasContext.restore();
+        // FRUSTUM CULLING: Only draw if on screen
+        const pad = 50;
+        if (vpX > -pad && vpX < State.width + pad && vpY > -pad && vpY < State.height + pad) {
+            drawBullet(DOM.canvasContext, enemyShipBullet, vpX, vpY);
         }
 
-        DOM.canvasContext.globalAlpha = 1; // Reset alpha
+        DOM.canvasContext.globalAlpha = 1; // Reset alpha for next operations
 
         let hit = false;
         // Collision with player (World Coords)
@@ -2852,14 +2824,24 @@ export function loop() {
     for (let i = State.playerShipBullets.length - 1; i >= 0; i--) {
         let playerShipBullet = State.playerShipBullets[i];
 
-        for (let r of activePlanets) {
-            if (r.z < 0.5) {
-                let dx = r.x - playerShipBullet.x; let dy = r.y - playerShipBullet.y;
-                let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
-                let force = (G_CONST * r.mass) / Math.max(distSq, 1000);
-                if (dist < r.r * 8 && dist > 1) { // Same gravity reach
-                    playerShipBullet.xv += (dx / dist) * force * SHIP_CONFIG.BULLET_GRAVITY_FACTOR;
-                    playerShipBullet.yv += (dy / dist) * force * SHIP_CONFIG.BULLET_GRAVITY_FACTOR;
+        // Optimized Gravity (World Coords)
+        if (!playerShipBullet.ignoreGravity) {
+            for (let r of activePlanets) {
+                if (r.z < 0.5) {
+                    const dx = r.x - playerShipBullet.x;
+                    const dy = r.y - playerShipBullet.y;
+                    const reach = r.r * 8;
+
+                    // FAST PRE-CHECK (Bounding Box)
+                    if (Math.abs(dx) < reach && Math.abs(dy) < reach) {
+                        const distSq = dx * dx + dy * dy;
+                        if (distSq < reach * reach && distSq > 100) {
+                            const dist = Math.sqrt(distSq);
+                            const force = (G_CONST * r.mass) / distSq;
+                            playerShipBullet.xv += (dx / dist) * force * SHIP_CONFIG.BULLET_GRAVITY_FACTOR;
+                            playerShipBullet.yv += (dy / dist) * force * SHIP_CONFIG.BULLET_GRAVITY_FACTOR;
+                        }
+                    }
                 }
             }
         }
@@ -2879,56 +2861,15 @@ export function loop() {
         if (playerShipBullet.life < SHIP_CONFIG.BULLET_FADE_FRAMES) {
             alpha = playerShipBullet.life / SHIP_CONFIG.BULLET_FADE_FRAMES;
         }
-        DOM.canvasContext.globalAlpha = alpha;
+        playerShipBullet.alpha = alpha; // Pass alpha to drawBullet
 
-        DOM.canvasContext.globalAlpha = alpha;
-
-        // TIERED BULLET RENDERING
-        const tier = playerShipBullet.tier || 0;
-
-        if (tier >= 8) { // Ultimate Beam-like
-            DOM.canvasContext.shadowBlur = 15; DOM.canvasContext.shadowColor = '#00ffff'; DOM.canvasContext.fillStyle = '#ffffff';
-            DOM.canvasContext.beginPath();
-            // Draw elongated bolt
-            let ang = Math.atan2(playerShipBullet.yv, playerShipBullet.xv); // Use State.velocity for orientation
-            DOM.canvasContext.ellipse(vpX, vpY, playerShipBullet.size * 4, playerShipBullet.size * 0.8, ang, 0, Math.PI * 2);
-            DOM.canvasContext.fill();
-            // Core
-            DOM.canvasContext.fillStyle = '#ccffff';
-            DOM.canvasContext.beginPath(); DOM.canvasContext.arc(vpX, vpY, playerShipBullet.size / 2, 0, Math.PI * 2); DOM.canvasContext.fill();
-        } else {
-            // GEOMETRIC SHAPES (Tier 0-7)
-            let sides = 3 + tier;
-
-            // Colors logic
-            let pColor = '#ff0055'; let pGlow = '#ff0055';
-            if (tier >= 4) { pColor = '#ffff00'; pGlow = '#ffff00'; }
-            else if (tier >= 1) { pColor = '#ffaa00'; pGlow = '#ffaa00'; }
-
-            DOM.canvasContext.shadowBlur = 5; DOM.canvasContext.shadowColor = pGlow; DOM.canvasContext.fillStyle = pColor;
-
-            DOM.canvasContext.save();
-            DOM.canvasContext.translate(vpX, vpY);
-            DOM.canvasContext.rotate(playerShipBullet.life * 0.2);
-
-            DOM.canvasContext.beginPath();
-            for (let k = 0; k < sides; k++) {
-                let ang = k * (2 * Math.PI / sides);
-                let r = playerShipBullet.size; // Size already accounts for tier boost in createBullet
-                if (k === 0) DOM.canvasContext.moveTo(r * Math.cos(ang), r * Math.sin(ang));
-                else DOM.canvasContext.lineTo(r * Math.cos(ang), r * Math.sin(ang));
-            }
-            DOM.canvasContext.closePath();
-            DOM.canvasContext.fill();
-
-            // Core
-            DOM.canvasContext.fillStyle = '#ffffff';
-            DOM.canvasContext.beginPath(); DOM.canvasContext.arc(0, 0, playerShipBullet.size * 0.4, 0, Math.PI * 2); DOM.canvasContext.fill();
-
-            DOM.canvasContext.restore();
+        // FRUSTUM CULLING: Only draw if on screen
+        const pad = 50;
+        if (vpX > -pad && vpX < State.width + pad && vpY > -pad && vpY < State.height + pad) {
+            drawBullet(DOM.canvasContext, playerShipBullet, vpX, vpY);
         }
 
-        DOM.canvasContext.globalAlpha = 1; // Reset alpha
+        DOM.canvasContext.globalAlpha = 1; // Reset alpha for next operations
         let hit = false;
 
         // Collision with asteroids/planets (World Coords)

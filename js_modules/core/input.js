@@ -16,7 +16,11 @@ export function changeRadarZoom(direction) {
 
 export function shootLaser() {
     if (!State.gameRunning || State.playerShip.dead || State.victoryState) return;
-    if (State.playerReloadTime > 0) return;
-    State.playerReloadTime = PLAYER_CONFIG.RELOAD_TIME_MAX;
+
+    const now = performance.now();
+    if (now - State.lastPlayerShotTime < PLAYER_CONFIG.RELOAD_TIME_MS) return;
+
+    State.lastPlayerShotTime = now;
+    State.playerReloadTime = PLAYER_CONFIG.RELOAD_TIME_MAX; // Still sets frame-based one for generic compatibility if needed
     fireEntityWeapon(State.playerShip, State.playerShipBullets, false);
 }

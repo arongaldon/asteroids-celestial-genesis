@@ -16,6 +16,7 @@ export const State = {
     ambientFogs: [],
     backgroundLayers: { nebulas: [], galaxies: [], starsNear: [], starsMid: [], starsFar: [] },
     playerReloadTime: 0,
+    lastPlayerShotTime: 0,
     stationSpawnTimer: 0,
     level: 0,
     homePlanetId: null,
@@ -30,5 +31,6 @@ export const State = {
     RADAR_RANGE: ZOOM_LEVELS ? ZOOM_LEVELS[2] : 3000,
     viewScale: 1.0,
     roidCounter: 0,
-    pendingDebris: []
+    pendingDebris: [],
+    textures: {}
 };
