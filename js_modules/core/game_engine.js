@@ -1,49 +1,26 @@
 import { ASTEROID_CONFIG, BOUNDARY_CONFIG, GALAXY_CONFIG, GLOBAL_LIGHT, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
 import { State } from './state.js';
-import { SpatialHash, mulberry32, getShapeName } from './utils.js';
-import { AudioEngine } from './audio.js';
-import { newPlayerShip, createAsteroid, initializePlanetAttributes, createGalaxy, createAmbientFog, createExplosion, createShockwave, createAsteroidBelt, spawnStation, spawnShipsSquad, getShipTier, generatePlanetName, increaseShipScore, onShipDestroyed, onStationDestroyed, createExplosionDebris } from './entities.js';
-import { drawPlanetTexture, drawRadar, drawHeart, drawLives, updateHUD, updateAsteroidCounter, showInfoLEDText, addScreenMessage, drawRings, drawShipShape } from './render.js';
-import { changeRadarZoom, shootLaser, fireEntityWeapon, fireGodWeapon, enemyShoot, isTrajectoryClear, proactiveCombatScanner } from './input.js';
-import { t } from './i18n.js';
+import { SpatialHash, mulberry32, getShapeName } from '../utils/utils.js';
+import { AudioEngine } from '../audio/audio.js';
+import { newPlayerShip, createAsteroid, initializePlanetAttributes, createAsteroidBelt, spawnStation, spawnShipsSquad, generatePlanetName } from '../entities/entities.js';
+import { initBackground, createGalaxy, createAmbientFog } from '../graphics/background.js';
+import { createExplosion, createShockwave, createExplosionDebris } from '../graphics/fx.js';
+import { getShipTier, increaseShipScore, onShipDestroyed, onStationDestroyed } from '../systems/scoring.js';
+import { drawPlanetTexture, drawRadar, drawHeart, drawLives, updateHUD, updateAsteroidCounter, showInfoLEDText, addScreenMessage, drawRings, drawShipShape } from '../graphics/render.js';
+import { changeRadarZoom, shootLaser } from './input.js';
+import { fireEntityWeapon, fireGodWeapon } from '../systems/combat.js';
+import { enemyShoot, isTrajectoryClear, proactiveCombatScanner } from '../entities/ai.js';
+import { t } from '../utils/i18n.js';
 
 import { setupInputEvents, isTouching, touchStartTime } from './events.js';
-import { spatialGrid, updatePhysics, resolveInteraction } from './physics.js';
+import { spatialGrid, updatePhysics, resolveInteraction } from '../systems/physics.js';
 
 /* * AI DISCLAIMER: This code was developed with the assistance of a large language model. 
  * The author (Aron Galdon Gines) retains all copyrights.
  */
 
-let stationsDestroyedCount = 0;
 let originalPlanetLimit = null;
 
-export function initBackground() {
-    // Resets and populates background layers for parallax
-    State.backgroundLayers = { nebulas: [], galaxies: [], starsNear: [], starsMid: [], starsFar: [] };
-    State.ambientFogs = []; // NEW: Reset ambient fog
-    for (let i = 0; i < 6; i++) State.backgroundLayers.nebulas.push({ x: Math.random() * State.width, y: Math.random() * State.height, r: State.width * 0.6, hue: Math.random() * 60 + 200, alpha: 0.1 });
-    const galaxyCount = Math.floor(Math.random() * (GALAXY_CONFIG.LIMIT + 1));
-    for (let i = 0; i < galaxyCount; i++) {
-        let newGalaxy;
-        let attempts = 0;
-        let tooClose;
-        do {
-            newGalaxy = createGalaxy();
-            tooClose = State.backgroundLayers.galaxies.some(g => {
-                const dx = g.x - newGalaxy.x;
-                const dy = g.y - newGalaxy.y;
-                return Math.sqrt(dx * dx + dy * dy) < GALAXY_CONFIG.MIN_DIST;
-            });
-            attempts++;
-        } while (tooClose && attempts < 20);
-        State.backgroundLayers.galaxies.push(newGalaxy);
-    }
-    for (let i = 0; i < 3; i++) State.ambientFogs.push(createAmbientFog()); // NEW: Initial ambient fogs
-    const createStar = () => ({ x: Math.random() * State.width, y: Math.random() * State.height, size: Math.random() * 1.5 + 0.5, alpha: Math.random() * 0.5 + 0.3 });
-    for (let i = 0; i < 50; i++) State.backgroundLayers.starsFar.push(createStar());
-    for (let i = 0; i < 50; i++) State.backgroundLayers.starsMid.push(createStar());
-    for (let i = 0; i < 40; i++) State.backgroundLayers.starsNear.push(createStar());
-}
 
 
 export function createLevel() {
@@ -3342,7 +3319,6 @@ export function startGame() {
     State.worldOffsetX = 0;
     State.worldOffsetY = 0;
     State.stationSpawnTimer = STATION_CONFIG.SPAWN_TIMER;
-    stationsDestroyedCount = 0;
     State.playerReloadTime = 0; // Reset reload timer
 
     State.particles = [];

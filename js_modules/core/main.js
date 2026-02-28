@@ -1,10 +1,11 @@
 import { ASTEROID_CONFIG, BOUNDARY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
 import { State } from './state.js';
-import { AudioEngine } from './audio.js';
-import { showInfoLEDText } from './render.js';
+import { AudioEngine } from '../audio/audio.js';
+import { showInfoLEDText } from '../graphics/render.js';
 import { setupInputEvents } from './events.js';
-import { initBackground, createLevel, loop, startGame } from './game_engine.js';
-import { initI18n, t } from './i18n.js';
+import { createLevel, loop, startGame } from './game_engine.js';
+import { initBackground } from '../graphics/background.js';
+import { initI18n, t } from '../utils/i18n.js';
 
 export function resize() {
     State.width = Math.max(window.innerWidth, 100);

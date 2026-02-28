@@ -1,22 +1,20 @@
-import { ASTEROID_CONFIG, BOUNDARY_CONFIG, GALAXY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
-import { State } from './state.js';
-import { mulberry32, getShapeName } from './utils.js';
-import { addScreenMessage, updateAsteroidCounter, drawLives } from './render.js';
-import { t } from './i18n.js';
+import { ASTEROID_CONFIG, BOUNDARY_CONFIG, GALAXY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from '../core/config.js';
+import { State } from '../core/state.js';
+import { mulberry32, getShapeName } from '../utils/utils.js';
+import { addScreenMessage, updateAsteroidCounter, drawLives } from '../graphics/render.js';
+import { t } from '../utils/i18n.js';
 
 export function newPlayerShip() {
     const startingHP = SHIP_CONFIG.RESISTANCE;
     return {
         a: 90 / 180 * Math.PI,
         blinkNum: 30,
-        blinkTime: 6,
         dead: false,
         effectiveR: SHIP_CONFIG.SIZE / 2,
         isFriendly: true,
         leaderRef: null,
         lives: PLAYER_CONFIG.INITIAL_LIVES,
         loneWolf: false,
-        mass: 20,
         maxShield: SHIP_CONFIG.BASE_MAX_SHIELD,
         r: SHIP_CONFIG.SIZE / 2,
         role: 'leader',
@@ -69,8 +67,6 @@ export function createAsteroid(x, y, r, z = 0, forcedName = null) {
         targetR: r,
         color: `hsl(${Math.random() * 360}, ${Math.random() * 10}%, ${15 + Math.random() * 35}%)` // Gray tones with brightness variation
     };
-    roid.stableXV = roid.xv;
-    roid.stableYV = roid.yv;
     if (isPlanet) initializePlanetAttributes(roid, null, forcedName);
     for (let i = 0; i < roid.vert; i++) roid.offs.push(Math.random() * 0.3 * 2 + 1 - 0.3);
     return roid;
@@ -144,15 +140,11 @@ export function initializePlanetAttributes(roid, forcedHue = null, forcedName = 
         seed: seed,
         waterColor: `hsl(${hue}, ${wSat}%, ${wLight}%)`,
         landColor: `hsl(${hue + (rng() * 60 - 30)}, ${lSat}%, ${lLight}%)`, // Slightly shifted hue for land
-        cloudColor: `rgba(255, 255, 255, ${0.3 + rng() * 0.4})`,
         craterColor: `rgba(0, 0, 0, 0.25)`,
         atmosphereColor: `hsl(${aHue}, ${wSat + 20}%, 60%)`, // Base color for rayleigh scattering
-        cloudOffset: rng() * Math.PI * 2,
-        age: 0,
         innerGradColor: `hsl(${hue}, ${wSat}%, ${Math.max(5, wLight - 20)}%)`, // Darker core
         landmasses: [],
-        craters: [],
-        clouds: []
+        craters: []
     };
     for (let i = 0; i < 5 + Math.floor(rng() * 3); i++) {
         const startAngle = rng() * Math.PI * 2;
@@ -170,15 +162,6 @@ export function initializePlanetAttributes(roid, forcedHue = null, forcedName = 
             rFactor: (0.05 + rng() * 0.1)
         });
     }
-    for (let i = 0; i < 8; i++) {
-        textureData.clouds.push({
-            angleRng: rng() * Math.PI * 2,
-            distRng: rng() * 0.8,
-            crRng: (0.1 + rng() * 0.2),
-            rotationRng: rng() * Math.PI * 2,
-            ageFactorRng: rng() * 0.5 + 0.5
-        });
-    }
     roid.zWait = 0;
     roid.textureData = textureData;
     if (Math.random() < 0.25 || r > ASTEROID_CONFIG.MAX_SIZE + 100) {
@@ -194,130 +177,7 @@ export function initializePlanetAttributes(roid, forcedHue = null, forcedName = 
     }
 }
 
-export function createGalaxy() {
-    const arms = Math.floor(Math.random() * (GALAXY_CONFIG.ARMS_LIMIT - 1)) + 2; // 2 to ARMS_LIMIT arms
-    const squish = 0.2 + Math.random() * 0.8; // Perspective tilt: 1.0 = top-down, 0.2 = very edge-on
 
-    // Size distribution: mostly mid-sized, some absolutely massive ones
-    let sizeRng = Math.random();
-    let size = sizeRng > 0.85 ? (2000 + Math.random() * 2000) : (400 + Math.random() * 1000);
-
-    // Scale star count relative to size (more stars = denser glow)
-    const starCount = Math.floor(size * (1.5 + Math.random()));
-
-    // Generate a core color and an edge color for the galaxy
-    const hueSeed = Math.random();
-    let coreColor, edgeColor;
-    if (hueSeed > 0.6) {
-        // Golden core to purple/blue edge
-        coreColor = { r: 255, g: 220, b: 150 };
-        edgeColor = { r: 50, g: 100, b: 255 };
-    } else if (hueSeed > 0.3) {
-        // Intense bright blue core to darker teal/purple edge
-        coreColor = { r: 200, g: 230, b: 255 };
-        edgeColor = { r: 100, g: 50, b: 200 };
-    } else {
-        // Reddish/Orange core to yellow edge
-        coreColor = { r: 255, g: 180, b: 100 };
-        edgeColor = { r: 255, g: 100, b: 50 };
-    }
-
-    let stars = [];
-    const armSeparation = (Math.PI * 2) / arms;
-    const spiralSwirl = 1.5 + Math.random() * 1.5; // How tightly wound
-
-    for (let i = 0; i < starCount; i++) {
-        // Distribute most stars near the center (exponential falloff)
-        const distRatio = Math.pow(Math.random(), 2);
-        const dist = distRatio * size;
-
-        // Logarithmic spiral angle calculation
-        const baseAngle = (i % arms) * armSeparation;
-        const spiralAngle = distRatio * Math.PI * spiralSwirl;
-
-        // Add random scatter (more scatter further out)
-        const scatter = (Math.random() - 0.5) * (0.2 + distRatio * 0.8);
-
-        const finalAngle = baseAngle + spiralAngle + scatter;
-
-        // Determine color blending based on distance from core
-        const r = coreColor.r * (1 - distRatio) + edgeColor.r * distRatio;
-        const g = coreColor.g * (1 - distRatio) + edgeColor.g * distRatio;
-        const b = coreColor.b * (1 - distRatio) + edgeColor.b * distRatio;
-
-        // Size of individual star point
-        const starSize = Math.random() > 0.9 ? (1 + Math.random() * 2) : (0.5 + Math.random());
-
-        // Core stars are brighter
-        const alpha = Math.min(1.0, (1.0 - distRatio) + Math.random() * 0.3);
-
-        stars.push({
-            r: dist,
-            theta: finalAngle,
-            size: starSize,
-            alpha,
-            color: `rgba(${Math.floor(r)},${Math.floor(g)},${Math.floor(b)}, ` // Base string, alpha added in render
-        });
-    }
-
-    // Place galaxy randomly within viewport bounds so they are initially visible
-    // They will wrap around when they drift off-screen
-    return {
-        x: Math.random() * State.width,
-        y: Math.random() * State.height,
-        size,
-        stars,
-        coreColor,
-        edgeColor,
-        angle: Math.random() * Math.PI,
-        squish
-    };
-}
-
-export function createAmbientFog() {
-    const side = Math.floor(Math.random() * 4);
-    let x, y, xv, yv;
-    const padding = 500;
-    const speed = 0.5;
-    if (side === 0) { x = State.width * Math.random(); y = -padding; xv = (Math.random() - 0.5) * 0.1; yv = speed; }
-    else if (side === 1) { x = State.width + padding; y = State.height * Math.random(); xv = -speed; yv = (Math.random() - 0.5) * 0.1; }
-    else if (side === 2) { x = State.width * Math.random(); y = State.height + padding; xv = (Math.random() - 0.5) * 0.1; yv = -speed; }
-    else { x = -padding; y = State.height * Math.random(); xv = speed; yv = (Math.random() - 0.5) * 0.1; }
-    return {
-        x, y, xv, yv,
-        r: Math.max(State.width, State.height) * (0.8 + Math.random() * 0.5),
-        hue: Math.random() < 0.5 ? 240 : 0,
-        alpha: 0.05 + Math.random() * 0.1,
-        life: 500
-    };
-}
-
-export function createExplosion(vpX, vpY, n, color = 'white', sizeBase = 1, type = 'spark') {
-    for (let i = 0; i < n; i++) {
-        const pWorldX = vpX - State.width / 2 + State.worldOffsetX;
-        const pWorldY = vpY - State.height / 2 + State.worldOffsetY;
-        let life = 30 + Math.random() * 20;
-        let speed = 10;
-        if (type === 'debris') { life = 60 + Math.random() * 40; speed = 3; }
-        if (type === 'flame') { life = 40 + Math.random() * 40; speed = 5 + Math.random() * 10; }
-        if (type === 'smoke') { life = 80 + Math.random() * 60; speed = 2 + Math.random() * 3; }
-
-        State.particles.push({
-            x: pWorldX,
-            y: pWorldY,
-            xv: (Math.random() - 0.5) * speed,
-            yv: (Math.random() - 0.5) * speed,
-            life,
-            color,
-            size: Math.random() * 2 + sizeBase,
-            type
-        });
-    }
-}
-
-export function createShockwave(worldX, worldY) {
-    State.shockwaves.push({ x: worldX, y: worldY, r: 10, maxR: 1200, strength: 30, alpha: 1 });
-}
 
 export function createAsteroidBelt(cx, cy, innerRadius, outerRadius, count) {
     for (let i = 0; i < count; i++) {
@@ -371,7 +231,7 @@ export function spawnStation(hostPlanet = null) {
         r: STATION_R, a: Math.random() * Math.PI * 2, rotSpeed: 0.005,
         structureHP: STATION_CONFIG.RESISTANCE,
         shieldHitTimer: 0,
-        spawnTimer: 180, reloadTime: 120, mass: 500,
+        spawnTimer: 180, reloadTime: 120,
         hostPlanet: hostPlanet, // Reference to the planet object
         orbitDistance: orbitDistance,
         orbitAngle: orbitAngle,
@@ -416,7 +276,6 @@ export function spawnShipsSquad(station) {
             formationOffset: { x: 0, y: 0 },
             isFriendly: station.isFriendly,
             leaderRef: null,
-            mass: 30,
             r: SHIP_CONFIG.SIZE / 2,
             reloadTime: 100 + Math.random() * 100,
             role: 'wingman', // Spawns as independent stray
@@ -435,34 +294,13 @@ export function spawnShipsSquad(station) {
             homeStation: station,
             bulletSpeed: 15 + Math.random() * 10,
             bulletSize: 4 + Math.random() * 3,
-            bulletLife: 45 + Math.random() * 15,
-            shootDelay: Math.random() * 20
+            bulletLife: 45 + Math.random() * 15
         };
 
         State.ships.push(e);
     }
 }
 
-export function getShipTier(ship) {
-    let score = Math.max(0, ship.score);
-    let step = SHIP_CONFIG.EVOLUTION_SCORE_STEP || 1000;
-
-    let tier = 0;
-    let requiredScoreForNextTier = step;
-    let currentTierThreshold = 0;
-
-    while (score >= currentTierThreshold + requiredScoreForNextTier) {
-        currentTierThreshold += requiredScoreForNextTier;
-        tier++;
-        if (tier >= 7) {
-            requiredScoreForNextTier = (tier - 5) * step; // Tier 7->8: 2000, Tier 8->9: 3000...
-        } else {
-            requiredScoreForNextTier = step;
-        }
-    }
-
-    return tier;
-}
 
 export function generatePlanetName() {
     const s1 = syllables[Math.floor(Math.random() * syllables.length)];
@@ -471,117 +309,8 @@ export function generatePlanetName() {
     return `${s1}${s2.toLowerCase()} ${suf}`;
 }
 
-export function increaseShipScore(ship, reward) {
-    ship.score += reward;
-    const newTier = getShipTier(ship);
-
-    if (ship === State.playerShip) {
-        // Only show message if tier <= 12 OR if we are devolving
-        if (newTier !== ship.tier) {
-            if (newTier > ship.tier) {
-                if (newTier === 12 && ship.tier < 12) {
-                    addScreenMessage(t("game.divine_meta_begins"), "#00ffff");
-                    addScreenMessage(t("game.dangerous_shots"), "#ffaa00");
-                    ship.transformationTimer = 600; // ~10 seconds at 60fps
-                } else if (newTier < 12) {
-                    addScreenMessage(t("game.evolved_to", { shape: getShapeName(newTier) }), "#00ff00");
-                }
-            }
-            else if (ship.tier < 12) {
-                addScreenMessage(t("game.devolved_to", { shape: getShapeName(newTier) }), "#ff0000");
-            } else {
-                ship.transformationTimer = 0; // Cancel transformation if devolved
-            }
-        }
-    }
-
-    ship.tier = newTier;
-}
 
 
-export function onShipDestroyed(ship, killerShip = null) {
-    if (killerShip === State.playerShip) {
-        if (ship.isFriendly && !State.playerShip.loneWolf) {
-            increaseShipScore(killerShip, -SCORE_REWARDS.SHIP_KILLED);
-            triggerBetrayal();
-            return;
-        }
 
-        increaseShipScore(killerShip, SCORE_REWARDS.SHIP_KILLED);
-    }
-}
 
-export function onStationDestroyed(station, killerShip = null) {
-    if (station) {
-        let junkAst = createAsteroid(station.x + ASTEROID_CONFIG.SPLIT_OFFSET, station.y, ASTEROID_CONFIG.MIN_SIZE);
-        junkAst.xv = station.xv + ASTEROID_CONFIG.MAX_SPEED;
-        junkAst.yv = station.yv;
-        junkAst.blinkNum = 30;
-        State.roids.push(junkAst);
-        updateAsteroidCounter();
-    };
 
-    if (killerShip === State.playerShip) {
-        if (station.isFriendly && !State.playerShip.loneWolf) {
-            increaseShipScore(killerShip, -SCORE_REWARDS.STATION_KILLED);
-            triggerBetrayal();
-            return;
-        }
-
-        State.playerShip.shield = State.playerShip.maxShield;
-        increaseShipScore(killerShip, SCORE_REWARDS.STATION_KILLED);
-        // stationsDestroyedCount handled locally in main.js if needed, or moved to State
-
-        State.playerShip.lives++;
-        drawLives();
-        addScreenMessage(t("game.extra_life"));
-
-        State.playerShip.structureHP = SHIP_CONFIG.RESISTANCE;
-        State.playerShip.shield = State.playerShip.maxShield;
-    }
-}
-
-export function createExplosionDebris(cx, cy, count, isHot = false) {
-    for (let i = 0; i < count; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const offset = Math.random() * 600; // Spread them out widely to prevent overlap cascades
-        const x = cx + Math.cos(angle) * offset;
-        const y = cy + Math.sin(angle) * offset;
-
-        // Make debris smaller than MAX_SIZE to avoid instant giant splitting chains
-        const maxDebrisSize = ASTEROID_CONFIG.MAX_SIZE * 0.5;
-        const r = ASTEROID_CONFIG.MIN_SIZE + Math.random() * (maxDebrisSize - ASTEROID_CONFIG.MIN_SIZE);
-        const roid = createAsteroid(x, y, r);
-
-        if (isHot) {
-            roid.isHot = true;
-            roid.color = `hsl(${20 + Math.random() * 30}, 80%, 30%)`;
-        }
-
-        const speedBase = isHot ? ASTEROID_CONFIG.MAX_SPEED * 4.0 : ASTEROID_CONFIG.MAX_SPEED * 2.0;
-        const speed = (0.5 + Math.random() * 0.5) * speedBase;
-
-        roid.xv = Math.cos(angle) * speed;
-        roid.yv = Math.sin(angle) * speed;
-        roid.rotSpeed = (Math.random() - 0.5) * 0.4;
-        roid.blinkNum = 120; // 2 seconds of ghosting to give them time to spread out
-
-        State.roids.push(roid);
-    }
-}
-
-function triggerBetrayal() {
-    if (State.playerShip.loneWolf) return;
-    State.playerShip.leaderRef = null;
-    State.playerShip.loneWolf = true;
-    State.playerShip.squadId = null;
-    addScreenMessage(t("game.betrayal"), "#ff0000");
-
-    State.ships.forEach(ship => {
-        if (ship.isFriendly) {
-            ship.isFriendly = false;
-            ship.aiState = 'COMBAT';
-            ship.fleetHue = 0;
-        }
-    });
-}

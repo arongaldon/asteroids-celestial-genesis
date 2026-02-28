@@ -1,4 +1,4 @@
-import { State } from './state.js';
+import { State } from '../core/state.js';
 
 export const AudioEngine = {
     ctx: null,
@@ -148,38 +148,6 @@ export const AudioEngine = {
         osc.start(time); osc.stop(time + 0.1);
     },
 
-    playSolarWind: function (time, duration) {
-        if (!this.ctx) return;
-        const bufferSize = this.ctx.sampleRate * duration;
-        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
-        const noise = this.ctx.createBufferSource(); noise.buffer = buffer;
-        const filter = this.ctx.createBiquadFilter();
-        filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(100, time);
-        filter.frequency.exponentialRampToValueAtTime(800, time + duration * 0.5);
-        filter.frequency.exponentialRampToValueAtTime(100, time + duration);
-        const gain = this.ctx.createGain();
-        gain.gain.setValueAtTime(0, time);
-        gain.gain.linearRampToValueAtTime(0.05, time + duration * 0.5);
-        gain.gain.linearRampToValueAtTime(0, time + duration);
-        noise.connect(filter); filter.connect(gain); gain.connect(this.masterGain);
-        noise.start(time);
-    },
-
-    playSpark: function (time) {
-        if (!this.ctx) return;
-        const osc = this.ctx.createOscillator();
-        const gain = this.ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(3000 + Math.random() * 3000, time);
-        gain.gain.setValueAtTime(0, time);
-        gain.gain.linearRampToValueAtTime(0.03, time + 0.01);
-        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.1);
-        osc.connect(gain); gain.connect(this.masterGain); gain.connect(this.delay);
-        osc.start(time); osc.stop(time + 0.1);
-    },
 
     scheduler: function () {
         if (!this.isPlayingMusic || !this.ctx) return;

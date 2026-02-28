@@ -1,10 +1,11 @@
-import { State } from './state.js';
-import { SpatialHash } from './utils.js';
-import { ASTEROID_CONFIG, BOUNDARY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from './config.js';
-import { createAsteroid, initializePlanetAttributes, createExplosion, createExplosionDebris, createShockwave, spawnStation } from './entities.js';
-import { AudioEngine } from './audio.js';
-import { addScreenMessage, updateAsteroidCounter } from './render.js';
-import { triggerHomePlanetLost } from './game_engine.js';
+import { State } from '../core/state.js';
+import { SpatialHash } from '../utils/utils.js';
+import { ASTEROID_CONFIG, BOUNDARY_CONFIG, PLANET_CONFIG, PLAYER_CONFIG, SCORE_REWARDS, SHIP_CONFIG, STATION_CONFIG, FPS, FRICTION, G_CONST, MAX_Z_DEPTH, MIN_DURATION_TAP_TO_MOVE, SCALE_IN_MOUSE_MODE, SCALE_IN_TOUCH_MODE, WORLD_BOUNDS, ZOOM_LEVELS, suffixes, syllables, DOM } from '../core/config.js';
+import { createAsteroid, initializePlanetAttributes, spawnStation } from '../entities/entities.js';
+import { createExplosion, createExplosionDebris, createShockwave } from '../graphics/fx.js';
+import { AudioEngine } from '../audio/audio.js';
+import { addScreenMessage, updateAsteroidCounter } from '../graphics/render.js';
+import { triggerHomePlanetLost } from '../core/game_engine.js';
 
 export const spatialGrid = new SpatialHash(2000);
 
