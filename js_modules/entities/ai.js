@@ -152,13 +152,26 @@ export function proactiveCombatScanner(e) {
         }
     }
 
-    // 2. SCAN FOR ENEMY PLANETS (Friendly Wingmen)
+    // 2. SCAN FOR PLANETS
     if (e.isFriendly) {
+        // FRIENDLY: Scan for Enemy Planets (Friendly Wingmen)
         for (let r of State.roids) {
             if (r.isPlanet && r.z < 0.5 && r.id !== State.homePlanetId && !r._destroyed) {
                 const dist = Math.hypot(r.x - e.x, r.y - e.y);
                 if (dist < 2000) {
                     enemyShoot(e, r.x, r.y);
+                    if (e.reloadTime > 0) return;
+                }
+            }
+        }
+    } else {
+        // ENEMY: Scan for Home Planet (High Priority)
+        if (State.homePlanetId) {
+            const home = State.roids.find(r => r.id === State.homePlanetId);
+            if (home && home.z < 0.5 && !home._destroyed) {
+                const dist = Math.hypot(home.x - e.x, home.y - e.y);
+                if (dist < 2500) { // Slightly longer sight range for massive planet
+                    enemyShoot(e, home.x, home.y);
                     if (e.reloadTime > 0) return;
                 }
             }

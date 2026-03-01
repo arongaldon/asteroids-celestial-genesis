@@ -4,6 +4,9 @@ import { createAsteroid } from '../entities/entities.js';
 import { updateAsteroidCounter } from './render.js';
 
 export function createExplosion(vpX, vpY, n, color = 'white', sizeBase = 1, type = 'spark') {
+    // Hard cap to prevent FPS drops during massive chains
+    if ((type === 'spark' || type === 'smoke') && State.particles.length > 600) return;
+
     for (let i = 0; i < n; i++) {
         const pWorldX = vpX - State.width / 2 + State.worldOffsetX;
         const pWorldY = vpY - State.height / 2 + State.worldOffsetY;

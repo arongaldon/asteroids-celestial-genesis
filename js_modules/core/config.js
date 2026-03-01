@@ -1,11 +1,11 @@
 
 export const ASTEROID_CONFIG = {
-   COUNT: 500,
-   INIT_INNER: 10000,
-   INIT_OUTER: 100000,
-   MAX_SIZE: 400,
-   MAX_SPEED: 5,
-   MIN_SIZE: 40,
+   COUNT: 1000,
+   INIT_INNER: 5000,
+   INIT_OUTER: 20000,
+   MAX_SIZE: 500,
+   MAX_SPEED: 10,
+   MIN_SIZE: 50,
    PLANET_DEBRIS: 25,
    SPLIT_OFFSET: 300
 };
@@ -36,8 +36,8 @@ export const PLANET_CONFIG = {
 
 export const PLAYER_CONFIG = {
    INITIAL_LIVES: 3,
-   RELOAD_TIME_MAX: 8,
-   RELOAD_TIME_MS: 130 // ~8 frames at 60fps
+   RELOAD_TIME_MAX: 6,
+   RELOAD_TIME_MS: 100 // ~6 frames at 60fps
 };
 
 export const SHIP_CONFIG = {

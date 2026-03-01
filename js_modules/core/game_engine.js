@@ -21,6 +21,7 @@ import { spatialGrid, updatePhysics, resolveInteraction } from '../systems/physi
 
 let originalPlanetLimit = null;
 let homeAttackWarningTimer = 0;
+let stationAttackWarningTimer = 0;
 
 
 
@@ -242,6 +243,7 @@ export function loop() {
     // Decrement player reload timer (Used for UI/Legacy, but shootLaser uses time now)
     if (State.playerReloadTime > 0) State.playerReloadTime--;
     if (homeAttackWarningTimer > 0) homeAttackWarningTimer--;
+    if (stationAttackWarningTimer > 0) stationAttackWarningTimer--;
 
     // Handle Tier 12 transformation
     if (State.playerShip && State.playerShip.transformationTimer > 0) {
@@ -1133,8 +1135,8 @@ export function loop() {
                 ship.aiState = 'FORMATION';
             }
 
-            // --- NEAR HOME ATTACK WARNING ---
-            if (!ship.isFriendly && State.homePlanetId && homeAttackWarningTimer === 0 && !State.victoryState) {
+            // --- NEAR HOME OR STATION ATTACK WARNING ---
+            if (!ship.isFriendly && !State.victoryState) {
                 let isThreat = false;
                 if (tier >= 12) isThreat = true;
                 if (ship.role === 'leader' && ship.squadSlots) {
@@ -1143,10 +1145,29 @@ export function loop() {
                 }
 
                 if (isThreat) {
-                    const home = State.roids.find(r => r.id === State.homePlanetId);
-                    if (home && Math.hypot(ship.x - home.x, ship.y - home.y) < 3000) {
-                        addScreenMessage(t("game.warn_home_attack"), "#ff0000"); // Red warning
-                        homeAttackWarningTimer = 600; // Warn every 10 seconds (assuming 60 FPS)
+                    let warnedHome = false;
+                    // Check Home Planet First
+                    if (State.homePlanetId && homeAttackWarningTimer === 0) {
+                        const home = State.roids.find(r => r.id === State.homePlanetId);
+                        // User Request: Only valid if home planet is at default z (< 0.5)
+                        if (home && home.z < 0.5 && Math.hypot(ship.x - home.x, ship.y - home.y) < 3000) {
+                            addScreenMessage(t("game.warn_home_attack"), "#ff0000"); // Red warning
+                            homeAttackWarningTimer = 600; // Warn every 10 seconds (assuming 60 FPS)
+                            warnedHome = true;
+                        }
+                    }
+
+                    // User Request: Fallback check for allied stations
+                    if (!warnedHome && stationAttackWarningTimer === 0) {
+                        for (let other of State.ships) {
+                            if (other.isFriendly && other.type === 'station') {
+                                if (Math.hypot(ship.x - other.x, ship.y - other.y) < 3000) {
+                                    addScreenMessage(t("game.warn_station_attack"), "#ff8800"); // Orange warning
+                                    stationAttackWarningTimer = 600; // 10 seconds
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1176,13 +1197,30 @@ export function loop() {
                 // If there are enemies/asteroids nearby, we can slightly deviate to hunt them
                 let huntTarget = null;
                 let minThreatDist = Infinity;
-                let gridThreats = spatialGrid.query(ship);
-                for (let r of gridThreats) {
-                    if (r.z > 0.5 || r.isPlanet) continue;
-                    let d = Math.hypot(ship.x - r.x, ship.y - r.y);
-                    if (d < 1500 && d < minThreatDist) {
-                        huntTarget = r;
-                        minThreatDist = d;
+
+                // --- HOME PLANET AGGRESSION ---
+                // Enemy AI prioritizes hunting the home planet from massive distances if vulnerable
+                if (!ship.isFriendly && State.homePlanetId) {
+                    const home = State.roids.find(r => r.id === State.homePlanetId);
+                    if (home && home.z < 0.5 && !home._destroyed) {
+                        let d = Math.hypot(home.x - ship.x, home.y - ship.y);
+                        if (d < 5000) { // Will break patrol to swarm the planet
+                            huntTarget = home;
+                            minThreatDist = d;
+                        }
+                    }
+                }
+
+                // Normal roaming checks
+                if (!huntTarget) {
+                    let gridThreats = spatialGrid.query(ship);
+                    for (let r of gridThreats) {
+                        if (r.z > 0.5 || r.isPlanet) continue;
+                        let d = Math.hypot(ship.x - r.x, ship.y - r.y);
+                        if (d < 1500 && d < minThreatDist) {
+                            huntTarget = r;
+                            minThreatDist = d;
+                        }
                     }
                 }
 
@@ -1201,6 +1239,24 @@ export function loop() {
                     if (!ship.isFriendly && !State.playerShip.dead) {
                         let d = Math.hypot(State.worldOffsetX - ship.x, State.worldOffsetY - ship.y);
                         if (d < 2000 && d < minThreatDist) { huntTarget = { x: State.worldOffsetX, y: State.worldOffsetY }; minThreatDist = d; }
+                    }
+                }
+
+                // If Godship retreats near its home, wingmen must attack approaching enemies aggressively
+                if (ship.isFriendly && State.playerShip.tier >= 12 && State.homePlanetId) {
+                    const home = State.roids.find(r => r.id === State.homePlanetId);
+                    if (home) {
+                        for (let other of State.ships) {
+                            if (!other.isFriendly && other.type !== 'station') {
+                                let distToHome = Math.hypot(other.x - home.x, other.y - home.y);
+                                if (distToHome < 3000) { // Intercept radius
+                                    let distToRival = Math.hypot(other.x - ship.x, other.y - ship.y);
+                                    if (distToRival < minThreatDist) {
+                                        huntTarget = other; minThreatDist = distToRival;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1591,15 +1647,21 @@ export function loop() {
                             const isTeammate = (ship.isFriendly && other.isFriendly) || (ship.fleetHue === other.fleetHue);
 
                             if (isTeammate) {
-                                let distToOther = Math.hypot(ship.x - other.x, ship.y - other.y);
+                                let dx = ship.x - other.x;
+                                let dy = ship.y - other.y;
                                 const requiredDist = SHIP_CONFIG.SEPARATION_DISTANCE + (ship.r + other.r) * 0.5; // Ensure padding
-                                if (distToOther < requiredDist) {
-                                    let ang = Math.atan2(ship.y - other.y, ship.x - other.x);
-                                    // Stronger separation force (0.05 instead of 0.01) to act as a hard buffer
-                                    let force = (requiredDist - distToOther) * 0.08;
-                                    sepX += Math.cos(ang) * force;
-                                    sepY += Math.sin(ang) * force;
-                                    sepCount++;
+
+                                // Bounding box fast filter before hypot
+                                if (Math.abs(dx) < requiredDist && Math.abs(dy) < requiredDist) {
+                                    let distToOther = Math.sqrt(dx * dx + dy * dy);
+                                    if (distToOther < requiredDist) {
+                                        let ang = Math.atan2(dy, dx);
+                                        // Stronger separation force (0.05 instead of 0.01) to act as a hard buffer
+                                        let force = (requiredDist - distToOther) * 0.08;
+                                        sepX += Math.cos(ang) * force;
+                                        sepY += Math.sin(ang) * force;
+                                        sepCount++;
+                                    }
                                 }
                             }
                         }
@@ -2619,7 +2681,10 @@ export function loop() {
             if (e.z > 0.5) continue; // Ignore background State.ships
 
             // Basic collision check
-            if (Math.hypot(enemyShipBullet.x - e.x, enemyShipBullet.y - e.y) < e.r + enemyShipBullet.size) {
+            const dx = enemyShipBullet.x - e.x;
+            const dy = enemyShipBullet.y - e.y;
+            const reach = e.r + enemyShipBullet.size;
+            if (Math.abs(dx) < reach && Math.abs(dy) < reach && (dx * dx + dy * dy) < reach * reach) {
                 // Friendly fire exclusion
                 if (enemyShipBullet.isFriendly && e.isFriendly) continue;
                 if (!enemyShipBullet.isFriendly && !e.isFriendly && enemyShipBullet.hue === e.fleetHue) continue; // Same fleet enemy State.ships
@@ -2655,7 +2720,11 @@ export function loop() {
         for (let j = nearbyRoids.length - 1; j >= 0; j--) {
             let r = nearbyRoids[j];
             if (r.z > 0.5 || r._destroyed) continue;
-            if (Math.hypot(enemyShipBullet.x - r.x, enemyShipBullet.y - r.y) < r.r + enemyShipBullet.size) {
+
+            const dx = enemyShipBullet.x - r.x;
+            const dy = enemyShipBullet.y - r.y;
+            const reach = r.r + enemyShipBullet.size;
+            if (Math.abs(dx) < reach && Math.abs(dy) < reach && (dx * dx + dy * dy) < reach * reach) {
                 const rVpX = r.x - State.worldOffsetX + State.width / 2;
                 const rVpY = r.y - State.worldOffsetY + State.height / 2;
 
@@ -2812,7 +2881,10 @@ export function loop() {
             if (r.z > 0.5 || r._destroyed) continue;
 
             // Use bullet size for effective collision radius
-            if (Math.hypot(playerShipBullet.x - r.x, playerShipBullet.y - r.y) < r.r + playerShipBullet.size) {
+            const dx = playerShipBullet.x - r.x;
+            const dy = playerShipBullet.y - r.y;
+            const reach = r.r + playerShipBullet.size;
+            if (Math.abs(dx) < reach && Math.abs(dy) < reach && (dx * dx + dy * dy) < reach * reach) {
                 const rVpX = r.x - State.worldOffsetX + State.width / 2;
                 const rVpY = r.y - State.worldOffsetY + State.height / 2;
 
@@ -2934,9 +3006,14 @@ export function loop() {
         for (let j = State.ships.length - 1; j >= 0; j--) {
             let ship = State.ships[j];
 
+            const dx = playerShipBullet.x - ship.x;
+            const dy = playerShipBullet.y - ship.y;
+            const reach = ship.r + playerShipBullet.size;
+            if (Math.abs(dx) > reach || Math.abs(dy) > reach) continue;
+
             // If we are NOT a lone wolf, hitting friends triggers a warning
             if (ship.isFriendly && !State.playerShip.loneWolf && !State.victoryState && !State.playerShip.dead) {
-                if (Math.hypot(playerShipBullet.x - ship.x, playerShipBullet.y - ship.y) < ship.r + playerShipBullet.size) {
+                if ((dx * dx + dy * dy) < reach * reach) {
                     addScreenMessage(t("game.warn_cease_fire"), "#ffcc00");
                     ship.structureHP -= 1.0;
                     ship.shieldHitTimer = 5;
@@ -2965,7 +3042,7 @@ export function loop() {
             }
 
             // Use bullet size for effective collision radius
-            if (ship.blinkNum === 0 && Math.hypot(playerShipBullet.x - ship.x, playerShipBullet.y - ship.y) < ship.r + playerShipBullet.size) {
+            if (ship.blinkNum === 0 && (dx * dx + dy * dy) < reach * reach) {
                 ship.structureHP--;
                 ship.shieldHitTimer = 5;
                 State.playerShipBullets.splice(i, 1);
@@ -2983,7 +3060,7 @@ export function loop() {
                     AudioEngine.playExplosion('large', ship.x, ship.y, ship.z);
                 }
                 break;
-            } else if (ship.blinkNum > 0 && Math.hypot(playerShipBullet.x - ship.x, playerShipBullet.y - ship.y) < ship.r + playerShipBullet.size) {
+            } else if (ship.blinkNum > 0 && (dx * dx + dy * dy) < reach * reach) {
                 State.playerShipBullets.splice(i, 1); hit = true; break;
             }
         }
@@ -3018,9 +3095,14 @@ export function loop() {
             DOM.canvasContext.fill();
         } else {
             DOM.canvasContext.shadowColor = p.color; DOM.canvasContext.fillStyle = p.color; DOM.canvasContext.globalAlpha = p.life / 60;
-            DOM.canvasContext.beginPath();
-            if (p.type === 'debris') DOM.canvasContext.fillRect(vpX, vpY, p.size, p.size); else DOM.canvasContext.arc(vpX, vpY, p.size, 0, Math.PI * 2);
-            DOM.canvasContext.fill();
+            if (p.type === 'debris' || p.type === 'spark') {
+                // fillRect is hardware accelerated and avoids expensive arc computations
+                DOM.canvasContext.fillRect(vpX - p.size / 2, vpY - p.size / 2, p.size, p.size);
+            } else {
+                DOM.canvasContext.beginPath();
+                DOM.canvasContext.arc(vpX, vpY, p.size, 0, Math.PI * 2);
+                DOM.canvasContext.fill();
+            }
         }
         DOM.canvasContext.globalAlpha = 1;
         DOM.canvasContext.shadowBlur = 0;

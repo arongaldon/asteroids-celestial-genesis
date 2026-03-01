@@ -2,6 +2,7 @@ export class SpatialHash {
     constructor(cellSize) {
         this.cellSize = cellSize;
         this.grid = new Map();
+        this._queryResults = [];
     }
 
     getKey(x, y) {
@@ -21,7 +22,7 @@ export class SpatialHash {
     query(obj) {
         const cx = Math.floor(obj.x / this.cellSize);
         const cy = Math.floor(obj.y / this.cellSize);
-        let results = [];
+        this._queryResults.length = 0;
 
         for (let i = -1; i <= 1; i++) {
             for (let j = -1; j <= 1; j++) {
@@ -29,12 +30,12 @@ export class SpatialHash {
                 if (this.grid.has(key)) {
                     const cellObjects = this.grid.get(key);
                     for (let k = 0; k < cellObjects.length; k++) {
-                        results.push(cellObjects[k]);
+                        this._queryResults.push(cellObjects[k]);
                     }
                 }
             }
         }
-        return results;
+        return this._queryResults;
     }
 }
 

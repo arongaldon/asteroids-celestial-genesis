@@ -7,7 +7,8 @@ import { AudioEngine } from '../audio/audio.js';
 import { addScreenMessage, updateAsteroidCounter } from '../graphics/render.js';
 import { triggerHomePlanetLost } from '../core/game_engine.js';
 
-export const spatialGrid = new SpatialHash(2000);
+// With 1000+ asteroids, smaller cell sizes spread the load better and prevent giant O(N^2) clusters inside individual cells.
+export const spatialGrid = new SpatialHash(1000);
 
 export function updatePhysics() {
     const activePlanets = [];
@@ -228,9 +229,13 @@ export function resolveInteraction(r1, r2) {
     }
 
     let dx = r2.x - r1.x; let dy = r2.y - r1.y;
+    const attractionRange = (r1.r + r2.r) * 3;
+
+    // FAST PRE-CHECK (Bounding Box)
+    if (Math.abs(dx) > attractionRange || Math.abs(dy) > attractionRange) return;
+
     let distSq = dx * dx + dy * dy; let dist = Math.sqrt(distSq);
 
-    const attractionRange = (r1.r + r2.r) * 3;
     if (dist < attractionRange && dist > r1.r + r2.r) {
         let force = 0;
         let isSmallSatellite = false;

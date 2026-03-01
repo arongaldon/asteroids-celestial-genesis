@@ -174,7 +174,8 @@ export function drawRadar() {
             }
         };
 
-        State.roids.forEach(r => {
+        for (let i = 0; i < State.roids.length; i++) {
+            let r = State.roids[i];
             if (r.isPlanet) {
                 const color = r.textureData ? r.textureData.waterColor : 'rgba(0, 150, 255, 0.7)';
                 if (r.z < 0.5) {
@@ -182,16 +183,13 @@ export function drawRadar() {
                 } else {
                     drawBlip(r.x, r.y, 'background_planet', color, 4, r.z); // Small dot for far away planets
                 }
-            }
-        });
-
-        State.roids.forEach(r => {
-            if (!r.isPlanet && r.z <= 0.1) {
+            } else if (r.z <= 0.1) {
                 drawBlip(r.x, r.y, 'asteroid', 'rgba(200, 200, 200, 0.9)', r.r, r.z);
             }
-        });
+        }
 
-        State.ships.forEach(e => {
+        for (let i = 0; i < State.ships.length; i++) {
+            let e = State.ships[i];
             if (e.z <= 0.1) {
                 const color = e.isFriendly ? '#0088FF' : '#FF0000';
                 if (e.type === 'station') {
@@ -200,7 +198,7 @@ export function drawRadar() {
                     drawBlip(e.x, e.y, 'ship', color, 2, e.z);
                 }
             }
-        });
+        }
 
         DOM.canvasRadarContext.strokeStyle = 'rgba(0, 255, 255, 0.2)'; DOM.canvasRadarContext.lineWidth = 1;
         DOM.canvasRadarContext.beginPath(); DOM.canvasRadarContext.moveTo(cX, 0); DOM.canvasRadarContext.lineTo(cX, rH); DOM.canvasRadarContext.stroke();
