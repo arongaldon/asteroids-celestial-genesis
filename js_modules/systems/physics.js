@@ -32,7 +32,18 @@ export function updatePhysics() {
             if (r1.zWait > 0) {
                 r1.zWait--;
             } else {
+                const wasVulnerable = r1.z < 0.5;
                 r1.z += r1.zSpeed;
+                const isVulnerable = r1.z < 0.5;
+
+                if (State.gameRunning && wasVulnerable !== isVulnerable && !r1._destroyed) {
+                    if (isVulnerable) {
+                        console.log("Planet " + r1.name + " returned to default z distance (Vulnerable).");
+                    } else {
+                        console.log("Planet " + r1.name + " left default z distance (Safe).");
+                    }
+                }
+
                 if (r1.z < 0.2 && !r1.hasSpawnedStationThisCycle) {
                     const hasStation = State.ships.some(e => e.type === 'station' && e.hostPlanetId === r1.id);
                     if (!hasStation) spawnStation(r1);
@@ -283,8 +294,7 @@ export function resolveInteraction(r1, r2) {
             createShockwave(midX, midY);
             const planetsBefore = State.roids.filter(r => r.isPlanet && !r._destroyed).length;
             if (State.gameRunning) {
-                console.log("Planet " + r1.name + " destroyed. Total planets " + (planetsBefore - 1));
-                console.log("Planet " + r2.name + " destroyed. Total planets " + (planetsBefore - 2));
+                console.log("Count: " + (planetsBefore - 2) + ". Planets " + r1.name + " and " + r2.name + " destroyed.");
             }
             PLANET_CONFIG.LIMIT = Math.max(0, PLANET_CONFIG.LIMIT - 2);
             r1.r = 0; r1.targetR = null; r1.vaporized = true; r1._destroyed = true;

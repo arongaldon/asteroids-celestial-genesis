@@ -1,6 +1,7 @@
 import { SHIP_CONFIG } from '../core/config.js';
 import { State } from '../core/state.js';
 import { fireEntityWeapon } from '../systems/combat.js';
+import { spatialGrid } from '../systems/physics.js';
 
 export function enemyShoot(e, tx, ty) {
     // e.x, e.y, tx, ty are ABSOLUTE WORLD COORDINATES
@@ -198,5 +199,136 @@ export function proactiveCombatScanner(e) {
         if (dist < 2000) {
             enemyShoot(e, State.worldOffsetX, State.worldOffsetY);
         }
+    }
+}
+
+export function applyEvasionForces(ship) {
+    if (ship.dead) return;
+
+    let evadeX = 0;
+    let evadeY = 0;
+    let maxDangerScore = 0;
+
+    // 1. EVADE ASTEROIDS AND PLANETS
+    const DANGER_SCAN_RANGE = 500;
+    let nearbyDanger = spatialGrid.query(ship);
+
+    for (let r of nearbyDanger) {
+        if (r.z > 0.5 || r._destroyed || r.vaporized) continue;
+
+        // Treat planets as huge threats
+        const isPlanet = r.isPlanet;
+        const scanRange = isPlanet ? r.r * 1.5 + 500 : DANGER_SCAN_RANGE;
+
+        const distToObstacle = Math.hypot(r.x - ship.x, r.y - ship.y);
+        if (distToObstacle > scanRange) continue;
+
+        // Vector to obstacle
+        const dirX = r.x - ship.x;
+        const dirY = r.y - ship.y;
+
+        // Check if we are heading towards it
+        const dotProduct = ship.xv * dirX + ship.yv * dirY;
+
+        // If we are relatively still, just push away if too close
+        const speed = Math.hypot(ship.xv, ship.yv);
+
+        let dangerScore = 0;
+        let forceMag = 0;
+        let forceX = 0;
+        let forceY = 0;
+
+        const safeDist = ship.r + r.r + 50;
+
+        if (distToObstacle < safeDist) {
+            // Panic push - we are already too close (or inside atmosphere)
+            dangerScore = 1000 / Math.max(1, distToObstacle);
+            forceMag = 5.0; // Strong push
+            // Push directly away
+            forceX = -(dirX / distToObstacle) * forceMag;
+            forceY = -(dirY / distToObstacle) * forceMag;
+        } else if (speed > 0.5 && dotProduct > 0) {
+            // We are moving towards it. Calculate time to collision.
+            const relVelX = ship.xv - (r.xv || 0);
+            const relVelY = ship.yv - (r.yv || 0);
+            const relSpeed = Math.hypot(relVelX, relVelY);
+
+            if (relSpeed > 0.1) {
+                const timeToClosest = (dirX * relVelX + dirY * relVelY) / (relSpeed * relSpeed);
+
+                if (timeToClosest > 0 && timeToClosest < 60) {
+                    // Project future positions
+                    const closestDist = Math.hypot(
+                        -dirX + relVelX * timeToClosest,
+                        -dirY + relVelY * timeToClosest
+                    );
+
+                    if (closestDist < safeDist + 100) {
+                        // Collision predicted!
+                        dangerScore = 100 / Math.max(1, timeToClosest);
+                        // Steer perpendicularly
+                        const lookAheadX = -dirX + relVelX * timeToClosest;
+                        const lookAheadY = -dirY + relVelY * timeToClosest;
+
+                        // Push away from the closest approach point
+                        const approachDist = Math.max(1, closestDist);
+                        forceMag = 3.0 * (1 - timeToClosest / 60);
+
+                        forceX = (lookAheadX / approachDist) * forceMag;
+                        forceY = (lookAheadY / approachDist) * forceMag;
+                    }
+                }
+            }
+        }
+
+        if (dangerScore > maxDangerScore) {
+            maxDangerScore = dangerScore;
+        }
+        evadeX += forceX;
+        evadeY += forceY;
+    }
+
+    // 2. EVADE BULLETS
+    const bulletsToEvade = ship.isFriendly ? State.enemyShipBullets : State.playerShipBullets;
+    const BULLET_EVADE_RANGE = 400;
+
+    for (let b of bulletsToEvade) {
+        if (!b.active) continue;
+        const distToBullet = Math.hypot(b.x - ship.x, b.y - ship.y);
+
+        if (distToBullet < BULLET_EVADE_RANGE) {
+            // Relative velocity
+            const relVelX = b.xv - ship.xv;
+            const relVelY = b.yv - ship.yv;
+            const relSpeedSq = relVelX * relVelX + relVelY * relVelY;
+
+            if (relSpeedSq > 0.1) {
+                const vecToShipX = ship.x - b.x;
+                const vecToShipY = ship.y - b.y;
+
+                // Dot product to see if bullet is moving towards ship
+                const t = (vecToShipX * relVelX + vecToShipY * relVelY) / relSpeedSq;
+
+                if (t > 0 && t < 30) { // Will hit in next 30 frames
+                    const closestX = relVelX * t - vecToShipX;
+                    const closestY = relVelY * t - vecToShipY;
+                    const closestDist = Math.hypot(closestX, closestY);
+
+                    if (closestDist < ship.r + 30) {
+                        // Perpendicular evasion
+                        const evadeForce = 2.0 * (1 - t / 30);
+                        const cDist = Math.max(1, closestDist);
+                        evadeX += (closestX / cDist) * evadeForce;
+                        evadeY += (closestY / cDist) * evadeForce;
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply accumulated forces
+    if (evadeX !== 0 || evadeY !== 0) {
+        ship.xv += evadeX;
+        ship.yv += evadeY;
     }
 }

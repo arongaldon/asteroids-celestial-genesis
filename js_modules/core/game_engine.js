@@ -9,7 +9,7 @@ import { getShipTier, increaseShipScore, onShipDestroyed, onStationDestroyed } f
 import { drawPlanetTexture, drawRadar, drawHeart, drawLives, updateHUD, updateAsteroidCounter, showInfoLEDText, addScreenMessage, drawRings, drawShipShape, drawBullet } from '../graphics/render.js';
 import { changeRadarZoom, shootLaser } from './input.js';
 import { fireEntityWeapon, fireGodWeapon } from '../systems/combat.js';
-import { enemyShoot, isTrajectoryClear, proactiveCombatScanner } from '../entities/ai.js';
+import { enemyShoot, isTrajectoryClear, proactiveCombatScanner, applyEvasionForces } from '../entities/ai.js';
 import { t } from '../utils/i18n.js';
 
 import { setupInputEvents, isTouching, touchStartTime } from './events.js';
@@ -20,6 +20,7 @@ import { spatialGrid, updatePhysics, resolveInteraction } from '../systems/physi
  */
 
 let originalPlanetLimit = null;
+let homeAttackWarningTimer = 0;
 
 
 
@@ -37,7 +38,6 @@ export function createLevel() {
         let firstPlanet = createAsteroid(planetX, planetY, ASTEROID_CONFIG.MAX_SIZE + 1, 0, t("game.home_planet_name"));
         State.roids.push(firstPlanet);
         State.homePlanetId = firstPlanet.id;
-        firstPlanet.zSpeed = 0;
 
         if (firstPlanet.textureData) {
             firstPlanet.textureData.waterColor = `hsl(${SHIP_CONFIG.FRIENDLY_BLUE_HUE}, 60%, 30%)`;
@@ -103,7 +103,7 @@ export function killPlayerShip(reason = 'normal') {
     else {
         // MOVE PLANETS TO Z (Far background)
         State.roids.forEach(r => {
-            if (r.isPlanet && r.id !== State.homePlanetId) {
+            if (r.isPlanet) {
                 r.z = MAX_Z_DEPTH;
             }
         });
@@ -211,7 +211,7 @@ export function winGame() {
 
     // MOVE PLANETS TO Z (Far background) to avoid further collisions
     State.roids.forEach(r => {
-        if (r.isPlanet && r.id !== State.homePlanetId) {
+        if (r.isPlanet) {
             r.z = MAX_Z_DEPTH;
         }
     });
@@ -241,6 +241,7 @@ export function loop() {
     // Decrement player reload timer
     // Decrement player reload timer (Used for UI/Legacy, but shootLaser uses time now)
     if (State.playerReloadTime > 0) State.playerReloadTime--;
+    if (homeAttackWarningTimer > 0) homeAttackWarningTimer--;
 
     // Handle Tier 12 transformation
     if (State.playerShip && State.playerShip.transformationTimer > 0) {
@@ -1085,8 +1086,8 @@ export function loop() {
             ship.a += ship.rotSpeed;
             ship.spawnTimer--;
             if (ship.spawnTimer <= 0) {
-                const currentShips = State.ships.filter(en => en.type === 'ship').length;
-                if (currentShips <= SHIP_CONFIG.LIMIT) {
+                const currentFactionShips = State.ships.filter(en => en.type === 'ship' && en.homeStation && en.homeStation.hostPlanetId === ship.hostPlanetId).length;
+                if (currentFactionShips < SHIP_CONFIG.PLANET_LIMIT) {
                     spawnShipsSquad(ship);
                 }
                 ship.spawnTimer = SHIP_CONFIG.SPAWN_TIME + Math.random() * SHIP_CONFIG.SPAWN_TIME;
@@ -1130,6 +1131,24 @@ export function loop() {
                 ship.aiState = 'COMBAT';
             } else if (distToPlayer > SHIP_CONFIG.SIGHT_RANGE * 1.5 && ship.aiState === 'COMBAT') {
                 ship.aiState = 'FORMATION';
+            }
+
+            // --- NEAR HOME ATTACK WARNING ---
+            if (!ship.isFriendly && State.homePlanetId && homeAttackWarningTimer === 0 && !State.victoryState) {
+                let isThreat = false;
+                if (tier >= 12) isThreat = true;
+                if (ship.role === 'leader' && ship.squadSlots) {
+                    let validSubordinates = ship.squadSlots.filter(s => s.occupant && !s.occupant.dead && State.ships.includes(s.occupant)).length;
+                    if (validSubordinates > 0) isThreat = true;
+                }
+
+                if (isThreat) {
+                    const home = State.roids.find(r => r.id === State.homePlanetId);
+                    if (home && Math.hypot(ship.x - home.x, ship.y - home.y) < 3000) {
+                        addScreenMessage(t("game.warn_home_attack"), "#ff0000"); // Red warning
+                        homeAttackWarningTimer = 600; // Warn every 10 seconds (assuming 60 FPS)
+                    }
+                }
             }
 
             // 2. BEHAVIOR EXECUTION
@@ -1415,16 +1434,7 @@ export function loop() {
                             member.formationOffset = { x: slot.x, y: slot.y };
                         }
 
-                        // Dissolution Check
-                        const currentCount = validOccupants.length;
-                        if (ship._lastSquadCount > 0 && currentCount === 0) {
-                            if (ship === State.playerShip) {
-                                if (State.gameRunning) console.log("Player wingman squad dissolved.");
-                            } else {
-                                if (State.gameRunning) console.log(ship.isFriendly ? "Friendly squad dissolved." : "Enemy wingman squad dissolved.");
-                            }
-                        }
-                        ship._lastSquadCount = currentCount;
+                        ship._lastSquadCount = validOccupants.length;
                     }
 
                     // LEADER: Patrol or Defend
@@ -1599,117 +1609,22 @@ export function loop() {
                             ship.yv += sepY;
                         }
 
-                        // === ASTEROID DANGER DETECTION & EVASION ===
-                        // Wingmen scan for nearby asteroids and respond to threats
-                        let dangerousAsteroid = null;
-                        let minDangerDist = Infinity;
-                        const DANGER_SCAN_RANGE = 400; // How far to scan for asteroids
-                        const CRITICAL_DANGER_RANGE = 200; // Distance at which to consider abandoning squad
-                        const SHOOT_RANGE = 600; // Distance at which to start shooting
-
-                        // Scan for nearby asteroids (OPTIMIZED)
-                        let nearbyDanger = spatialGrid.query(ship);
-                        for (let r of nearbyDanger) {
-                            if (r.isPlanet || r.z > 0.5) continue;
-
-                            const distToAsteroid = Math.hypot(r.x - ship.x, r.y - ship.y);
-
-                            if (distToAsteroid < DANGER_SCAN_RANGE && distToAsteroid < minDangerDist) {
-                                // Calculate if asteroid is on collision course
-                                // Project asteroid's future position
-                                const relVelX = r.xv - ship.xv;
-                                const relVelY = r.yv - ship.yv;
-                                const relPosX = r.x - ship.x;
-                                const relPosY = r.y - ship.y;
-
-                                // Time to closest approach
-                                const relSpeed = Math.hypot(relVelX, relVelY);
-                                if (relSpeed > 0.1) {
-                                    const timeToClosest = -(relPosX * relVelX + relPosY * relVelY) / (relSpeed * relSpeed);
-
-                                    if (timeToClosest > 0 && timeToClosest < 60) { // Within next 60 frames (~1 second)
-                                        const closestDist = Math.hypot(
-                                            relPosX + relVelX * timeToClosest,
-                                            relPosY + relVelY * timeToClosest
-                                        );
-
-                                        if (closestDist < ship.r + r.r + 50) { // Collision predicted
-                                            dangerousAsteroid = r;
-                                            minDangerDist = distToAsteroid;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Initialize danger tracking if not present
-                        if (!ship.asteroidDangerTimer) ship.asteroidDangerTimer = 0;
-                        if (!ship.lastDangerousAsteroid) ship.lastDangerousAsteroid = null;
-
-                        if (dangerousAsteroid) {
-                            // Track if this is the same asteroid as before
-                            if (ship.lastDangerousAsteroid === dangerousAsteroid) {
-                                ship.asteroidDangerTimer++;
-                            } else {
-                                ship.lastDangerousAsteroid = dangerousAsteroid;
-                                ship.asteroidDangerTimer = 1;
-                            }
-
-                            const asteroidAngle = Math.atan2(dangerousAsteroid.y - ship.y, dangerousAsteroid.x - ship.x);
-
-                            // CRITICAL DANGER: Abandon squad if threat persists
-                            if (minDangerDist < CRITICAL_DANGER_RANGE && ship.asteroidDangerTimer > 30) {
-                                // Shooting failed to neutralize threat - ABANDON SQUAD
-                                ship.leaderRef = null;
-                                ship.squadId = null;
-                                ship.asteroidDangerTimer = 0;
-                                ship.lastDangerousAsteroid = null;
-
-                                // Evasive maneuver - move perpendicular to asteroid approach
-                                const evadeAngle = asteroidAngle + Math.PI / 2;
-                                ship.xv += Math.cos(evadeAngle) * 3;
-                                ship.yv += Math.sin(evadeAngle) * 3;
-
-                            } else if (minDangerDist < SHOOT_RANGE) {
-                                // MODERATE DANGER: Try to shoot the asteroid while maintaining formation
-
-                                // Temporarily override rotation to face the asteroid
-                                let angleDiff = asteroidAngle - ship.a;
-                                while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-                                while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
-
-                                // Rotate toward asteroid (faster rotation for danger response)
-                                ship.a += angleDiff * 0.3;
-
-                                // Shoot if lined up with the asteroid
-                                if (ship.reloadTime <= 0 && Math.abs(angleDiff) < 0.3) {
-                                    const bullets = ship.isFriendly ? State.playerShipBullets : State.enemyShipBullets;
-                                    fireEntityWeapon(ship, bullets, !ship.isFriendly);
-                                    ship.reloadTime = 20 + Math.random() * 30;
-                                }
-                            }
+                        // Normal rotation logic: friendly State.ships only match rotation when following player
+                        // Enemy State.ships and independent friendly State.ships rotate toward movement
+                        if (isInVisualSlot) {
+                            // Match leader rotation EXACTLY (Imitate)
+                            let angleDiff = la - ship.a;
+                            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                            if (Math.abs(angleDiff) < 0.05) ship.a = la;
+                            else ship.a += angleDiff * 0.4;
                         } else {
-                            // No danger - reset tracking
-                            ship.asteroidDangerTimer = 0;
-                            ship.lastDangerousAsteroid = null;
-
-                            // Normal rotation logic: friendly State.ships only match rotation when following player
-                            // Enemy State.ships and independent friendly State.ships rotate toward movement
-                            if (isInVisualSlot) {
-                                // Match leader rotation EXACTLY (Imitate)
-                                let angleDiff = la - ship.a;
-                                while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-                                while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
-                                if (Math.abs(angleDiff) < 0.05) ship.a = la;
-                                else ship.a += angleDiff * 0.4;
-                            } else {
-                                // Independent rotation - rotate toward movement direction or threat
-                                const moveAngle = Math.atan2(ship.yv, ship.xv);
-                                let angleDiff = moveAngle - ship.a;
-                                while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-                                while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
-                                ship.a += angleDiff * 0.1; // Slower rotation for smoother movement
-                            }
+                            // Independent rotation - rotate toward movement direction or threat
+                            const moveAngle = Math.atan2(ship.yv, ship.xv);
+                            let angleDiff = moveAngle - ship.a;
+                            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                            while (angleDiff <= -Math.PI) angleDiff += 2 * Math.PI;
+                            ship.a += angleDiff * 0.1; // Slower rotation for smoother movement
                         }
 
                         ship.xv *= damping;
@@ -1753,7 +1668,6 @@ export function loop() {
                                             // Dynamic Promotion: Both are independent strays. Promote 'other' to leader.
                                             other.role = 'leader';
                                             other.squadId = Math.random();
-                                            if (State.gameRunning) console.log("Enemy wingman squad formed.");
                                             other.squadSlots = [
                                                 { x: -150, y: -150, occupant: null }, { x: 150, y: -150, occupant: null },
                                                 { x: -300, y: -300, occupant: null }, { x: 300, y: -300, occupant: null },
@@ -1829,14 +1743,8 @@ export function loop() {
             else if (ship.aiState === 'COMBAT') {
                 // Only target alive player, not dead player's position
                 let target = null;
-                let minDist = Infinity;
-
-                // Enemy State.ships can target alive player IF CLOSE ENOUGH
-                // This logic ensures they don't hunt across the map
-                if (!ship.isFriendly && !State.playerShip.dead && distToPlayer < SHIP_CONFIG.SIGHT_RANGE * 1.5) {
-                    target = { x: State.worldOffsetX, y: State.worldOffsetY, isRival: false, r: 0 };
-                    minDist = distToPlayer;
-                }
+                let maxThreatScore = -Infinity;
+                let minDistToRival = Infinity;
 
                 // Search for rivals
                 for (let other of State.ships) {
@@ -1852,12 +1760,27 @@ export function loop() {
 
                     if (isRival && (other.type === 'ship' || other.type === 'station')) {
                         let d = Math.hypot(other.x - ship.x, other.y - ship.y);
-                        // Aggro if closer than player or player is dead/far or ship is patroling
-                        // Modified: Enemy State.ships will attack everything they find on their path
-                        if (d < minDist && d < 2000) { // 2000 is aggro range
-                            target = other;
-                            target.isRival = true; // Mark as rival
-                            minDist = d;
+
+                        if (d < 3000) { // Max aggro range
+                            // Tweak threat score heuristics
+                            let threatScore = 3000 - d; // Closer is better
+
+                            // Station priority down if there are ships closer
+                            if (other.type === 'station') {
+                                threatScore -= 1000;
+                            }
+
+                            // Highly prioritize the player if player is shooting or very close
+                            if (other === State.playerShip) {
+                                if (d < 1500) threatScore += 500;
+                            }
+
+                            if (threatScore > maxThreatScore) {
+                                maxThreatScore = threatScore;
+                                target = other;
+                                target.isRival = true;
+                                minDistToRival = d;
+                            }
                         }
                     }
                 }
@@ -1870,7 +1793,7 @@ export function loop() {
 
                 let tx = target.x;
                 let ty = target.y;
-                let d = minDist;
+                let d = minDistToRival;
 
                 let targetAngle = Math.atan2(ty - ship.y, tx - ship.x);
 
@@ -1967,6 +1890,9 @@ export function loop() {
                 }
             }
 
+            // UNIVERSAL EVASION FOR ALL SHIPS
+            applyEvasionForces(ship);
+
             ship.reloadTime--;
         }
 
@@ -2032,7 +1958,7 @@ export function loop() {
             createExplosion(vpX, vpY, r.isPlanet ? 200 : 40, '#00ffff', r.isPlanet ? 15 : 4, 'spark');
             if (r.isPlanet) {
                 const planetsBefore = State.roids.filter(plan => plan.isPlanet && !plan._destroyed).length;
-                if (State.gameRunning) console.log("Planet " + r.name + " destroyed. Total planets " + (planetsBefore - 1));
+                if (State.gameRunning) console.log("Count: " + (planetsBefore - 1) + ". Planet " + r.name + " destroyed.");
                 PLANET_CONFIG.LIMIT = Math.max(0, PLANET_CONFIG.LIMIT - 1);
             }
             State.roids.splice(i, 1);
@@ -2056,10 +1982,14 @@ export function loop() {
 
         // 2. Calculate Parallax and Viewport Position
         let vpX, vpY;
+        let depthBrightness = 1;
+
         if (r.isPlanet) {
             // Parallax is applied to the viewport position calculation only
             depthScale = 1 / (1 + r.z);
-            depthAlpha = Math.max(0.1, 1 - (r.z / MAX_Z_DEPTH));
+            // Planets darken instead of becoming transparent in the distance
+            depthBrightness = Math.max(0.1, 1 - (r.z / MAX_Z_DEPTH));
+            depthAlpha = 1;
 
             vpX = (r.x - State.worldOffsetX) * depthScale + State.width / 2;
             vpY = (r.y - State.worldOffsetY) * depthScale + State.height / 2;
@@ -2074,8 +2004,11 @@ export function loop() {
         DOM.canvasContext.translate(vpX, vpY); // Translate to Viewport Position
         DOM.canvasContext.scale(depthScale, depthScale);
 
-        // Apply calculated depth alpha
+        // Apply calculated depth alpha / brightness
         DOM.canvasContext.globalAlpha = depthAlpha;
+        if (r.isPlanet && depthBrightness < 1) {
+            DOM.canvasContext.filter = `brightness(${depthBrightness})`;
+        }
 
         // Draw asteroid blinking if newly created
         if (r.blinkNum % 2 !== 0) { DOM.canvasContext.globalAlpha *= 0.3; }

@@ -85,7 +85,7 @@ export function initializePlanetAttributes(roid, forcedHue = null, forcedName = 
     const isNewToState = !State.roids.find(r => r.id === roid.id);
     const totalPlanetsCount = countInState + (isNewToState ? 1 : 0);
 
-    if (State.gameRunning) console.log("Planet " + roid.name + " created. Total planets " + totalPlanetsCount);
+    if (State.gameRunning) console.log("Count: " + totalPlanetsCount + ". New planet " + roid.name + ".");
 
     // ELLIPTICAL ORBITAL INITIALIZATION
     // Each planet has its own unique center of gravity (not all orbiting 0,0)
@@ -251,17 +251,12 @@ export function spawnStation(hostPlanet = null) {
 }
 
 export function spawnShipsSquad(station) {
-    // Avoid spawning more than SHIP_CONFIG.LIMIT total State.ships (including players for friendly squads)
-    if (station.isFriendly) {
-        const currentFriendlyShips = State.ships.filter(en => en.type === 'ship' && en.isFriendly === true).length;
-        if (currentFriendlyShips >= SHIP_CONFIG.LIMIT) { return; }
-    } else {
-        const currentHostileShips = State.ships.filter(en => en.type === 'ship' && en.isFriendly === false).length;
-        // Hostile stations have their own local limit based on SHIP_CONFIG.LIMIT
-        if (currentHostileShips >= SHIP_CONFIG.LIMIT * 3) { return; } // Allowing more hostiles than friends for balance
-    }
-    // Spawn 7 independent ships
-    for (let i = 0; i < 7; i++) {
+    const currentFactionShips = State.ships.filter(en => en.type === 'ship' && en.homeStation && en.homeStation.hostPlanetId === station.hostPlanetId).length;
+    const spawnCount = SHIP_CONFIG.PLANET_LIMIT - currentFactionShips;
+
+    if (spawnCount <= 0) return;
+
+    for (let i = 0; i < spawnCount; i++) {
         const spawnDist = station.r * 2.0 + Math.random() * 50;
         const spawnAngle = Math.random() * Math.PI * 2;
 

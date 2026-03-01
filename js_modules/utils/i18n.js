@@ -32,7 +32,7 @@ export const translations = {
         "game.home_planet_name": "HOME",
         "game.warn_shoot_home": "That's your home planet!",
         "game.warn_cease_fire": "⚠ WARNING: CEASE FIRE ON ALLIES!",
-
+        "game.warn_home_attack": "⚠ WARNING: HOME PLANET UNDER ATTACK!",
 
         "shape.godship": "THE GODSHIP",
         "shape.hyperion": "THE HYPERION",
@@ -81,6 +81,7 @@ export const translations = {
         "game.home_planet_name": "HOGAR",
         "game.warn_shoot_home": "¡Ese es tu planeta hogar!",
         "game.warn_cease_fire": "⚠ ADVERTENCIA: ¡ALTO EL FUEGO A LOS ALIADOS!",
+        "game.warn_home_attack": "⚠ ADVERTENCIA: ¡PLANETA HOGAR BAJO ATAQUE!",
 
         "shape.godship": "LA NAVE DIVINA",
         "shape.hyperion": "EL HIPERION",
